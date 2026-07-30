@@ -1,5 +1,5 @@
-import { getDb, organizationMembers, organizations, users } from '@ossplay/db';
-import { eq } from 'drizzle-orm';
+import { getDb, organizationMembers, organizations, userRecoveryCodes, users } from '@ossplay/db';
+import { and, eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
@@ -80,7 +80,9 @@ authRoute.post('/logout', requireAuth, async (c) => {
 
 authRoute.get('/me', requireAuth, async (c) => {
   const user = c.get('user');
-  const memberships = await getDb()
+  const db = getDb();
+
+  const memberships = await db
     .select({
       orgId: organizationMembers.orgId,
       orgName: organizations.name,
@@ -90,6 +92,13 @@ authRoute.get('/me', requireAuth, async (c) => {
     .innerJoin(organizations, eq(organizationMembers.orgId, organizations.id))
     .where(eq(organizationMembers.userId, user.id));
 
+  const unusedRecoveryCodes = user.totpEnabled
+    ? await db
+        .select({ id: userRecoveryCodes.id })
+        .from(userRecoveryCodes)
+        .where(and(eq(userRecoveryCodes.userId, user.id), isNull(userRecoveryCodes.usedAt)))
+    : [];
+
   return c.json({
     user: {
       id: user.id,
@@ -97,6 +106,7 @@ authRoute.get('/me', requireAuth, async (c) => {
       name: user.name,
       instanceRole: user.instanceRole,
       totpEnabled: user.totpEnabled,
+      recoveryCodesRemaining: unusedRecoveryCodes.length,
     },
     organizations: memberships,
   });

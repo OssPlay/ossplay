@@ -107,6 +107,53 @@ describe.skipIf(!process.env.DATABASE_URL)('two-factor flow', () => {
     expect(secondUse.status).toBe(400);
   });
 
+  it('GET /auth/me reports recoveryCodesRemaining', async () => {
+    const res = await jsonRequest('/auth/me', { cookie: sessionCookie });
+    const body = (await res.json()) as { user: { recoveryCodesRemaining: number } };
+    // 8 generated, 1 consumed by the previous test.
+    expect(body.user.recoveryCodesRemaining).toBe(7);
+  });
+
+  it('recovery-codes/regenerate rejects a wrong password', async () => {
+    const res = await jsonRequest('/auth/2fa/recovery-codes/regenerate', {
+      method: 'POST',
+      cookie: sessionCookie,
+      body: JSON.stringify({ password: 'wrong' }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('recovery-codes/regenerate issues a fresh set and invalidates the old ones', async () => {
+    const oldCode = recoveryCodes[1];
+    if (!oldCode) throw new Error('expected a second recovery code');
+
+    const res = await jsonRequest('/auth/2fa/recovery-codes/regenerate', {
+      method: 'POST',
+      cookie: sessionCookie,
+      body: JSON.stringify({ password: 'correct horse battery staple' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { recoveryCodes: string[] };
+    expect(body.recoveryCodes).toHaveLength(8);
+    recoveryCodes = body.recoveryCodes;
+
+    const meRes = await jsonRequest('/auth/me', { cookie: sessionCookie });
+    const meBody = (await meRes.json()) as { user: { recoveryCodesRemaining: number } };
+    expect(meBody.user.recoveryCodesRemaining).toBe(8);
+
+    const loginRes = await jsonRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    });
+    const challengeCookie = extractCookie(loginRes, 'ossplay_2fa_challenge');
+    const oldCodeRes = await jsonRequest('/auth/2fa/verify', {
+      method: 'POST',
+      cookie: challengeCookie,
+      body: JSON.stringify({ code: oldCode }),
+    });
+    expect(oldCodeRes.status).toBe(400);
+  });
+
   it('disable requires the correct password and code, then login no longer requires 2FA', async () => {
     const loginRes = await jsonRequest('/auth/login', {
       method: 'POST',

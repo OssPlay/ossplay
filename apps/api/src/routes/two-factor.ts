@@ -91,6 +91,26 @@ twoFactorRoute.post('/disable', requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
+const regenerateSchema = z.object({ password: z.string().min(1) });
+
+// The only way to get fresh codes today besides this is fully
+// disabling+re-enabling TOTP — this closes that gap directly.
+twoFactorRoute.post('/recovery-codes/regenerate', requireAuth, async (c) => {
+  const user = c.get('user');
+  const parsed = regenerateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid input' }, 400);
+
+  if (!user.totpEnabled) {
+    return c.json({ error: '2FA is not enabled' }, 409);
+  }
+  if (!(await verifyPassword(parsed.data.password, user.passwordHash))) {
+    return c.json({ error: 'Invalid password' }, 401);
+  }
+
+  const recoveryCodes = await generateRecoveryCodes(user.id);
+  return c.json({ recoveryCodes });
+});
+
 // Public (no requireAuth) — the caller only has the short-lived challenge
 // cookie set by POST /auth/login, not a real session yet.
 twoFactorRoute.post('/verify', async (c) => {
