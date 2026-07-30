@@ -76,3 +76,11 @@ export function writeInstanceConfig(patch: Partial<InstanceConfig>): InstanceCon
 
   return next;
 }
+
+// Overwrites (rather than deletes) the file — a Docker bind-mounted target
+// has to keep existing as a file (see the EBUSY handling above and the
+// README's `touch infra/ossplay.yaml` prerequisite), so reset means "back
+// to defaults," not "gone."
+export function resetInstanceConfig(): InstanceConfig {
+  return writeInstanceConfig({ ...DEFAULTS });
+}

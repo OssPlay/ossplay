@@ -1,11 +1,13 @@
-# CLI recovery tools
+# CLI tools
 
-Direct-database, no-HTTP scripts for operator recovery scenarios that the
-running API server itself can't help with, because the whole point is that
-normal login (password, 2FA, passkey, the `/instance/users` force-reset
-panel — all of it) is what's broken. Treat access to these tools as
-equivalent in sensitivity to any other production secret: anyone who can run
-them already has `DATABASE_URL`, which already means full instance control.
+Direct-database, no-HTTP scripts. Most of these (`reset-root.ts`) are for
+operator recovery scenarios that the running API server itself can't help
+with, because the whole point is that normal login (password, 2FA, passkey,
+the `/instance/users` force-reset panel — all of it) is what's broken. Treat
+access to these tools as equivalent in sensitivity to any other production
+secret: anyone who can run them already has `DATABASE_URL`, which already
+means full instance control. `reset-db.ts` is the exception — a dev-only
+convenience tool, not a recovery tool; see below.
 
 ## `reset-root.ts` — locked-out root recovery
 
@@ -34,3 +36,17 @@ anything — there is no `--yes`/`--force` flag. There is also no way to
 set the password via a command-line flag (it would land in shell
 history); either a strong password is generated and printed once, or
 `--interactive` prompts for one with masked input.
+
+## `reset-db.ts` — fresh-install reset, dev only
+
+Wipes every table this instance owns (users, orgs, sessions, everything —
+`projects`/`assets`/`folder_closure` go with them via cascade) and resets
+the instance config file (SMTP, domain) back to defaults, so `/setup` and
+`/onboarding` can be walked through again from a truly fresh state. Built
+for repeatedly testing the setup flow locally, not for anything with real
+data in it.
+
+```bash
+bun run cli:reset-db          # prompts for confirmation
+bun run cli:reset-db -- --yes # skips the prompt, for fast repeated use
+```

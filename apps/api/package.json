@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
     "test": "bun test",
-    "cli:reset-root": "bun run src/cli/reset-root.ts"
+    "cli:reset-root": "bun run src/cli/reset-root.ts",
+    "cli:reset-db": "bun run src/cli/reset-db.ts"
   },
   "dependencies": {
     "@ossplay/core": "workspace:*",
