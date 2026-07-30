@@ -13,6 +13,7 @@
   "dependencies": {
     "@ossplay/core": "workspace:*",
     "@ossplay/db": "workspace:*",
+    "@simplewebauthn/server": "^13.3.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.32",
     "nodemailer": "^9.0.3",

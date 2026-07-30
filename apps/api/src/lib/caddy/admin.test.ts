@@ -41,7 +41,7 @@ describe('applyDomainConfig', () => {
 
       expect(result).toEqual({ applied: true });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toBe('http://caddy:2019/load');
       expect(init.method).toBe('POST');
       expect((init.headers as Record<string, string>)['Content-Type']).toBe('text/caddyfile');
