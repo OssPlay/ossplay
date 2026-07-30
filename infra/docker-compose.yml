@@ -1,0 +1,94 @@
+# The self-hosted core control plane (PRD.md §2.1). Deliberately does NOT
+# include a worker service — workers are provisioned separately on the
+# user's own VPS over SSH (PRD.md §4, ARCHITECTURE.md §3) to keep this
+# control plane's compute cost at zero.
+name: ossplay
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ossplay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ossplay}
+      POSTGRES_DB: ossplay
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ossplay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: apps/dashboard/Dockerfile
+    environment:
+      PORT: 3000
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      OSSPLAY_DOMAIN: ${OSSPLAY_DOMAIN:-localhost}
+      # Compose's own ${VAR:-default} always defines the var (even as empty)
+      # if unset on the host, which defeats the Caddyfile's own {$VAR:default}
+      # fallback — so this default must be non-empty and kept in sync with
+      # infra/caddy/Caddyfile's.
+      OSSPLAY_ACME_EMAIL: ${OSSPLAY_ACME_EMAIL:-internal@ossplay.local}
+    depends_on:
+      - api
+      - dashboard
+
+  # Placeholder only — see infra/updater and PRD.md §2.2. Mounts
+  # docker.sock so the shape is right, but the actual check/pull/
+  # migrate/restart flow isn't implemented yet.
+  updater:
+    build:
+      context: ./updater
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

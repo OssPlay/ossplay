@@ -1,0 +1,14 @@
+{
+	email {$OSSPLAY_ACME_EMAIL:internal@ossplay.local}
+}
+
+{$OSSPLAY_DOMAIN:localhost} {
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy dashboard:3000
+	}
+}
