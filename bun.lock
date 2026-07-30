@@ -16,7 +16,9 @@
       "dependencies": {
         "@ossplay/core": "workspace:*",
         "@ossplay/db": "workspace:*",
+        "drizzle-orm": "^0.45.2",
         "hono": "^4.12.32",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@ossplay/config": "workspace:*",

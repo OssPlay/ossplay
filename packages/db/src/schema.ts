@@ -122,3 +122,10 @@ export const assets = pgTable('assets', {
     .notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export type User = typeof users.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type Organization = typeof organizations.$inferSelect;
+export type OrganizationMember = typeof organizationMembers.$inferSelect;
+export type Project = typeof projects.$inferSelect;
+export type Asset = typeof assets.$inferSelect;
