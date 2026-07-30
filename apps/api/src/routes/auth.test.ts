@@ -1,6 +1,6 @@
+import { beforeAll, describe, expect, it } from 'bun:test';
 import { getDb } from '@ossplay/db';
 import { sql } from 'drizzle-orm';
-import { beforeAll, describe, expect, it } from 'bun:test';
 import { app } from '../app';
 
 function extractSessionCookie(res: Response): string {
