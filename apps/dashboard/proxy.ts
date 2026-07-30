@@ -32,13 +32,29 @@ async function checkNeedsSetup(): Promise<boolean> {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // /api/* must reach the rewrite (dev) / Caddy (prod) proxy to the actual
-  // api service untouched — the api has its own auth enforcement
-  // (requireAuth). Redirecting these here as if they were page navigations
-  // would corrupt every API call made while logged out (including the
-  // /setup and /auth/login calls needed to log in at all).
+  // /api/* must reach the api service untouched — it has its own auth
+  // enforcement (requireAuth). Redirecting these here as if they were page
+  // navigations would corrupt every API call made while logged out
+  // (including the /setup and /auth/login calls needed to log in at all).
+  //
+  // In production Caddy reverse-proxies /api/* to the api service directly
+  // (see infra/caddy/Caddyfile) — the dashboard never sees these requests at
+  // all, so this branch is dev-only. Caddy also sets X-Forwarded-Host/Proto
+  // by default; done manually here so getPublicUrl() (used to build
+  // invite/reset email links) sees the dashboard's origin in dev too,
+  // instead of this rewrite's destination (localhost:3001).
   if (pathname.startsWith('/api/')) {
-    return NextResponse.next();
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.next();
+    }
+    const destination = new URL(
+      pathname.replace(/^\/api/, '') + request.nextUrl.search,
+      API_INTERNAL_URL,
+    );
+    const headers = new Headers(request.headers);
+    headers.set('x-forwarded-host', request.headers.get('host') ?? request.nextUrl.host);
+    headers.set('x-forwarded-proto', request.nextUrl.protocol.replace(':', ''));
+    return NextResponse.rewrite(destination, { request: { headers } });
   }
 
   if (ALWAYS_PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {

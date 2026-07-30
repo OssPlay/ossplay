@@ -10,15 +10,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname, '../..'),
   },
-  // Dev-only: mirrors what Caddy does in prod (proxy /api/* to the api
-  // service, stripping the prefix — see infra/caddy/Caddyfile) so the
-  // dashboard can always call relative /api/... URLs and the browser never
-  // makes a cross-origin request, in dev or prod. In prod this is skipped —
-  // Caddy is in front of both services, not Next.js.
-  async rewrites() {
-    if (process.env.NODE_ENV === 'production') return [];
-    return [{ source: '/api/:path*', destination: 'http://localhost:3001/:path*' }];
-  },
+  // The dev-only /api/* proxy to the api service lives in proxy.ts, not
+  // here — it needs to set X-Forwarded-Host so email links built from the
+  // request (invite/reset) point at the dashboard's origin, and rewrite()
+  // destinations here can't carry custom headers. In prod Caddy is in front
+  // of both services instead (see infra/caddy/Caddyfile).
 };
 
 export default nextConfig;
