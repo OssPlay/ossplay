@@ -10,9 +10,9 @@ export async function getInstanceSettings() {
 }
 
 export function isSmtpConfigured(
-  settings: Awaited<ReturnType<typeof getInstanceSettings>>,
+  smtp: Awaited<ReturnType<typeof getInstanceSettings>>['smtp'],
 ): boolean {
-  return Boolean(settings?.smtpHost && settings.smtpPort && settings.smtpFromAddress);
+  return Boolean(smtp.host && smtp.port && smtp.from.address);
 }
 
 // SMTP protocol/TLS negotiation is genuinely complex and risk-prone to hand-
@@ -20,28 +20,28 @@ export function isSmtpConfigured(
 // library for it. Throws a clear, catchable error if SMTP isn't configured
 // rather than silently failing.
 export async function sendMail(to: string, message: MailMessage): Promise<void> {
-  const settings = await getInstanceSettings();
-  if (!isSmtpConfigured(settings) || !settings) {
+  const { smtp } = await getInstanceSettings();
+  if (!isSmtpConfigured(smtp)) {
     throw new Error(
       'Email is not configured for this instance — an instance root must set SMTP settings first.',
     );
   }
 
   const transport = nodemailer.createTransport({
-    host: settings.smtpHost as string,
-    port: settings.smtpPort as number,
-    secure: settings.smtpSecure,
-    auth: settings.smtpUsername
+    host: smtp.host as string,
+    port: smtp.port as number,
+    secure: smtp.secure,
+    auth: smtp.username
       ? {
-          user: settings.smtpUsername,
-          pass: settings.smtpPasswordEncrypted ? decryptSecret(settings.smtpPasswordEncrypted) : '',
+          user: smtp.username,
+          pass: smtp.passwordEncrypted ? decryptSecret(smtp.passwordEncrypted) : '',
         }
       : undefined,
   });
 
-  const from = settings.smtpFromName
-    ? `"${settings.smtpFromName}" <${settings.smtpFromAddress}>`
-    : (settings.smtpFromAddress as string);
+  const from = smtp.from.name
+    ? `"${smtp.from.name}" <${smtp.from.address}>`
+    : (smtp.from.address as string);
 
   try {
     await transport.sendMail({

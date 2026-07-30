@@ -41,7 +41,7 @@ setupRoute.get('/status', async (c) => {
   const settings = await getInstanceSettings();
   return c.json({
     needsSetup: await instanceNeedsSetup(),
-    smtpConfigured: isSmtpConfigured(settings),
+    smtpConfigured: isSmtpConfigured(settings.smtp),
   });
 });
 

@@ -13,17 +13,17 @@ export const instanceRoute = new Hono<AppEnv>();
 instanceRoute.use('*', requireAuth, requireInstancePermission('instance:manage_settings'));
 
 instanceRoute.get('/settings', async (c) => {
-  const settings = await getInstanceSettings();
+  const { smtp, domain } = await getInstanceSettings();
   return c.json({
-    smtpHost: settings?.smtpHost ?? null,
-    smtpPort: settings?.smtpPort ?? null,
-    smtpUsername: settings?.smtpUsername ?? null,
-    smtpPasswordSet: Boolean(settings?.smtpPasswordEncrypted),
-    smtpFromAddress: settings?.smtpFromAddress ?? null,
-    smtpFromName: settings?.smtpFromName ?? null,
-    smtpSecure: settings?.smtpSecure ?? true,
-    domain: settings?.domain ?? null,
-    domainConfiguredAt: settings?.domainConfiguredAt ?? null,
+    smtpHost: smtp.host,
+    smtpPort: smtp.port,
+    smtpUsername: smtp.username,
+    smtpPasswordSet: Boolean(smtp.passwordEncrypted),
+    smtpFromAddress: smtp.from.address,
+    smtpFromName: smtp.from.name,
+    smtpSecure: smtp.secure,
+    domain: domain.name,
+    domainConfiguredAt: domain.configuredAt,
   });
 });
 
@@ -45,12 +45,19 @@ instanceRoute.put('/settings', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
   }
 
-  const { smtpPassword, ...rest } = parsed.data;
+  const { smtpHost, smtpPort, smtpUsername, smtpPassword, smtpFromAddress, smtpFromName, smtpSecure } =
+    parsed.data;
   writeInstanceConfig({
-    ...rest,
-    ...(smtpPassword === undefined
-      ? {}
-      : { smtpPasswordEncrypted: smtpPassword ? encryptSecret(smtpPassword) : null }),
+    smtp: {
+      host: smtpHost,
+      port: smtpPort,
+      username: smtpUsername,
+      from: { address: smtpFromAddress, name: smtpFromName },
+      secure: smtpSecure,
+      ...(smtpPassword === undefined
+        ? {}
+        : { passwordEncrypted: smtpPassword ? encryptSecret(smtpPassword) : null }),
+    },
   });
 
   return c.body(null, 204);
@@ -86,8 +93,10 @@ instanceRoute.put('/domain', async (c) => {
     : { applied: false as const, reason: 'No domain configured' };
 
   writeInstanceConfig({
-    domain,
-    domainConfiguredAt: result.applied ? new Date().toISOString() : null,
+    domain: {
+      name: domain,
+      configuredAt: result.applied ? new Date().toISOString() : null,
+    },
   });
 
   return c.json({

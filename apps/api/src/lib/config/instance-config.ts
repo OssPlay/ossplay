@@ -6,51 +6,92 @@ import { parse, stringify } from 'yaml';
 // works for self-hosted (bind-mounted next to docker-compose.yml) and a
 // future SaaS deployment (a per-tenant file/ConfigMap mounted at the same
 // well-known path). See OSSPLAY_CONFIG_PATH below.
+//
+// Nested by section (smtp/domain), not a flat DB-row-shaped bag of
+// smtpHost/smtpPort/etc — this file is meant to be readable and
+// hand-editable on disk, not just machine-written.
 export interface InstanceConfig {
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpUsername: string | null;
-  // AES-256-GCM via lib/crypto/secret-box.ts, same treatment it always had.
-  smtpPasswordEncrypted: string | null;
-  smtpFromAddress: string | null;
-  smtpFromName: string | null;
-  smtpSecure: boolean;
-  domain: string | null;
-  domainConfiguredAt: string | null; // ISO string — plain YAML has no native Date type
+  smtp: {
+    host: string | null;
+    port: number | null;
+    username: string | null;
+    // AES-256-GCM via lib/crypto/secret-box.ts, same treatment it always had.
+    passwordEncrypted: string | null;
+    from: {
+      address: string | null;
+      name: string | null;
+    };
+    secure: boolean;
+  };
+  domain: {
+    name: string | null;
+    configuredAt: string | null; // ISO string — plain YAML has no native Date type
+  };
+}
+
+// Only the fields a caller is actually setting — writeInstanceConfig merges
+// this over the current file per section (smtp, domain, smtp.from), so a
+// caller can patch e.g. just the domain without needing to know or re-send
+// the current SMTP settings.
+export interface InstanceConfigPatch {
+  smtp?: Partial<Omit<InstanceConfig['smtp'], 'from'>> & {
+    from?: Partial<InstanceConfig['smtp']['from']>;
+  };
+  domain?: Partial<InstanceConfig['domain']>;
 }
 
 const DEFAULTS: InstanceConfig = {
-  smtpHost: null,
-  smtpPort: null,
-  smtpUsername: null,
-  smtpPasswordEncrypted: null,
-  smtpFromAddress: null,
-  smtpFromName: null,
-  smtpSecure: true,
-  domain: null,
-  domainConfiguredAt: null,
+  smtp: {
+    host: null,
+    port: null,
+    username: null,
+    passwordEncrypted: null,
+    from: { address: null, name: null },
+    secure: true,
+  },
+  domain: { name: null, configuredAt: null },
 };
 
 function configPath(): string {
   return process.env.OSSPLAY_CONFIG_PATH ?? './ossplay.yaml';
 }
 
+// Merges over DEFAULTS at every level (not just top-level smtp/domain), so
+// a hand-edited file missing a field — or missing an entire section — still
+// parses into a fully-populated, correctly-typed object.
 export function readInstanceConfig(): InstanceConfig {
   const path = configPath();
-  let raw: string;
+  let parsed: Partial<InstanceConfig> = {};
   try {
-    raw = readFileSync(path, 'utf8');
+    parsed = (parse(readFileSync(path, 'utf8')) ?? {}) as Partial<InstanceConfig>;
   } catch {
-    return { ...DEFAULTS };
+    // File doesn't exist yet (first boot) or can't be read — parsed stays
+    // {}, so every field below falls through to its default.
   }
-  return { ...DEFAULTS, ...parse(raw) };
+  return {
+    smtp: {
+      ...DEFAULTS.smtp,
+      ...parsed.smtp,
+      from: { ...DEFAULTS.smtp.from, ...parsed.smtp?.from },
+    },
+    domain: { ...DEFAULTS.domain, ...parsed.domain },
+  };
 }
 
 // Reads-then-writes, so concurrent writers can clobber each other — fine at
 // this scale (one operator submitting one form at a time), same consistency
 // the single-row DB table effectively had without transactions either.
-export function writeInstanceConfig(patch: Partial<InstanceConfig>): InstanceConfig {
-  const next = { ...readInstanceConfig(), ...patch };
+export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig {
+  const current = readInstanceConfig();
+  const next: InstanceConfig = {
+    smtp: {
+      ...current.smtp,
+      ...patch.smtp,
+      from: { ...current.smtp.from, ...patch.smtp?.from },
+    },
+    domain: { ...current.domain, ...patch.domain },
+  };
+
   const path = configPath();
   const dir = dirname(path);
   if (dir !== '.') mkdirSync(dir, { recursive: true });
@@ -82,5 +123,5 @@ export function writeInstanceConfig(patch: Partial<InstanceConfig>): InstanceCon
 // README's `touch infra/ossplay.yaml` prerequisite), so reset means "back
 // to defaults," not "gone."
 export function resetInstanceConfig(): InstanceConfig {
-  return writeInstanceConfig({ ...DEFAULTS });
+  return writeInstanceConfig({ smtp: DEFAULTS.smtp, domain: DEFAULTS.domain });
 }

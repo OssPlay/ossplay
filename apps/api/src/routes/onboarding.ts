@@ -33,8 +33,8 @@ onboardingRoute.get(
     return c.json({
       needsOnboarding: !orgCompleted,
       steps: {
-        dns: { skippable: true, completed: Boolean(settings?.domain) },
-        smtp: { skippable: true, completed: isSmtpConfigured(settings) },
+        dns: { skippable: true, completed: Boolean(settings.domain.name) },
+        smtp: { skippable: true, completed: isSmtpConfigured(settings.smtp) },
         org: { skippable: false, completed: orgCompleted },
       },
     });
