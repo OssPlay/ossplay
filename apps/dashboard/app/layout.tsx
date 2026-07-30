@@ -1,20 +1,29 @@
-import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
-import './globals.css';
+import type { Metadata } from "next";
+import { Geist, Geist_Mono, Manrope, Outfit } from "next/font/google";
+import "./globals.css";
+import { cn } from "@/lib/utils";
+import { ThemeProvider } from "@/components/theme-provider";
+
+const manropeHeading = Manrope({
+  subsets: ["latin"],
+  variable: "--font-heading",
+});
+
+const outfit = Outfit({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
 });
 
 const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: 'OSSPlay Dashboard',
-  description: 'Self-hosted object storage & file management platform.',
+  title: "OSSPlay Dashboard",
+  description: "Self-hosted object storage & file management platform.",
 };
 
 export default function RootLayout({
@@ -23,8 +32,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html
+      lang="en"
+      className={cn(
+        "h-full",
+        "antialiased",
+        geistSans.variable,
+        geistMono.variable,
+        "font-sans",
+        outfit.variable,
+        manropeHeading.variable,
+      )}
+      suppressHydrationWarning
+    >
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <body className="min-h-full flex flex-col">{children}</body>
+      </ThemeProvider>
     </html>
   );
 }
