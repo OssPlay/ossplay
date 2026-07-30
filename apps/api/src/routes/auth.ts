@@ -2,7 +2,12 @@ import { getDb, organizationMembers, organizations, users } from '@ossplay/db';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { clearSessionCookie, getSessionCookie, setSessionCookie } from '../lib/auth/cookie';
+import {
+  clearSessionCookie,
+  getSessionCookie,
+  setSessionCookie,
+  setTwoFactorChallengeCookie,
+} from '../lib/auth/cookie';
 import { normalizeEmail } from '../lib/auth/email';
 import { verifyPassword } from '../lib/auth/password';
 import { checkRateLimit, resetRateLimit } from '../lib/auth/rate-limit';
@@ -13,6 +18,7 @@ import {
   revokeSessionById,
   revokeSessionToken,
 } from '../lib/auth/session';
+import { createTwoFactorChallenge } from '../lib/auth/two-factor';
 import { requireAuth } from '../middleware/require-auth';
 import type { AppEnv } from '../types';
 
@@ -49,6 +55,13 @@ authRoute.post('/login', async (c) => {
   if (!(await verifyPassword(parsed.data.password, user.passwordHash))) return invalidCredentials();
 
   resetRateLimit(rateLimitKey);
+
+  if (user.totpEnabled) {
+    const { token, expiresAt } = await createTwoFactorChallenge(user.id);
+    setTwoFactorChallengeCookie(c, token, expiresAt);
+    return c.json({ requiresTwoFactor: true });
+  }
+
   const { token, expiresAt } = await completeSignIn(user.id, {
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),

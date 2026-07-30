@@ -3,6 +3,7 @@ import { csrf } from 'hono/csrf';
 import { authRoute } from './routes/auth';
 import { healthRoute } from './routes/health';
 import { setupRoute } from './routes/setup';
+import { twoFactorRoute } from './routes/two-factor';
 import type { AppEnv } from './types';
 
 export const app = new Hono<AppEnv>();
@@ -15,3 +16,4 @@ app.use('*', csrf());
 app.route('/health', healthRoute);
 app.route('/setup', setupRoute);
 app.route('/auth', authRoute);
+app.route('/auth/2fa', twoFactorRoute);
