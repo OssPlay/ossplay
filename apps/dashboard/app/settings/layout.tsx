@@ -20,7 +20,12 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const tabs = [
     { href: '/settings/account', label: 'Account' },
     { href: '/settings/organization', label: 'Organization' },
-    ...(isRoot ? [{ href: '/settings/instance', label: 'Instance' }] : []),
+    ...(isRoot
+      ? [
+          { href: '/settings/instance', label: 'Instance' },
+          { href: '/settings/instance/users', label: 'Users' },
+        ]
+      : []),
   ];
 
   return (
