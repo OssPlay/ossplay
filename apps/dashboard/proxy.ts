@@ -5,19 +5,49 @@ const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? 'http://localhost:3001'
 
 // Accessible regardless of session/setup state — /invite/:token works for
 // both a brand-new account and an already-logged-in existing user accepting
-// a second org, and forgot/reset-password are meant for logged-out use but
-// aren't harmful to view while logged in either.
-const ALWAYS_PUBLIC_PREFIXES = ['/invite/', '/forgot-password', '/reset-password'];
+// a second org, forgot/reset-password are meant for logged-out use but
+// aren't harmful to view while logged in either, and /login/2fa is where a
+// user mid-challenge lands: they have a 2FA-challenge cookie but not yet a
+// session cookie, so the session-based gate below would otherwise bounce
+// them straight back to /login before they can enter a code.
+const ALWAYS_PUBLIC_PREFIXES = [
+  '/invite/',
+  '/forgot-password',
+  '/reset-password',
+  '/login/2fa',
+  '/statics/',
+];
+const AUTH_PAGES = ['/setup', '/login'];
+const ONBOARDING_PREFIX = '/onboarding';
 
 async function checkNeedsSetup(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_INTERNAL_URL}/setup/status`, { cache: 'no-store' });
+    const res = await fetch(`${API_INTERNAL_URL}/setup/status`, {
+      cache: 'no-store',
+    });
     if (!res.ok) return false;
     const data = (await res.json()) as { needsSetup: boolean };
     return data.needsSetup;
   } catch {
     // API unreachable — fall through to the login page rather than
     // blocking the whole dashboard on a hard error.
+    return false;
+  }
+}
+
+// Mirrors checkNeedsSetup()'s fail-open philosophy, but needs the caller's
+// session forwarded — GET /onboarding/status requires auth, unlike
+// /setup/status.
+async function checkNeedsOnboarding(request: NextRequest): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_INTERNAL_URL}/onboarding/status`, {
+      cache: 'no-store',
+      headers: { cookie: request.headers.get('cookie') ?? '' },
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { needsOnboarding: boolean };
+    return data.needsOnboarding;
+  } catch {
     return false;
   }
 }
@@ -62,12 +92,24 @@ export async function proxy(request: NextRequest) {
   }
 
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE_NAME);
-  const isAuthPage = pathname === '/setup' || pathname === '/login';
+  const isAuthPage = AUTH_PAGES.includes(pathname);
 
   if (hasSessionCookie) {
     if (isAuthPage) {
       return NextResponse.redirect(new URL('/', request.url));
     }
+
+    const isOnboardingPage =
+      pathname === ONBOARDING_PREFIX || pathname.startsWith(`${ONBOARDING_PREFIX}/`);
+    const needsOnboarding = await checkNeedsOnboarding(request);
+
+    if (needsOnboarding && !isOnboardingPage) {
+      return NextResponse.redirect(new URL(ONBOARDING_PREFIX, request.url));
+    }
+    if (!needsOnboarding && isOnboardingPage) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+
     return NextResponse.next();
   }
 
