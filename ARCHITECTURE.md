@@ -82,6 +82,7 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 ## 4. Deployment Topology
 
 - **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. The updater sidecar mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
+- **Instance-wide config (SMTP, custom domain) is a bind-mounted YAML file, not a DB row** — `apps/api/src/lib/config/instance-config.ts` reads/writes `OSSPLAY_CONFIG_PATH` (`/ossplay.yaml` in the compose stack, bind-mounted to `infra/ossplay.yaml` on the host so it survives container recreation). Still live-editable through the same onboarding wizard / `/settings/instance` UI as before — only the storage mechanism changed. The same file/env-var mechanism is what a future SaaS-style deployment would use to mount a per-tenant config instead of a shared one.
 - **`website`** and **`docs`**: centrally hosted by the OSSPlay project (host TBD — e.g. Vercel or Cloudflare Pages; this is a deployment detail, not an architecture decision, and doesn't affect repo structure). Deploy on push to `main`.
 - **`sdk-js`**: no runtime deployment — published as a package on version tags.
 

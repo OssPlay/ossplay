@@ -6,6 +6,20 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-07-31 — Docs root routing, cross-repo dev runner, instance config moved to YAML
+
+**Status:** Decided (Superseded, in part: the "Instance-root user management" entry below described `instanceSettings` as a DB table; it's now a file — see [ARCHITECTURE.md §4](./ARCHITECTURE.md#4-deployment-topology))
+
+Three small, independent follow-ups after the auth-expansion pass:
+
+- **`docs` now serves content at the site root, not under `/docs/...`.** Fumadocs' default convention assumes the docs site lives as a path under some other homepage; `docs` is its own independently-deployed site (`docs.ossplay.com`), so the prefix was pure redundancy. See that repo's own `MEMORY.md`.
+- **New org-level dev runner** (`/Users/shivamdevs/Projects/GitHub/ossplay/scripts/dev-all.ts`, outside both repos since that folder isn't a git repo) starts `ossplay` and `docs` together with one `bun dev`. Along the way, `apps/api/.env` and `apps/worker/.env` became symlinks to a single root-level `.env` — editing one file is now enough instead of keeping two per-app files in sync. The script also injects that root env directly into every process it spawns (dashboard, docs) so future apps don't need a file of their own either; `PORT` is deliberately excluded from that injection since a single `turbo run dev` process can't hand its fanned-out tasks (api, dashboard) two different port values — each app still controls its own port the way it already did.
+- **Instance-wide SMTP/domain settings moved from a DB row to a live-editable YAML file** (`apps/api/src/lib/config/instance-config.ts`, path controlled by `OSSPLAY_CONFIG_PATH`) — the onboarding wizard and `/settings/instance` UI work identically, just writing to a file instead of a table now. Chosen so the same mechanism works for self-hosted (bind-mounted next to `docker-compose.yml`) and a future SaaS deployment (a per-tenant file/ConfigMap mounted at the same well-known path). Confirmed with the user before building that the file needed to stay live-editable, not become a restart-to-change config.
+  - **Real docker-compose testing caught a bug unit tests couldn't**: the original write path (write-to-temp-file-then-rename, for atomicity) fails with `EBUSY` when the target is a Docker bind-mounted file — the kernel won't let `rename` replace a mount point's directory entry. Fixed with a fallback to an in-place overwrite specifically on that error code; the plain-filesystem case (local dev) still gets the atomic rename. This is exactly why the plan called for testing against a real bind mount, not just local dev, before calling this done.
+  - **Breaking change on upgrade, accepted deliberately**: any existing `instance_settings` row is dropped with no migration-to-YAML step, since the project is pre-1.0 with no real production deployment yet.
+
+---
+
 ## 2026-07-30 — Setup/onboarding split, passkeys, instance-root user management, CLI recovery
 
 **Status:** Decided (Superseded, in part: replaces §2.3's original "one step creates the admin, the default organization, and logs you in" bootstrap flow described in the entry below)
