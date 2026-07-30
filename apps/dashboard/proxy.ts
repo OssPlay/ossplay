@@ -25,6 +25,16 @@ async function checkNeedsSetup(): Promise<boolean> {
 // deprecated — see https://nextjs.org/docs/messages/middleware-to-proxy).
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // /api/* must reach the rewrite (dev) / Caddy (prod) proxy to the actual
+  // api service untouched — the api has its own auth enforcement
+  // (requireAuth). Redirecting these here as if they were page navigations
+  // would corrupt every API call made while logged out (including the
+  // /setup and /auth/login calls needed to log in at all).
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE_NAME);
   const isAuthPage = pathname === '/setup' || pathname === '/login';
 

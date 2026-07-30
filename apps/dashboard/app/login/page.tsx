@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useState } from 'react';
+import { type SyntheticEvent, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +14,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(event: FormEvent) {
+  // Explicit preventDefault on both the form's submit (Enter key in a text
+  // field) and the button's click — belt and suspenders against native form
+  // submission ever navigating the page instead of running this handler.
+  async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
@@ -62,7 +65,7 @@ export default function LoginPage() {
                 {error}
               </p>
             )}
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" onClick={handleSubmit} disabled={submitting}>
               {submitting ? 'Logging in…' : 'Log in'}
             </Button>
           </form>
