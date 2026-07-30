@@ -84,7 +84,18 @@ The Documentation Portal (`docs.ossplay.com`) is a separate, centrally-hosted re
 * **Update Flow:**
 1. The administrator clicks **"Check for Updates"** in the OSSPlay settings page.
 2. The Hono backend sends an authenticated request to the sidecar daemon.
-3. The sidecar executes `bun docker pull`, fetches updated images (published to GHCR — see [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-deviations-from-earlier-drafts)), runs `drizzle-kit migrate` via a temporary container boot, and performs a zero-downtime rolling restart of the main app container.
+3. The sidecar executes `bun docker pull`, fetches updated images (published to GHCR — see [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-deviations-from-earlier-drafts)), runs `drizzle-kit migrate` via a temporary container boot, and performs a zero-downtime rolling restart of the main app container.
+
+### 2.3. Admin Bootstrap & Permission Model
+
+Not originally specified in earlier drafts of this document (§2.1's wizard only covered domain/SSL) even though the stack table already promises the API handles RBAC — closed here; full technical detail in [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-authorization-model).
+
+1. **First boot has no admin account.** The dashboard detects this (`GET /setup/status`) and shows a setup wizard instead of a login screen.
+2. **One step creates the admin, the default organization, and logs you in.** The wizard collects an admin name/email/password and an organization name; submitting creates all three (plus the owning membership) atomically and starts a session immediately — no separate "now log in" step.
+3. **Two permission scopes, not one:** instance (`root` — implicit full access to everything in this deployment, including every organization; manages worker-fleet provisioning, domain/SSL, and the auto-updater) and organization (`owner` / `admin` / `member`, scoped to one org's settings/projects/assets). The bootstrap admin becomes instance `root` and an explicit `owner` of the default organization.
+4. **Storage is configured separately, not during bootstrap.** An organization can exist before its S3 credentials are set — the wizard doesn't force that choice before you can log in and look around.
+
+Explicitly out of scope for now: inviting additional users, granting `root` to more than the bootstrap admin, and password reset (no SMTP/email delivery integration exists yet).
 
 ---
 
@@ -195,8 +206,28 @@ const { manifestUrl, jwtToken } = await ossplay.videos.getSecureStream('asset_45
 
 ## 6. Database Schema (Drizzle ORM Blueprint)
 
+`packages/db/src/schema.ts` in the `ossplay` repo is the source of truth if this ever drifts from the code; reproduced here for reference.
+
 ```typescript
-import { pgTable, text, timestamp, boolean, jsonb, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, uuid, integer, primaryKey, index } from 'drizzle-orm/pg-core';
+
+// Users (instance scope — see §2.3 and ARCHITECTURE.md §8)
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  name: text('name').notNull(),
+  instanceRole: text('instance_role', { enum: ['root'] }), // nullable: no instance role by default
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Sessions — `id` is the SHA-256 hash of the raw bearer token, never the token itself
+export const sessions = pgTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 // Organizations
 export const organizations = pgTable('organizations', {
@@ -208,9 +239,17 @@ export const organizations = pgTable('organizations', {
     region: string;
     accessKeyId: string;
     secretAccessKey: string;
-  }>().notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  }>(), // nullable: an org can exist before storage is configured
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Organization membership (org scope: owner > admin > member)
+export const organizationMembers = pgTable('organization_members', {
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'cascade' }).notNull(),
+  role: text('role', { enum: ['owner', 'admin', 'member'] }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.orgId] })]);
 
 // Projects
 export const projects = pgTable('projects', {
@@ -221,15 +260,18 @@ export const projects = pgTable('projects', {
     image: { format: 'webp' | 'avif' | 'original'; splitTiles: boolean; serving: 'static' | 'signed' };
     video: { resolutions: string[]; hlsSegmentDuration: number; drmAes128: boolean };
   }>().notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Folders (Closure Table for Drive Navigation)
 export const folderClosure = pgTable('folder_closure', {
   ancestorId: uuid('ancestor_id').notNull(),
   descendantId: uuid('descendant_id').notNull(),
-  depth: text('depth').notNull(),
-});
+  depth: integer('depth').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.ancestorId, table.descendantId] }),
+  index('folder_closure_descendant_idx').on(table.descendantId),
+]);
 
 // Assets
 export const assets = pgTable('assets', {
@@ -240,7 +282,7 @@ export const assets = pgTable('assets', {
   mimeType: text('mime_type').notNull(),
   s3Path: text('s3_path').notNull(),
   status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).default('pending').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 ```

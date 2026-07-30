@@ -36,7 +36,7 @@ ossplay/
 │   ├── api/           # Hono on Bun — uploads, RBAC, SSH orchestration, presigned URLs
 │   └── worker/        # Bun + FFmpeg/Sharp — BullMQ consumer; built into the `ossplay-worker` Docker image
 ├── packages/
-│   ├── db/            # Drizzle schema (organizations, projects, folderClosure, assets) + migrations
+│   ├── db/            # Drizzle schema (users, sessions, organizations, organizationMembers, projects, folderClosure, assets) + migrations
 │   ├── core/           # Shared domain logic: rule validation, BullMQ job payload types, S3 client wrapper
 │   └── config/         # Shared tsconfig, lint config
 ├── infra/
@@ -97,7 +97,7 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 | Repo | Workflows |
 | --- | --- |
-| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests on every PR) · `docker-images.yml` (build+push `dashboard`/`api`/`worker` images to GHCR on version tags) · `migrate-check.yml` (drizzle-kit schema drift check) |
+| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (build+push `dashboard`/`api`/`worker` images to GHCR on version tags) · `migrate-check.yml` (drizzle-kit schema drift check) |
 | `sdk-js` | `ci.yml` (typecheck/test/build) · `publish.yml` (GitHub Packages publish on version tags) |
 | `website` / `docs` | `ci.yml` (typecheck/lint/build) · deploy on push to `main` |
 | `.github` | none — template files only |
@@ -115,7 +115,26 @@ See [PRD.md §7](./PRD.md#7-licensing) for the license table and rationale, and 
 
 ---
 
-## 8. Deviations from Earlier Drafts
+## 8. Authorization Model
+
+Two scope levels, not one — designed this way *before* any auth code was written, specifically to avoid a migration later (see [MEMORY.md](./MEMORY.md)):
+
+1. **Instance** — the whole self-hosted deployment (one Postgres DB, one Docker Compose stack). Instance-level concerns: worker-fleet/SSH provisioning, domain/SSL settings, the auto-updater, creating/seeing every organization. A user is either an instance **`root`** (`users.instanceRole = 'root'`) or isn't. Root is *implicit* full access to everything instance-wide, including every organization, with no per-org membership row required.
+2. **Organization** — scoped to one org via `organizationMembers`. Roles: **`owner`** (full control, can delete the org), **`admin`** (manage projects/rules/assets, not membership or deletion), **`member`** (work within existing projects per their rules, no org-settings access).
+
+No third, project-level scope exists yet — PRD gives no signal that per-project access control (distinct from org membership) is needed, and adding a third join-table layer now would be speculative. The two-tier pattern generalizes if a `projectMembers` scope is ever needed later.
+
+**Strategy: RBAC with named permission bundles, not ABAC.** Roles are the unit of assignment (simple to reason about, simple future UI — "make this person an Admin"), but code checks specific permissions (`instance:manage_workers`, `org:manage_members`, …) resolved from a static role→permissions table (`apps/api/src/lib/authz/permissions.ts`), never `if (role === 'owner' || role === 'admin')` scattered at call sites. This gets ABAC's practical benefit — checking a capability, not a role identity — without ABAC's cost (no policy engine, no dynamic attribute evaluation), which would be real over-engineering for this project's stage.
+
+**Sessions**, not JWTs: a random 32-byte token in an httpOnly, `sameSite=lax` cookie; only its SHA-256 hash is persisted (`sessions.id`) — a database leak alone doesn't yield a usable session, and revocation is just deleting the row. Stored in Postgres, not Redis: `apps/api` has no other reason to depend on Redis (only `apps/worker` does, for BullMQ), and adding one solely for sessions would be new infra coupling for no real benefit at self-hosted, single-node scale.
+
+**CSRF**: `hono/csrf`'s same-origin check, zero configuration — dashboard and API are always same-origin (Caddy in prod, a Next.js dev-only rewrite locally), so no CORS setup exists anywhere either.
+
+Passwords hash via `Bun.password` (argon2id) — native, no dependency. Login failures return an identical generic message regardless of whether the email exists (no user enumeration). A small in-memory limiter (not Redis-backed — see the same single-instance reasoning above) rate-limits `/setup` and `/auth/login`.
+
+---
+
+## 9. Deviations from Earlier Drafts
 
 Caught during actual scaffolding of `ossplay` and applied here rather than left inconsistent — see [MEMORY.md](./MEMORY.md) for the dated record:
 

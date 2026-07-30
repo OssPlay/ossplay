@@ -6,6 +6,23 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-07-30 — Admin auth, permission model, and setup wizard
+
+**Status:** Decided
+
+First real feature work on `ossplay` (previous entries were architecture/scaffolding only). Scope: admin account creation, a default organization, and the first-run setup wizard — closing a real PRD gap (§2.1's wizard only ever covered domain/SSL; nothing described how an admin account comes to exist, even though the stack table already promised the API handles RBAC).
+
+- **Corrected mid-plan: instance-level `root` above organization-level roles, not organization roles alone.** The first pass at this plan went straight to `organizationMembers(role: owner|member)` without first establishing that a single self-hosted deployment can host multiple organizations, and that things like worker-fleet SSH provisioning and domain/SSL are instance-wide, not org-scoped. Conflating "the setup-created user" with "owner of one org" would have left no clean concept for who administers the instance itself, and adding that concept later would have meant retrofitting a whole scope level. Caught and fixed before any schema was written specifically to avoid that migration. Full model: [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-authorization-model).
+- **RBAC with named permission bundles, not ABAC.** Roles (`root`, `owner`, `admin`, `member`) are the assignment unit; code checks specific permissions resolved from a static role→permissions table (`apps/api/src/lib/authz/permissions.ts`), not role-identity checks scattered at call sites. Gets ABAC's practical benefit without its policy-engine cost, which would be over-engineering at this stage.
+- **Sessions, not JWTs; Postgres, not Redis.** Opaque bearer token, only its SHA-256 hash persisted (`sessions.id`) — instant revocation, a DB leak doesn't yield usable sessions. Postgres because `apps/api` had no other reason to depend on Redis (only `apps/worker` does, for BullMQ); adding one solely for sessions would be infra coupling with no real benefit at self-hosted scale.
+- **`hono/csrf` (already in the `hono` dependency) + `sameSite=lax`, not hand-rolled CSRF tokens.** Same-origin check, zero configuration. Verified during manual testing that it actually blocks a `Content-Type`-less POST (the classic JSON-API CSRF bypass vector) while passing legitimate `application/json` requests through untouched.
+- **Dev/prod parity via a Next.js rewrite, not CORS.** `apps/dashboard` always calls relative `/api/...`; Caddy proxies it in prod, a dev-only `next.config.ts` rewrite proxies it locally. The browser never makes a cross-origin request, so no CORS configuration exists anywhere in the stack.
+- **`organizations.s3Config` dropped `NOT NULL`.** An org can now exist before storage is configured — the setup wizard doesn't force S3 credentials before you can log in and look around. Storage-configuration UI itself is separate, un-built follow-up work.
+- **Explicitly deferred, not silently built:** inviting additional org members, granting `root` to more than the bootstrap admin, password reset (no SMTP/email integration exists), project-level roles, a DB-driven permissions UI.
+- **CI gained a real Postgres service container** (`ci.yml`) — the new setup/auth integration suite needs one, and none of the previous tests did.
+
+---
+
 ## 2026-07-30 — Two deviations caught while scaffolding `ossplay`
 
 **Status:** Decided
@@ -15,7 +32,7 @@ While building the actual `ossplay` monorepo scaffold (see entry below for the b
 - **Dropped `packages/ui`.** It would have had exactly one consumer (`apps/dashboard`) once `website`/`docs` were confirmed to vendor their own Shadcn copies rather than depend on it — a single-consumer shared package is the premature abstraction this project's own AI-agent conventions warn against. Shadcn components live directly in `apps/dashboard/components/ui`. `ARCHITECTURE.md` and `DESIGN.md` updated to match.
 - **CI publishes Docker images to GHCR, not Docker Hub.** `docker-images.yml` targets `ghcr.io/ossplay/*` using the repo's built-in `GITHUB_TOKEN` — same zero-config reasoning as the SDK's GitHub Packages decision below, no separate registry account needed yet. `PRD.md` §2.2's self-hosted *update* flow (`bun docker pull`) is unaffected in mechanism, just pointed at the new registry.
 
-See [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-deviations-from-earlier-drafts) for the canonical record.
+See [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-deviations-from-earlier-drafts) for the canonical record.
 
 ---
 
