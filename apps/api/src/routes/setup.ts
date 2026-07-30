@@ -6,7 +6,8 @@ import { setSessionCookie } from '../lib/auth/cookie';
 import { normalizeEmail } from '../lib/auth/email';
 import { hashPassword } from '../lib/auth/password';
 import { checkRateLimit } from '../lib/auth/rate-limit';
-import { createSession } from '../lib/auth/session';
+import { getClientIp, getUserAgent } from '../lib/auth/request-info';
+import { completeSignIn } from '../lib/auth/session';
 import type { AppEnv } from '../types';
 
 const setupSchema = z.object({
@@ -36,7 +37,7 @@ setupRoute.get('/status', async (c) => {
 });
 
 setupRoute.post('/', async (c) => {
-  const ip = c.req.header('x-forwarded-for') ?? 'unknown';
+  const ip = getClientIp(c);
   const rateLimit = checkRateLimit(`setup:${ip}`);
   if (!rateLimit.allowed) {
     c.header('Retry-After', String(rateLimit.retryAfterSeconds));
@@ -77,7 +78,10 @@ setupRoute.post('/', async (c) => {
     return { user: createdUser, org };
   });
 
-  const { token, expiresAt } = await createSession(user.id);
+  const { token, expiresAt } = await completeSignIn(user.id, {
+    ipAddress: ip,
+    userAgent: getUserAgent(c),
+  });
   setSessionCookie(c, token, expiresAt);
 
   return c.json({ user: { id: user.id, email: user.email, name: user.name } }, 201);

@@ -6,7 +6,13 @@ import { clearSessionCookie, getSessionCookie, setSessionCookie } from '../lib/a
 import { normalizeEmail } from '../lib/auth/email';
 import { verifyPassword } from '../lib/auth/password';
 import { checkRateLimit, resetRateLimit } from '../lib/auth/rate-limit';
-import { createSession, revokeSessionToken } from '../lib/auth/session';
+import { getClientIp, getUserAgent } from '../lib/auth/request-info';
+import {
+  completeSignIn,
+  listSessionsForUser,
+  revokeSessionById,
+  revokeSessionToken,
+} from '../lib/auth/session';
 import { requireAuth } from '../middleware/require-auth';
 import type { AppEnv } from '../types';
 
@@ -43,7 +49,10 @@ authRoute.post('/login', async (c) => {
   if (!(await verifyPassword(parsed.data.password, user.passwordHash))) return invalidCredentials();
 
   resetRateLimit(rateLimitKey);
-  const { token, expiresAt } = await createSession(user.id);
+  const { token, expiresAt } = await completeSignIn(user.id, {
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
   setSessionCookie(c, token, expiresAt);
 
   return c.json({ user: { id: user.id, email: user.email, name: user.name } });
@@ -77,4 +86,30 @@ authRoute.get('/me', requireAuth, async (c) => {
     },
     organizations: memberships,
   });
+});
+
+authRoute.get('/sessions', requireAuth, async (c) => {
+  const user = c.get('user');
+  const currentSession = c.get('session');
+  const sessions = await listSessionsForUser(user.id);
+
+  return c.json({
+    sessions: sessions.map((session) => ({
+      id: session.id,
+      ipAddress: session.ipAddress,
+      userAgent: session.userAgent,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      isCurrent: session.id === currentSession.id,
+    })),
+  });
+});
+
+authRoute.delete('/sessions/:id', requireAuth, async (c) => {
+  const user = c.get('user');
+  const revoked = await revokeSessionById(c.req.param('id'), user.id);
+  if (!revoked) {
+    return c.json({ error: 'Session not found' }, 404);
+  }
+  return c.body(null, 204);
 });
