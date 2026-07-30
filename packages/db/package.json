@@ -1,0 +1,26 @@
+{
+  "name": "@ossplay/db",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "check": "drizzle-kit check",
+    "studio": "drizzle-kit studio",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint ."
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@ossplay/config": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.9.3"
+  }
+}
