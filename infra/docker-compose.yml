@@ -54,6 +54,10 @@ services:
       dockerfile: apps/dashboard/Dockerfile
     environment:
       PORT: 3000
+      # For the one server-side call (the auth-gate redirect check in
+      # middleware.ts) — talks to the api container directly, not through
+      # Caddy's public /api/* proxy.
+      API_INTERNAL_URL: http://api:3001
     depends_on:
       - api
 
