@@ -35,8 +35,11 @@ bun run dev
 ## Self-host
 
 ```sh
+touch infra/ossplay.yaml  # one-time: instance config (SMTP, domain) bind-mounts here
 docker compose -f infra/docker-compose.yml up -d
 ```
+
+`infra/ossplay.yaml` holds instance-wide SMTP/domain settings, filled in by the onboarding wizard or Settings > Instance — not a DB row, so it survives container recreation as long as the file does. Override where the `api` container looks for it with `OSSPLAY_CONFIG_PATH` (defaults to `/ossplay.yaml`, the bind-mount target above); this is also the knob a SaaS-style deployment would use to mount a per-tenant file/ConfigMap instead.
 
 See [PRD.md §2.1](./PRD.md#21-initial-boot--automated-domainssl-setup) for the domain/SSL setup flow. Workers are provisioned separately on your own VPS via SSH — they are not part of this compose stack (see [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-data--service-flow)).
 

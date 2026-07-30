@@ -15,6 +15,11 @@ build/
 .env.local
 .env.*.local
 
+# instance config (self-hosted: bind-mounted at infra/ossplay.yaml; local
+# dev/test: apps/api/ossplay.yaml, apps/api/src/ossplay.test.yaml)
+ossplay.yaml
+ossplay.test.yaml
+
 # logs
 *.log
 npm-debug.log*

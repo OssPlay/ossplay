@@ -44,6 +44,14 @@ services:
       # the signal apps/api/src/lib/caddy/admin.ts uses to no-op instead of
       # attempting an unreachable request.
       OSSPLAY_CADDY_ADMIN_URL: http://caddy:2019
+      # Instance-wide SMTP/domain settings live in this file, not the DB —
+      # see packages/db/src/schema.ts and apps/api/src/lib/config/
+      # instance-config.ts. Bind-mounted (below) so it survives container
+      # recreation; a SaaS deployment would instead mount a per-tenant
+      # file/ConfigMap at this same path.
+      OSSPLAY_CONFIG_PATH: /ossplay.yaml
+    volumes:
+      - ./ossplay.yaml:/ossplay.yaml
     depends_on:
       postgres:
         condition: service_healthy
