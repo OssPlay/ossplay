@@ -65,18 +65,19 @@ The Documentation Portal (`docs.ossplay.com`) is a separate, centrally-hosted re
 | **Backend API Server** | Hono (on Bun) | High-performance, lightweight API server handling uploads, RBAC, and SSH orchestration. |
 | **Database & ORM** | PostgreSQL + Drizzle ORM | Type-safe schema definition, closure tables for drive navigation, and fast migrations. |
 | **Task Queue** | Redis (BullMQ on Bun) | Asynchronous queue powering image transformations and video packaging workflows. |
-| **Reverse Proxy / SSL** | Caddy or Traefik Container | Automatic Let's Encrypt ACME certificate generation and reverse proxying via dashboard settings. |
+| **Reverse Proxy / SSL** | Caddy | Automatic Let's Encrypt ACME certificate generation; the API pushes domain changes to it live via Caddy's own admin API, no restart required. |
 | **Storage Layer** | S3-Compatible APIs | AWS S3, Cloudflare R2, MinIO, or Backblaze B2. |
 
 ---
 
 ## 2. Infrastructure & Deployment Architecture
 
-### 2.1. Initial Boot & Automated Domain/SSL Setup
+### 2.1. Initial Boot, Setup, and Onboarding
 
 1. **Fresh Install:** The platform boots up using Docker Compose on `http://<SERVER_IP>:3000`.
-2. **Domain Binding:** In the initial setup wizard, the user inputs their desired domain or subdomain (e.g., `media.mycompany.com`).
-3. **Automated SSL:** The dashboard triggers an internal configuration update to the bundled Caddy/Traefik sidecar. The proxy requests a Let's Encrypt TLS certificate via ACME challenge and binds ports 80/443 directly to the Hono API and Next.js frontend, requiring zero manual Nginx or certbot configuration.
+2. **Setup creates one thing: the instance root.** The dashboard detects no admin account exists (`GET /setup/status`) and shows a setup wizard instead of a login screen — name, email, password, confirm password. Submitting creates the instance `root` account and starts a session immediately. No organization or storage configuration happens here.
+3. **A separate onboarding wizard runs once, right after setup**, before the dashboard itself is reachable: **Domain** (skippable), **Email/SMTP** (skippable), **Organization** (required — an instance isn't useful with zero organizations). Each step is a real, independently revisitable page, not a single form.
+4. **Domain Binding & Automated SSL:** In the onboarding wizard's Domain step (or later, from Settings → Instance), the admin inputs their desired domain or subdomain (e.g., `media.mycompany.com`). The API pushes this to Caddy's own admin API (`/load`, a live reconfiguration endpoint — no restart), and Caddy requests a Let's Encrypt TLS certificate via ACME challenge, binding ports 80/443 directly to the Hono API and Next.js frontend, with zero manual Nginx or certbot configuration. Saving a domain always records it even if Caddy can't be reached (e.g. local dev) — the response reports plainly whether it was actually applied.
 
 ### 2.2. Zero-CLI UI Auto-Updater
 
@@ -86,16 +87,25 @@ The Documentation Portal (`docs.ossplay.com`) is a separate, centrally-hosted re
 2. The Hono backend sends an authenticated request to the sidecar daemon.
 3. The sidecar executes `bun docker pull`, fetches updated images (published to GHCR — see [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-deviations-from-earlier-drafts)), runs `drizzle-kit migrate` via a temporary container boot, and performs a zero-downtime rolling restart of the main app container.
 
+"Zero-CLI" describes normal operation (updates) specifically — it doesn't extend to the emergency-only account-recovery CLI in §2.4, which exists precisely for the case where the UI itself is unreachable (a fully locked-out root).
+
 ### 2.3. Admin Bootstrap & Permission Model
 
 Not originally specified in earlier drafts of this document (§2.1's wizard only covered domain/SSL) even though the stack table already promises the API handles RBAC — closed here; full technical detail in [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-authorization-model).
 
-1. **First boot has no admin account.** The dashboard detects this (`GET /setup/status`) and shows a setup wizard instead of a login screen.
-2. **One step creates the admin, the default organization, and logs you in.** The wizard collects an admin name/email/password and an organization name; submitting creates all three (plus the owning membership) atomically and starts a session immediately — no separate "now log in" step.
-3. **Two permission scopes, not one:** instance (`root` — implicit full access to everything in this deployment, including every organization; manages worker-fleet provisioning, domain/SSL, and the auto-updater) and organization (`owner` / `admin` / `member`, scoped to one org's settings/projects/assets). The bootstrap admin becomes instance `root` and an explicit `owner` of the default organization.
-4. **Storage is configured separately, not during bootstrap.** An organization can exist before its S3 credentials are set — the wizard doesn't force that choice before you can log in and look around.
+1. **First boot has no admin account.** Setup creates just the instance root (see §2.1) — organization creation moved to the required onboarding step, so it's no longer bundled into the same submission.
+2. **Two permission scopes, not one:** instance (`root` — implicit full access to everything in this deployment, including every organization; manages worker-fleet provisioning, domain/SSL, the auto-updater, and — per §2.4 — every user's password/2FA/passkeys) and organization (`owner` / `admin` / `member`, scoped to one org's settings/projects/assets). The bootstrap admin becomes instance `root`, and an explicit `owner` of whichever organization they create during onboarding.
+3. **Storage is configured separately, not during bootstrap.** An organization can exist before its S3 credentials are set — nothing forces that choice before you can log in and look around.
 
-Explicitly out of scope for now: inviting additional users, granting `root` to more than the bootstrap admin, and password reset (no SMTP/email delivery integration exists yet).
+Explicitly out of scope for now: granting `root` to more than the bootstrap admin, and any audit trail of who reset whose password/2FA (no audit-log subsystem exists anywhere yet, not just here). Inviting additional users, password reset, and account recovery are now built — see §2.4.
+
+### 2.4. Account Security & Recovery
+
+1. **Two independent first-factor methods:** password (always available) and **passkeys** (WebAuthn) — a passkey is a full alternative to a password, not a second factor layered on top of one. Either gets you a session on its own.
+2. **Optional second factor:** TOTP two-factor authentication, with eight one-time recovery codes issued when it's enabled (regenerable at any time from account settings).
+3. **Self-service recovery**, from `/forgot-password`: an email reset link, offered only when the instance has SMTP configured, and/or a passkey — never TOTP recovery codes there, since those only make sense once a password has already been proven.
+4. **Instance root can act on any user's account** from Settings → Instance → Users: force-reset a password (generates and reveals a one-time temporary password — there's no way to set a specific one from this panel) or clear a user's 2FA/passkeys entirely, without that user needing their own email or authenticator access.
+5. **A fully locked-out root** (no working password, no recovery codes, no passkey — so nothing in points 1–4 helps) is the one scenario the UI itself can't solve. An operator with shell access runs a CLI recovery tool directly against the database (`docker compose exec api bun run cli:reset-root`), which resets the root's password and clears every second factor in one confirmed step. See [docs.ossplay.com](https://docs.ossplay.com) for the full walkthrough.
 
 ---
 

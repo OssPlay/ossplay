@@ -6,6 +6,21 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-07-30 — Setup/onboarding split, passkeys, instance-root user management, CLI recovery
+
+**Status:** Decided (Superseded, in part: replaces §2.3's original "one step creates the admin, the default organization, and logs you in" bootstrap flow described in the entry below)
+
+Large auth-surface expansion, Google-account-flow-styled: `/setup` now creates only the instance root; a separate required-organization-step onboarding wizard runs once after it. Full detail in [PRD.md §2.1/§2.4](./PRD.md#21-initial-boot-setup-and-onboarding) and [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-authorization-model).
+
+- **Passkeys are a full first-factor replacement, not a second factor.** Matches the "Google-like" framing the user asked for explicitly — password and passkey are two independent ways to get a session, not password-then-passkey. `@simplewebauthn/server`/`browser`; RP ID/origin derived per-request from the effective host, not a persisted domain, so passkeys work before the (skippable) onboarding domain step is ever touched — at the cost of the standard WebAuthn caveat that a credential stops validating if the hostname later changes.
+- **Onboarding is real per-step routes, not one page with hash-synced client state**, despite the user's own `#dns`/`#smtp` notation suggesting the latter — chosen for deep-linkability, refresh-safety, and consistency with how `/setup`/`/login` and the dashboard's `proxy.ts` pathname-based gating already work. Confirmed with the user before building.
+- **Instance-root force-reset (`instance:manage_users`) is root-only, not extended to org owners/admins.** `users.passwordHash`/`totpSecret`/passkeys carry no `orgId` — there's no existing mechanism for an org-scoped role to reach them, and root already has implicit reach into every org through the existing permission model, so this isn't a new scope-crossing exception, just root's existing "sees everything" reach applied to one more resource. Confirmed with the user before building.
+- **New pattern: `apps/api/src/cli/`, direct-database no-HTTP operator scripts** — no precedent existed in this repo before `reset-root.ts` (emergency recovery for a fully locked-out instance root: wrong password *and* no working second factor, so no HTTP endpoint, including the force-reset panel above, can help since all of them require being logged in as root). Shares its actual reset logic (`lib/auth/admin-reset.ts`) with the HTTP force-reset endpoints so the two paths can't drift.
+- **Real Caddy/ACME automation via Caddy's admin API**, not just storing a domain — confirmed with the user before building, since it meant new infra (Caddy's admin listener exposed only within the compose network, never to the host) rather than a UI-only change. Caddy already did automatic HTTPS for whatever `OSSPLAY_DOMAIN` was set at `docker compose up` time; the actual gap closed here is changing that domain afterward without SSH+restart.
+- **New standing rule: write `docs.ossplay.com` pages alongside the feature that motivates them, not in a trailing batch.** The `docs` repo (reserved since the original repo-strategy decision, not created until now) was scaffolded partway through this pass specifically because of this — see that repo's own `MEMORY.md` for the fumadocs setup and its fixed three-category taxonomy (`getting-started`/`guides`/`reference`).
+
+---
+
 ## 2026-07-30 — Admin auth, permission model, and setup wizard
 
 **Status:** Decided

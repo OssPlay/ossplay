@@ -81,7 +81,7 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 ## 4. Deployment Topology
 
-- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). The updater sidecar mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
+- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. The updater sidecar mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
 - **`website`** and **`docs`**: centrally hosted by the OSSPlay project (host TBD — e.g. Vercel or Cloudflare Pages; this is a deployment detail, not an architecture decision, and doesn't affect repo structure). Deploy on push to `main`.
 - **`sdk-js`**: no runtime deployment — published as a package on version tags.
 
@@ -131,6 +131,12 @@ No third, project-level scope exists yet — PRD gives no signal that per-projec
 **CSRF**: `hono/csrf`'s same-origin check, zero configuration — dashboard and API are always same-origin (Caddy in prod, a Next.js dev-only rewrite locally), so no CORS setup exists anywhere either.
 
 Passwords hash via `Bun.password` (argon2id) — native, no dependency. Login failures return an identical generic message regardless of whether the email exists (no user enumeration). A small in-memory limiter (not Redis-backed — see the same single-instance reasoning above) rate-limits `/setup` and `/auth/login`.
+
+**Passkeys (WebAuthn)** are a second, independent first-factor: `@simplewebauthn/server`/`browser`, discoverable/usernameless login (no email prompt — the browser is asked which credential it has for this site), full alternative to a password rather than a second factor stacked on one. The RP ID/origin are derived per-request from the effective host, not from a persisted instance domain, so passkeys work without requiring the onboarding domain step first — the standard WebAuthn tradeoff is that a credential stops validating if the instance's hostname later changes. Challenge storage reuses the same hashed-bearer-token pattern as sessions (`webauthnChallenges`, a short-lived row keyed by a hashed opaque token in a cookie).
+
+**A third permission, `instance:manage_users`**, extends the instance-root role (not the org roles) to cover force-resetting any user's password or clearing their 2FA/passkeys from Settings → Instance → Users — deliberately not extended to org owners/admins, since `users.passwordHash`/`totpSecret`/passkeys carry no `orgId` at all, so there's no existing mechanism for an org-scoped role to reach them. `apps/api/src/lib/auth/admin-reset.ts` is the single implementation both this UI panel and the CLI tool below call, so the two paths can't drift on what "reset" touches.
+
+**`apps/api/src/cli/`** is a new pattern in this repo: direct-database, no-HTTP scripts for scenarios the running server itself can't help with. Its first (and so far only) tool, `reset-root.ts`, is the account-recovery path of last resort for a locked-out instance root — see [PRD.md §2.4](./PRD.md#24-account-security--recovery).
 
 ---
 
