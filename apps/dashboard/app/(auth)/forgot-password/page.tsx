@@ -26,8 +26,8 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 p-8 dark:bg-black">
-      <Card className="w-full max-w-md">
+    <div className="flex flex-1 items-center justify-center bg-card">
+      <Card className="w-full max-w-md bg-transparent ring-0">
         <CardHeader>
           <CardTitle>Reset your password</CardTitle>
           <CardDescription>We&apos;ll email you a link if the address exists.</CardDescription>
