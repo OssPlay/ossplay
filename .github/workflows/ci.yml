@@ -24,6 +24,9 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://ossplay:ossplay@localhost:5432/ossplay
+      # Only used by the instance-settings test's SMTP-password-encryption
+      # path — not a real secret, fine to hardcode for CI.
+      OSSPLAY_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
     steps:
       - uses: actions/checkout@v4
 

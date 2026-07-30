@@ -28,3 +28,11 @@ export function checkRateLimit(key: string): { allowed: boolean; retryAfterSecon
 export function resetRateLimit(key: string): void {
   attempts.delete(key);
 }
+
+// Test-only: the limiter is a module-level singleton, so without this,
+// integration tests across different files accumulate attempts against the
+// same keys (every test request shares the same 'unknown' IP and the same
+// bootstrap admin email) and spuriously trip the limit.
+export function resetAllRateLimitsForTests(): void {
+  attempts.clear();
+}

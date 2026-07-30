@@ -1,32 +1,16 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
-import { getDb } from '@ossplay/db';
-import { sql } from 'drizzle-orm';
 import { app } from '../app';
+import { extractCookie, jsonRequest, truncateAllTables } from '../test-support';
 
 function extractSessionCookie(res: Response): string {
-  const setCookie = res.headers.get('set-cookie');
-  if (!setCookie) throw new Error('Expected a Set-Cookie header');
-  const match = setCookie.match(/ossplay_session=([^;]+)/);
-  if (!match) throw new Error('Expected an ossplay_session cookie');
-  return `ossplay_session=${match[1]}`;
-}
-
-function jsonRequest(path: string, init: RequestInit & { cookie?: string } = {}) {
-  const headers = new Headers(init.headers);
-  headers.set('Content-Type', 'application/json');
-  if (init.cookie) headers.set('cookie', init.cookie);
-  return app.request(path, { ...init, headers });
+  return extractCookie(res, 'ossplay_session');
 }
 
 // Requires a real Postgres (DATABASE_URL) — see .github/workflows/ci.yml
 // for how CI provides one. Skips locally rather than hard-failing when a
 // contributor doesn't have Postgres running.
 describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
-  beforeAll(async () => {
-    await getDb().execute(
-      sql`TRUNCATE TABLE sessions, organization_members, organizations, users RESTART IDENTITY CASCADE`,
-    );
-  });
+  beforeAll(truncateAllTables);
 
   let sessionCookie: string;
 
@@ -135,5 +119,57 @@ describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
   it('blocks a POST with no Content-Type as a CSRF risk', async () => {
     const res = await app.request('/auth/logout', { method: 'POST' });
     expect(res.status).toBe(403);
+  });
+
+  it('GET /auth/sessions lists active sessions and flags the current one', async () => {
+    const loginRes = await jsonRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    });
+    const currentSession = extractSessionCookie(loginRes);
+
+    const res = await jsonRequest('/auth/sessions', { cookie: currentSession });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      sessions: Array<{ id: string; isCurrent: boolean; ipAddress: string | null }>;
+    };
+    expect(body.sessions.length).toBeGreaterThan(0);
+    expect(body.sessions.filter((s) => s.isCurrent)).toHaveLength(1);
+  });
+
+  it('DELETE /auth/sessions/:id revokes that session', async () => {
+    const loginRes = await jsonRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    });
+    const toRevokeCookie = extractSessionCookie(loginRes);
+    const listRes = await jsonRequest('/auth/sessions', { cookie: toRevokeCookie });
+    const listBody = (await listRes.json()) as {
+      sessions: Array<{ id: string; isCurrent: boolean }>;
+    };
+    const current = listBody.sessions.find((s) => s.isCurrent);
+    if (!current) throw new Error('expected a current session');
+
+    const deleteRes = await jsonRequest(`/auth/sessions/${current.id}`, {
+      method: 'DELETE',
+      cookie: toRevokeCookie,
+    });
+    expect(deleteRes.status).toBe(204);
+
+    const meRes = await jsonRequest('/auth/me', { cookie: toRevokeCookie });
+    expect(meRes.status).toBe(401);
+  });
+
+  it("DELETE /auth/sessions/:id 404s for a session that is not the caller's own", async () => {
+    const loginRes = await jsonRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    });
+    const cookie = extractSessionCookie(loginRes);
+    const res = await jsonRequest('/auth/sessions/not-a-real-session-id', {
+      method: 'DELETE',
+      cookie,
+    });
+    expect(res.status).toBe(404);
   });
 });
