@@ -13,3 +13,12 @@ export function getClientIp(c: Context): string {
 export function getUserAgent(c: Context): string | undefined {
   return c.req.header('user-agent');
 }
+
+// Used to build absolute links in emails (invite/reset URLs). Caddy sets
+// X-Forwarded-Proto in front of the api service; falls back to the request's
+// own protocol for local dev where there's no reverse proxy in front.
+export function getPublicUrl(c: Context): string {
+  const host = c.req.header('host') ?? new URL(c.req.url).host;
+  const proto = c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '');
+  return `${proto}://${host}`;
+}
