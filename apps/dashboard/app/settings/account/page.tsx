@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'react-qr-code';
 import { FormField } from '@/components/auth/form-field';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ApiError, apiFetch } from '@/lib/api';
+import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkey';
 
 type Me = {
   user: {
@@ -23,7 +24,16 @@ type Me = {
     name: string;
     instanceRole: string | null;
     totpEnabled: boolean;
+    recoveryCodesRemaining: number;
   };
+};
+
+type PasskeyRow = {
+  id: string;
+  deviceName: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  transports: string[] | null;
 };
 
 type SessionRow = {
@@ -61,7 +71,12 @@ export default function AccountSettingsPage() {
       </Card>
 
       <ChangePasswordCard />
-      <TwoFactorCard totpEnabled={me.totpEnabled} onChange={refresh} />
+      <PasskeysCard />
+      <TwoFactorCard
+        totpEnabled={me.totpEnabled}
+        recoveryCodesRemaining={me.recoveryCodesRemaining}
+        onChange={refresh}
+      />
       <SessionsCard sessions={sessions} onChange={refresh} />
     </div>
   );
@@ -133,8 +148,16 @@ function ChangePasswordCard() {
   );
 }
 
-function TwoFactorCard({ totpEnabled, onChange }: { totpEnabled: boolean; onChange: () => void }) {
-  const [step, setStep] = useState<'idle' | 'setup' | 'recovery-codes'>('idle');
+function TwoFactorCard({
+  totpEnabled,
+  recoveryCodesRemaining,
+  onChange,
+}: {
+  totpEnabled: boolean;
+  recoveryCodesRemaining: number;
+  onChange: () => void;
+}) {
+  const [step, setStep] = useState<'idle' | 'setup' | 'recovery-codes' | 'regenerate'>('idle');
   const [otpauthUrl, setOtpauthUrl] = useState('');
   const [code, setCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
@@ -142,6 +165,7 @@ function TwoFactorCard({ totpEnabled, onChange }: { totpEnabled: boolean; onChan
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
   const [showDisable, setShowDisable] = useState(false);
+  const [regeneratePassword, setRegeneratePassword] = useState('');
 
   async function startSetup() {
     setError(null);
@@ -164,6 +188,24 @@ function TwoFactorCard({ totpEnabled, onChange }: { totpEnabled: boolean; onChan
       setCode('');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Invalid code');
+    }
+  }
+
+  async function regenerateRecoveryCodes() {
+    setError(null);
+    try {
+      const res = await apiFetch<{ recoveryCodes: string[] }>(
+        '/auth/2fa/recovery-codes/regenerate',
+        {
+          method: 'POST',
+          body: JSON.stringify({ password: regeneratePassword }),
+        },
+      );
+      setRecoveryCodes(res.recoveryCodes);
+      setRegeneratePassword('');
+      setStep('recovery-codes');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not regenerate recovery codes');
     }
   }
 
@@ -238,6 +280,44 @@ function TwoFactorCard({ totpEnabled, onChange }: { totpEnabled: boolean; onChan
           </div>
         )}
 
+        {step === 'idle' && totpEnabled && (
+          <p className="text-sm text-muted-foreground">
+            {recoveryCodesRemaining} recovery code{recoveryCodesRemaining === 1 ? '' : 's'}{' '}
+            remaining.
+          </p>
+        )}
+
+        {step === 'idle' && totpEnabled && (
+          <Button variant="outline" onClick={() => setStep('regenerate')}>
+            Regenerate recovery codes
+          </Button>
+        )}
+
+        {step === 'regenerate' && (
+          <div className="flex flex-col gap-4">
+            <FormField
+              id="regeneratePassword"
+              label="Password"
+              type="password"
+              value={regeneratePassword}
+              onChange={setRegeneratePassword}
+            />
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={regenerateRecoveryCodes} disabled={!regeneratePassword}>
+                Regenerate
+              </Button>
+              <Button variant="ghost" onClick={() => setStep('idle')}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {step === 'idle' && totpEnabled && !showDisable && (
           <Button variant="outline" onClick={() => setShowDisable(true)}>
             Disable 2FA
@@ -272,6 +352,117 @@ function TwoFactorCard({ totpEnabled, onChange }: { totpEnabled: boolean; onChan
               Confirm disable
             </Button>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PasskeysCard() {
+  const [passkeys, setPasskeys] = useState<PasskeyRow[]>([]);
+  const [deviceName, setDeviceName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  // Checked after mount, not during render, so the server-rendered HTML
+  // matches the client's first render — same reasoning as the /login
+  // passkey button.
+  const [supported, setSupported] = useState(false);
+
+  const refresh = useCallback(() => {
+    apiFetch<{ credentials: PasskeyRow[] }>('/auth/passkey').then((res) =>
+      setPasskeys(res.credentials),
+    );
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    setSupported(browserSupportsWebAuthn());
+  }, [refresh]);
+
+  async function handleRegister() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await registerPasskey(deviceName || undefined);
+      setDeviceName('');
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not register passkey');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function remove(id: string) {
+    await apiFetch(`/auth/passkey/${id}`, { method: 'DELETE' });
+    refresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Passkeys</CardTitle>
+        <CardDescription>
+          Sign in without a password. A passkey is a full alternative to your password, not a second
+          factor on top of it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {passkeys.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Added</TableHead>
+                <TableHead>Last used</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {passkeys.map((passkey) => (
+                <TableRow key={passkey.id}>
+                  <TableCell>{passkey.deviceName ?? 'Unnamed passkey'}</TableCell>
+                  <TableCell>{new Date(passkey.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {passkey.lastUsedAt
+                      ? new Date(passkey.lastUsedAt).toLocaleDateString()
+                      : 'Never'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => remove(passkey.id)}>
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {supported ? (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <FormField
+                id="passkeyDeviceName"
+                label="Name (optional)"
+                value={deviceName}
+                onChange={setDeviceName}
+                helpText="e.g. “MacBook Touch ID”"
+              />
+            </div>
+            <Button type="button" onClick={handleRegister} disabled={submitting}>
+              {submitting ? 'Waiting for passkey…' : 'Add a passkey'}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This browser doesn&apos;t support passkeys.
+          </p>
+        )}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
         )}
       </CardContent>
     </Card>
