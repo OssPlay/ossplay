@@ -156,25 +156,11 @@ export const invitations = pgTable('invitations', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Singleton (id is always 1) — instance-wide SMTP configuration. Root-only
-// via the `instance:manage_settings` permission. smtpPasswordEncrypted is
-// AES-256-GCM ciphertext (see lib/crypto/secret-box.ts), never plaintext.
-// `domainConfiguredAt` means "Caddy accepted this config" (see
-// lib/caddy/admin.ts), not "certificate issued" — Caddy's admin API returns
-// before ACME issuance completes, so this field is scoped honestly.
-export const instanceSettings = pgTable('instance_settings', {
-  id: integer('id').primaryKey().default(1),
-  smtpHost: text('smtp_host'),
-  smtpPort: integer('smtp_port'),
-  smtpUsername: text('smtp_username'),
-  smtpPasswordEncrypted: text('smtp_password_encrypted'),
-  smtpFromAddress: text('smtp_from_address'),
-  smtpFromName: text('smtp_from_name'),
-  smtpSecure: boolean('smtp_secure').default(true).notNull(),
-  domain: text('domain'),
-  domainConfiguredAt: timestamp('domain_configured_at', { withTimezone: true }),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+// Instance-wide SMTP/domain configuration used to live here as a singleton
+// row — moved to a live-editable YAML file instead (apps/api/src/lib/
+// config/instance-config.ts), so the same file works for self-hosted
+// (bind-mounted next to docker-compose.yml) and a future SaaS deployment
+// (a per-tenant file/ConfigMap). See MEMORY.md.
 
 // A WebAuthn/passkey credential enrolled for a user — a full first-factor
 // login replacement, not a second factor stacked on password. publicKey is
@@ -272,7 +258,6 @@ export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
-export type InstanceSettings = typeof instanceSettings.$inferSelect;
 export type WebauthnCredential = typeof webauthnCredentials.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type Project = typeof projects.$inferSelect;
