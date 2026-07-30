@@ -1,6 +1,7 @@
 import { getDb, instanceSettings } from '@ossplay/db';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { applyDomainConfig } from '../lib/caddy/admin';
 import { encryptSecret } from '../lib/crypto/secret-box';
 import { getInstanceSettings } from '../lib/mail/send';
 import { requireAuth } from '../middleware/require-auth';
@@ -21,6 +22,8 @@ instanceRoute.get('/settings', async (c) => {
     smtpFromAddress: settings?.smtpFromAddress ?? null,
     smtpFromName: settings?.smtpFromName ?? null,
     smtpSecure: settings?.smtpSecure ?? true,
+    domain: settings?.domain ?? null,
+    domainConfiguredAt: settings?.domainConfiguredAt ?? null,
   });
 });
 
@@ -58,4 +61,59 @@ instanceRoute.put('/settings', async (c) => {
     .onConflictDoUpdate({ target: instanceSettings.id, set: values });
 
   return c.body(null, 204);
+});
+
+// A single label with no dot ("localhost") or an IPv4 literal can't get a
+// Let's Encrypt certificate — reject those early with a clear message
+// rather than letting them reach Caddy and fail obscurely there.
+const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
+const HOSTNAME_PATTERN = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/i;
+
+const domainSchema = z.object({
+  domain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .nullable()
+    .refine(
+      (value) => value === null || (HOSTNAME_PATTERN.test(value) && !IPV4_PATTERN.test(value)),
+      'Enter a real domain (e.g. ossplay.example.com) — localhost and bare IP addresses cannot get a certificate',
+    ),
+});
+
+instanceRoute.put('/domain', async (c) => {
+  const parsed = domainSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+  }
+  const { domain } = parsed.data;
+
+  const result = domain
+    ? await applyDomainConfig(domain)
+    : { applied: false as const, reason: 'No domain configured' };
+
+  await getDb()
+    .insert(instanceSettings)
+    .values({
+      id: 1,
+      domain,
+      domainConfiguredAt: result.applied ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: instanceSettings.id,
+      set: {
+        domain,
+        domainConfiguredAt: result.applied ? new Date() : null,
+        updatedAt: new Date(),
+      },
+    });
+
+  return c.json({
+    domain,
+    caddyApplied: result.applied,
+    message: result.applied
+      ? 'Domain saved and applied to the reverse proxy.'
+      : `Domain saved. ${result.reason ?? 'Not applied to the reverse proxy.'}`,
+  });
 });

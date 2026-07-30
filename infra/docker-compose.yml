@@ -37,6 +37,13 @@ services:
       DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
       REDIS_URL: redis://redis:6379
       PORT: 3001
+      # Caddy's admin API, reachable only within this compose network (see
+      # the `caddy` service's `expose`, not `ports`) — lets the onboarding
+      # DNS step and /settings/instance push a new domain into Caddy's live
+      # config. Unset in local dev (bun dev, no Docker), which is exactly
+      # the signal apps/api/src/lib/caddy/admin.ts uses to no-op instead of
+      # attempting an unreachable request.
+      OSSPLAY_CADDY_ADMIN_URL: http://caddy:2019
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +73,12 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # 2019 (Caddy's admin API) is deliberately NOT in `ports:` — that would
+    # publish config-mutation access to the host/internet. `expose` only
+    # makes it reachable at http://caddy:2019 from other services on this
+    # compose network (the `api` service, via OSSPLAY_CADDY_ADMIN_URL above).
+    expose:
+      - "2019"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

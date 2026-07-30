@@ -24,6 +24,8 @@ describe.skipIf(!process.env.DATABASE_URL)('instance settings', () => {
       smtpFromAddress: null,
       smtpFromName: null,
       smtpSecure: true,
+      domain: null,
+      domainConfiguredAt: null,
     });
   });
 
@@ -77,5 +79,49 @@ describe.skipIf(!process.env.DATABASE_URL)('instance settings', () => {
     const body = (await getRes.json()) as { smtpPasswordSet: boolean; smtpFromName: string };
     expect(body.smtpPasswordSet).toBe(true);
     expect(body.smtpFromName).toBe('OSSPlay Renamed');
+  });
+
+  it('PUT /instance/domain rejects localhost and bare IPs', async () => {
+    for (const domain of ['localhost', '127.0.0.1', 'not a domain']) {
+      const res = await jsonRequest('/instance/domain', {
+        method: 'PUT',
+        cookie: rootCookie,
+        body: JSON.stringify({ domain }),
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  // No OSSPLAY_CADDY_ADMIN_URL is set in this test process (local/CI, not
+  // Docker), so this exercises the real graceful-degradation path — the
+  // domain is still saved even though Caddy can't be reached.
+  it('PUT /instance/domain saves the domain even when Caddy is unreachable', async () => {
+    const res = await jsonRequest('/instance/domain', {
+      method: 'PUT',
+      cookie: rootCookie,
+      body: JSON.stringify({ domain: 'ossplay.example.com' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { domain: string; caddyApplied: boolean; message: string };
+    expect(body.domain).toBe('ossplay.example.com');
+    expect(body.caddyApplied).toBe(false);
+
+    const getRes = await jsonRequest('/instance/settings', { cookie: rootCookie });
+    const getBody = (await getRes.json()) as { domain: string; domainConfiguredAt: string | null };
+    expect(getBody.domain).toBe('ossplay.example.com');
+    expect(getBody.domainConfiguredAt).toBeNull();
+  });
+
+  it('PUT /instance/domain with null clears the stored domain', async () => {
+    const res = await jsonRequest('/instance/domain', {
+      method: 'PUT',
+      cookie: rootCookie,
+      body: JSON.stringify({ domain: null }),
+    });
+    expect(res.status).toBe(200);
+
+    const getRes = await jsonRequest('/instance/settings', { cookie: rootCookie });
+    const getBody = (await getRes.json()) as { domain: string | null };
+    expect(getBody.domain).toBeNull();
   });
 });

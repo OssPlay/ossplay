@@ -1,4 +1,10 @@
 {
+	# Reachable at http://caddy:2019 from other services on the compose
+	# network only — never published to the host (see docker-compose.yml's
+	# `expose`, not `ports`, for the caddy service). This lets the api
+	# service push a new domain into Caddy's live config at runtime (see
+	# apps/api/src/lib/caddy/admin.ts) without an SSH+restart round trip.
+	admin 0.0.0.0:2019
 	email {$OSSPLAY_ACME_EMAIL:internal@ossplay.local}
 }
 
