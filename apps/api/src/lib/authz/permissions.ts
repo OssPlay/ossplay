@@ -10,7 +10,8 @@ import type { OrganizationMember, User } from '@ossplay/db';
 export type InstancePermission =
   | 'instance:manage_workers'
   | 'instance:manage_settings'
-  | 'instance:manage_orgs';
+  | 'instance:manage_orgs'
+  | 'instance:manage_users';
 
 export type OrgPermission =
   | 'org:manage_settings'
@@ -24,7 +25,12 @@ type UserLike = Pick<User, 'instanceRole'>;
 type MembershipLike = Pick<OrganizationMember, 'role'>;
 
 const INSTANCE_ROLE_PERMISSIONS: Record<'root', readonly InstancePermission[]> = {
-  root: ['instance:manage_workers', 'instance:manage_settings', 'instance:manage_orgs'],
+  root: [
+    'instance:manage_workers',
+    'instance:manage_settings',
+    'instance:manage_orgs',
+    'instance:manage_users',
+  ],
 };
 
 const ORG_ROLE_PERMISSIONS: Record<OrgRole, readonly OrgPermission[]> = {

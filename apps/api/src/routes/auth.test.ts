@@ -16,17 +16,16 @@ describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
 
   it('reports needsSetup: true before any admin exists', async () => {
     const res = await jsonRequest('/setup/status');
-    expect(await res.json()).toEqual({ needsSetup: true });
+    expect(await res.json()).toEqual({ needsSetup: true, smtpConfigured: false });
   });
 
-  it('bootstraps the admin, default org, and logs in', async () => {
+  it('bootstraps the admin and logs in', async () => {
     const res = await jsonRequest('/setup', {
       method: 'POST',
       body: JSON.stringify({
         adminName: 'Ada Admin',
         adminEmail: 'ADA@Example.com',
         adminPassword: 'correct horse battery staple',
-        orgName: 'Acme Inc',
       }),
     });
     expect(res.status).toBe(201);
@@ -37,7 +36,7 @@ describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
 
   it('reports needsSetup: false after bootstrap', async () => {
     const res = await jsonRequest('/setup/status');
-    expect(await res.json()).toEqual({ needsSetup: false });
+    expect(await res.json()).toEqual({ needsSetup: false, smtpConfigured: false });
   });
 
   it('rejects a second setup attempt with 409', async () => {
@@ -47,13 +46,12 @@ describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
         adminName: 'X',
         adminEmail: 'x@example.com',
         adminPassword: 'anothersafepassword123',
-        orgName: 'X',
       }),
     });
     expect(res.status).toBe(409);
   });
 
-  it('GET /auth/me returns the root user and their owner membership', async () => {
+  it('GET /auth/me shows the root user with no organizations yet', async () => {
     const res = await jsonRequest('/auth/me', { cookie: sessionCookie });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -61,8 +59,21 @@ describe.skipIf(!process.env.DATABASE_URL)('setup + auth flow', () => {
       organizations: Array<{ role: string }>;
     };
     expect(body.user.instanceRole).toBe('root');
-    expect(body.organizations).toHaveLength(1);
-    expect(body.organizations[0]?.role).toBe('owner');
+    expect(body.organizations).toHaveLength(0);
+  });
+
+  it('POST /organizations creates the first org, owned by the caller', async () => {
+    const res = await jsonRequest('/organizations', {
+      method: 'POST',
+      cookie: sessionCookie,
+      body: JSON.stringify({ name: 'Acme Inc' }),
+    });
+    expect(res.status).toBe(201);
+
+    const meRes = await jsonRequest('/auth/me', { cookie: sessionCookie });
+    const meBody = (await meRes.json()) as { organizations: Array<{ role: string }> };
+    expect(meBody.organizations).toHaveLength(1);
+    expect(meBody.organizations[0]?.role).toBe('owner');
   });
 
   it('GET /auth/me without a cookie is 401', async () => {

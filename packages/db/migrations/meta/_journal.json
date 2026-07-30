@@ -22,6 +22,13 @@
       "when": 1785405942054,
       "tag": "0002_exotic_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785424724929,
+      "tag": "0003_special_millenium_guard",
+      "breakpoints": true
     }
   ]
 }

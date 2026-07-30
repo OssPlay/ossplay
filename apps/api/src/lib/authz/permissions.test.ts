@@ -12,6 +12,14 @@ describe('instance permissions', () => {
   it('a user with no instance role cannot', () => {
     expect(can(regular, 'instance:manage_workers')).toBe(false);
   });
+
+  it('root can manage users', () => {
+    expect(can(root, 'instance:manage_users')).toBe(true);
+  });
+
+  it('a user with no instance role cannot manage users', () => {
+    expect(can(regular, 'instance:manage_users')).toBe(false);
+  });
 });
 
 describe('org permissions', () => {

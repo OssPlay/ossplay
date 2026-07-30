@@ -159,6 +159,9 @@ export const invitations = pgTable('invitations', {
 // Singleton (id is always 1) — instance-wide SMTP configuration. Root-only
 // via the `instance:manage_settings` permission. smtpPasswordEncrypted is
 // AES-256-GCM ciphertext (see lib/crypto/secret-box.ts), never plaintext.
+// `domainConfiguredAt` means "Caddy accepted this config" (see
+// lib/caddy/admin.ts), not "certificate issued" — Caddy's admin API returns
+// before ACME issuance completes, so this field is scoped honestly.
 export const instanceSettings = pgTable('instance_settings', {
   id: integer('id').primaryKey().default(1),
   smtpHost: text('smtp_host'),
@@ -168,7 +171,44 @@ export const instanceSettings = pgTable('instance_settings', {
   smtpFromAddress: text('smtp_from_address'),
   smtpFromName: text('smtp_from_name'),
   smtpSecure: boolean('smtp_secure').default(true).notNull(),
+  domain: text('domain'),
+  domainConfiguredAt: timestamp('domain_configured_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// A WebAuthn/passkey credential enrolled for a user — a full first-factor
+// login replacement, not a second factor stacked on password. publicKey is
+// the base64url-encoded COSE key bytes; counter is a clone-detection guard
+// bumped on every successful authentication (see lib/auth/webauthn.ts).
+export const webauthnCredentials = pgTable('webauthn_credentials', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  credentialId: text('credential_id').notNull().unique(),
+  publicKey: text('public_key').notNull(),
+  counter: integer('counter').default(0).notNull(),
+  deviceType: text('device_type', { enum: ['singleDevice', 'multiDevice'] }).notNull(),
+  backedUp: boolean('backed_up').default(false).notNull(),
+  transports: jsonb('transports').$type<string[]>(),
+  deviceName: text('device_name'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+});
+
+// Same hashed-bearer-token pattern as `twoFactorChallenges`, plus the raw
+// challenge string itself (needed for verify*Response()'s expectedChallenge)
+// and a type discriminator so a registration challenge can't be replayed as
+// an authentication one or vice versa. userId is nullable: the login
+// ceremony is usernameless/discoverable — which account it's for isn't
+// known until the credential is looked up at verify time.
+export const webauthnChallenges = pgTable('webauthn_challenges', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  challenge: text('challenge').notNull(),
+  type: text('type', { enum: ['registration', 'authentication'] }).notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const projects = pgTable('projects', {
@@ -233,5 +273,7 @@ export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
 export type InstanceSettings = typeof instanceSettings.$inferSelect;
+export type WebauthnCredential = typeof webauthnCredentials.$inferSelect;
+export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Asset = typeof assets.$inferSelect;

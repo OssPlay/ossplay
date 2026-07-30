@@ -1,4 +1,4 @@
-import { getDb, organizationMembers, organizations, users } from '@ossplay/db';
+import { getDb, users } from '@ossplay/db';
 import { isNotNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -8,13 +8,15 @@ import { hashPassword } from '../lib/auth/password';
 import { checkRateLimit } from '../lib/auth/rate-limit';
 import { getClientIp, getUserAgent } from '../lib/auth/request-info';
 import { completeSignIn } from '../lib/auth/session';
+import { getInstanceSettings, isSmtpConfigured } from '../lib/mail/send';
 import type { AppEnv } from '../types';
 
+// Org creation moved to `POST /organizations` (see routes/onboarding.ts +
+// routes/organizations.ts) — setup now only creates the instance root.
 const setupSchema = z.object({
   adminName: z.string().trim().min(1).max(200),
   adminEmail: z.string().trim().email(),
   adminPassword: z.string().min(12).max(200),
-  orgName: z.string().trim().min(1).max(200),
 });
 
 export const setupRoute = new Hono<AppEnv>();
@@ -32,8 +34,15 @@ async function instanceNeedsSetup(): Promise<boolean> {
   return !existingRoot;
 }
 
+// smtpConfigured lets /forgot-password decide whether to offer the email
+// option without needing a separate public endpoint (instanceRoute's guard
+// is blanket-applied and this must stay reachable while logged out).
 setupRoute.get('/status', async (c) => {
-  return c.json({ needsSetup: await instanceNeedsSetup() });
+  const settings = await getInstanceSettings();
+  return c.json({
+    needsSetup: await instanceNeedsSetup(),
+    smtpConfigured: isSmtpConfigured(settings),
+  });
 });
 
 setupRoute.post('/', async (c) => {
@@ -57,26 +66,19 @@ setupRoute.post('/', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
   }
 
-  const { adminName, adminPassword, orgName } = parsed.data;
+  const { adminName, adminPassword } = parsed.data;
   const adminEmail = normalizeEmail(parsed.data.adminEmail);
   const passwordHash = await hashPassword(adminPassword);
 
-  const { user } = await getDb().transaction(async (tx) => {
-    const [createdUser] = await tx
-      .insert(users)
-      .values({ email: adminEmail, passwordHash, name: adminName, instanceRole: 'root' })
-      .returning();
-    const [org] = await tx.insert(organizations).values({ name: orgName }).returning();
-    // A single-row insert's RETURNING always yields exactly one row —
-    // drizzle's type just can't express that statically.
-    if (!createdUser || !org) {
-      throw new Error('Setup insert did not return the expected row');
-    }
-    await tx
-      .insert(organizationMembers)
-      .values({ userId: createdUser.id, orgId: org.id, role: 'owner' });
-    return { user: createdUser, org };
-  });
+  const [user] = await getDb()
+    .insert(users)
+    .values({ email: adminEmail, passwordHash, name: adminName, instanceRole: 'root' })
+    .returning();
+  // A single-row insert's RETURNING always yields exactly one row — drizzle's
+  // type just can't express that statically.
+  if (!user) {
+    throw new Error('Setup insert did not return the expected row');
+  }
 
   const { token, expiresAt } = await completeSignIn(user.id, {
     ipAddress: ip,

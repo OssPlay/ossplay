@@ -22,7 +22,7 @@ export function extractCookie(res: Response, name: string): string {
 export async function truncateAllTables(): Promise<void> {
   resetAllRateLimitsForTests();
   await getDb().execute(
-    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, instance_settings, password_reset_tokens, invitations RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, instance_settings, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges RESTART IDENTITY CASCADE`,
   );
 }
 
@@ -33,17 +33,29 @@ export const DEFAULT_ADMIN = {
   orgName: 'Acme Inc',
 };
 
-// Runs the real /setup flow (not a DB shortcut) so every test file exercises
-// the actual bootstrap path, matching how it behaves in production.
+// Runs the real /setup flow, then the real POST /organizations flow (not a
+// DB shortcut) so every test file exercises the actual bootstrap +
+// onboarding path, matching how it behaves in production now that org
+// creation is a separate step from setup.
 export async function bootstrapAdmin(overrides: Partial<typeof DEFAULT_ADMIN> = {}) {
-  const body = { ...DEFAULT_ADMIN, ...overrides };
-  const res = await jsonRequest('/setup', { method: 'POST', body: JSON.stringify(body) });
+  const { orgName, ...setupBody } = { ...DEFAULT_ADMIN, ...overrides };
+  const res = await jsonRequest('/setup', { method: 'POST', body: JSON.stringify(setupBody) });
   const sessionCookie = extractCookie(res, 'ossplay_session');
-  const meRes = await jsonRequest('/auth/me', { cookie: sessionCookie });
-  const me = (await meRes.json()) as { organizations: Array<{ orgId: string }> };
-  const orgId = me.organizations[0]?.orgId;
-  if (!orgId) throw new Error('Expected the bootstrap admin to have an organization');
-  return { sessionCookie, orgId, email: body.adminEmail, password: body.adminPassword };
+
+  const orgRes = await jsonRequest('/organizations', {
+    method: 'POST',
+    cookie: sessionCookie,
+    body: JSON.stringify({ name: orgName }),
+  });
+  const { organization } = (await orgRes.json()) as { organization: { id: string } };
+  if (!organization) throw new Error('Expected POST /organizations to return an organization');
+
+  return {
+    sessionCookie,
+    orgId: organization.id,
+    email: setupBody.adminEmail,
+    password: setupBody.adminPassword,
+  };
 }
 
 // The API only ever exposes an invitation's token via the (in tests,
