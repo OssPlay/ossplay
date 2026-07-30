@@ -8,7 +8,8 @@
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
-    "test": "bun test"
+    "test": "bun test",
+    "cli:reset-root": "bun run src/cli/reset-root.ts"
   },
   "dependencies": {
     "@ossplay/core": "workspace:*",
