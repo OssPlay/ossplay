@@ -15,6 +15,13 @@
       "when": 1785402222069,
       "tag": "0001_real_chimera",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785405942054,
+      "tag": "0002_exotic_blur",
+      "breakpoints": true
     }
   ]
 }
