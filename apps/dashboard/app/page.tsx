@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError, apiFetch } from '@/lib/api';
 
@@ -69,6 +70,9 @@ export default function Home() {
           <p className="text-sm text-muted-foreground">
             Infra scaffold — projects and the drive browser land here next.
           </p>
+          <Link href="/settings/account" className={buttonVariants({ variant: 'outline' })}>
+            Settings
+          </Link>
           <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
             {loggingOut ? 'Logging out…' : 'Log out'}
           </Button>

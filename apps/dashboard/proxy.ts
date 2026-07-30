@@ -3,6 +3,12 @@ import { type NextRequest, NextResponse } from 'next/server';
 const SESSION_COOKIE_NAME = 'ossplay_session';
 const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? 'http://localhost:3001';
 
+// Accessible regardless of session/setup state — /invite/:token works for
+// both a brand-new account and an already-logged-in existing user accepting
+// a second org, and forgot/reset-password are meant for logged-out use but
+// aren't harmful to view while logged in either.
+const ALWAYS_PUBLIC_PREFIXES = ['/invite/', '/forgot-password', '/reset-password'];
+
 async function checkNeedsSetup(): Promise<boolean> {
   try {
     const res = await fetch(`${API_INTERNAL_URL}/setup/status`, { cache: 'no-store' });
@@ -32,6 +38,10 @@ export async function proxy(request: NextRequest) {
   // would corrupt every API call made while logged out (including the
   // /setup and /auth/login calls needed to log in at all).
   if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
+  if (ALWAYS_PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 

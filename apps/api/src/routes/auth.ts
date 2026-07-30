@@ -96,6 +96,7 @@ authRoute.get('/me', requireAuth, async (c) => {
       email: user.email,
       name: user.name,
       instanceRole: user.instanceRole,
+      totpEnabled: user.totpEnabled,
     },
     organizations: memberships,
   });
