@@ -7,12 +7,12 @@ import { generateToken, hashToken } from './tokens';
 const CHALLENGE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 // Derived per-request from the effective host, the same mechanism
-// getPublicUrl() (request-info.ts) uses — not from instanceSettings.domain.
-// This makes passkeys work immediately without requiring the (skippable)
-// onboarding DNS step. Standard WebAuthn caveat, not a bug: a passkey
-// registered against one hostname stops validating if the admin later
-// switches domains, since the RP ID is baked into the credential at
-// registration time by the authenticator itself.
+// getPublicUrl() (request-info.ts) uses — not from the instance config
+// file's domain value. This makes passkeys work immediately without
+// requiring the (skippable) onboarding DNS step. Standard WebAuthn caveat,
+// not a bug: a passkey registered against one hostname stops validating if
+// the admin later switches domains, since the RP ID is baked into the
+// credential at registration time by the authenticator itself.
 export function getRpId(c: Context): string {
   const host = c.req.header('x-forwarded-host') ?? c.req.header('host') ?? new URL(c.req.url).host;
   // WebAuthn RP IDs must not include a port.

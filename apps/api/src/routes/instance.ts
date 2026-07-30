@@ -1,7 +1,7 @@
-import { getDb, instanceSettings } from '@ossplay/db';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { applyDomainConfig } from '../lib/caddy/admin';
+import { writeInstanceConfig } from '../lib/config/instance-config';
 import { encryptSecret } from '../lib/crypto/secret-box';
 import { getInstanceSettings } from '../lib/mail/send';
 import { requireAuth } from '../middleware/require-auth';
@@ -46,19 +46,12 @@ instanceRoute.put('/settings', async (c) => {
   }
 
   const { smtpPassword, ...rest } = parsed.data;
-  const values = {
-    id: 1,
+  writeInstanceConfig({
     ...rest,
-    updatedAt: new Date(),
     ...(smtpPassword === undefined
       ? {}
       : { smtpPasswordEncrypted: smtpPassword ? encryptSecret(smtpPassword) : null }),
-  };
-
-  await getDb()
-    .insert(instanceSettings)
-    .values(values)
-    .onConflictDoUpdate({ target: instanceSettings.id, set: values });
+  });
 
   return c.body(null, 204);
 });
@@ -92,22 +85,10 @@ instanceRoute.put('/domain', async (c) => {
     ? await applyDomainConfig(domain)
     : { applied: false as const, reason: 'No domain configured' };
 
-  await getDb()
-    .insert(instanceSettings)
-    .values({
-      id: 1,
-      domain,
-      domainConfiguredAt: result.applied ? new Date() : null,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: instanceSettings.id,
-      set: {
-        domain,
-        domainConfiguredAt: result.applied ? new Date() : null,
-        updatedAt: new Date(),
-      },
-    });
+  writeInstanceConfig({
+    domain,
+    domainConfiguredAt: result.applied ? new Date().toISOString() : null,
+  });
 
   return c.json({
     domain,

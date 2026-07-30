@@ -1,8 +1,17 @@
+import { rmSync } from 'node:fs';
 import { getDb, invitations } from '@ossplay/db';
 import { eq, sql } from 'drizzle-orm';
 import { app } from './app';
 import { resetAllRateLimitsForTests } from './lib/auth/rate-limit';
 import { generateToken, hashToken } from './lib/auth/tokens';
+
+// Must never resolve to a real dev ossplay.yaml — the same contamination
+// class as the shared Postgres DB (running tests alongside manual browser
+// verification silently resets manually-set state). Set unconditionally,
+// not `??=`, so nothing in the environment can override it into pointing
+// at a real file.
+const TEST_CONFIG_PATH = `${import.meta.dir}/ossplay.test.yaml`;
+process.env.OSSPLAY_CONFIG_PATH = TEST_CONFIG_PATH;
 
 export function jsonRequest(path: string, init: RequestInit & { cookie?: string } = {}) {
   const headers = new Headers(init.headers);
@@ -22,8 +31,9 @@ export function extractCookie(res: Response, name: string): string {
 export async function truncateAllTables(): Promise<void> {
   resetAllRateLimitsForTests();
   await getDb().execute(
-    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, instance_settings, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges RESTART IDENTITY CASCADE`,
   );
+  rmSync(TEST_CONFIG_PATH, { force: true });
 }
 
 export const DEFAULT_ADMIN = {

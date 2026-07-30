@@ -1,15 +1,12 @@
-import { getDb, instanceSettings } from '@ossplay/db';
-import { eq } from 'drizzle-orm';
 import nodemailer from 'nodemailer';
+import { readInstanceConfig } from '../config/instance-config';
 import { decryptSecret } from '../crypto/secret-box';
 import type { MailMessage } from './templates';
 
+// Kept as an async function (the file read behind it is synchronous) purely
+// so existing `await getInstanceSettings()` call sites don't need touching.
 export async function getInstanceSettings() {
-  const [settings] = await getDb()
-    .select()
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return settings ?? null;
+  return readInstanceConfig();
 }
 
 export function isSmtpConfigured(
