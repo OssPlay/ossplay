@@ -12,6 +12,7 @@ type FormFieldProps = {
   helpText?: string;
   autoComplete?: React.InputHTMLAttributes<HTMLInputElement>["autoComplete"];
   autoFocus?: React.InputHTMLAttributes<HTMLInputElement>["autoFocus"];
+  disabled?: boolean;
 };
 
 export function FormField({
@@ -25,6 +26,7 @@ export function FormField({
   helpText,
   autoComplete,
   autoFocus,
+  disabled,
 }: FormFieldProps) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -40,6 +42,7 @@ export function FormField({
         minLength={minLength}
         autoComplete={autoComplete}
         autoFocus={autoFocus}
+        disabled={disabled}
       />
       {helpText && <p className="text-xs text-muted-foreground">{helpText}</p>}
     </div>
