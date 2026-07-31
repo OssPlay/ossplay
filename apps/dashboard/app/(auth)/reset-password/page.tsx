@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { type FormEvent, Suspense, useState } from 'react';
+import { type SubmitEvent, Suspense, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,7 +23,7 @@ function ResetPasswordForm() {
     { error: 'Could not reset password' },
   );
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     await reset
       .trigger()
@@ -58,7 +58,6 @@ function ResetPasswordForm() {
         type="submit"
         loading={reset.isLoading}
         loadingText="Resetting…"
-        onClick={handleSubmit}
         disabled={newPassword.length < 12}
       >
         Reset password

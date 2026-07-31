@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { type FormEvent, useState } from 'react';
+import { type SubmitEvent, useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
@@ -36,7 +36,7 @@ export default function InvitePage() {
     { error: 'Could not accept invitation' },
   );
 
-  async function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     await accept
       .trigger()
@@ -101,12 +101,7 @@ export default function InvitePage() {
                 accept.error ? errorMessage(accept.error, 'Could not accept invitation') : null
               }
             />
-            <LoadingButton
-              type="submit"
-              loading={accept.isLoading}
-              loadingText="Joining…"
-              onClick={handleSubmit}
-            >
+            <LoadingButton type="submit" loading={accept.isLoading} loadingText="Joining…">
               Accept invitation
             </LoadingButton>
           </form>

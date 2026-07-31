@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { type FormEvent, type SyntheticEvent, useState } from 'react';
+import { type SubmitEvent, useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,11 +27,15 @@ export default function ForgotPasswordPage() {
   // request still shows the same confirmation, so the toast/error surface
   // useAction would otherwise show is suppressed here on purpose.
   const forgotPassword = useAction(
-    () => apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+    () =>
+      apiFetch('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
     { error: null },
   );
 
-  async function handleSubmit(event: FormEvent | SyntheticEvent) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     await forgotPassword
       .trigger()
@@ -72,7 +76,6 @@ export default function ForgotPasswordPage() {
                     type="submit"
                     loading={forgotPassword.isLoading}
                     loadingText="Sending…"
-                    onClick={handleSubmit}
                   >
                     Send reset link
                   </LoadingButton>

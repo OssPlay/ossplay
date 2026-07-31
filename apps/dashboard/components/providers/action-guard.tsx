@@ -16,7 +16,6 @@ export function ActionGuard() {
 
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       event.preventDefault();
-      event.returnValue = '';
     }
 
     window.addEventListener('beforeunload', handleBeforeUnload);

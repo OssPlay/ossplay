@@ -1,9 +1,8 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono, Manrope, Outfit } from 'next/font/google';
 import './globals.css';
-import { ActionGuard } from '@/components/action-guard';
+
 import { Providers } from '@/components/providers';
-import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 
 const manropeHeading = Manrope({
@@ -48,11 +47,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <Providers>
-          {children}
-          <Toaster />
-          <ActionGuard />
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
