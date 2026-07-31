@@ -18,7 +18,7 @@ If a task seems to conflict with something recorded in `MEMORY.md`, surface the 
 
 - **Bun-first.** Runtime, package manager, and test runner across every repo — don't introduce npm/yarn/pnpm or Node-specific APIs where a Bun equivalent exists.
 - **TypeScript, strict.** No `any` escape hatches without a comment explaining why it's unavoidable.
-- **No unnecessary abstraction.** Don't build a plugin system, generic config layer, or reusable helper for something used once. Three similar lines beat a premature abstraction — this applies doubly to a pre-1.0 project where the right abstraction isn't known yet.
+- **Abstract once a pattern repeats more than 3 times.** Don't build a plugin system, generic config layer, or reusable helper for something used once or twice — but once the same shape shows up a 4th time (a repeated UI pattern, a repeated fetch-plus-loading-state dance, a repeated validation rule), extract it rather than copying it again. This applies doubly to a pre-1.0 project where the right abstraction isn't known yet, so don't reach for one speculatively — reach for one once the repetition actually proves it out.
 - **No speculative features.** Implement what the current task requires per PRD/ARCHITECTURE, not what might be useful later. Flag PRD gaps instead of quietly extending scope.
 - **Match existing patterns.** Before adding a new pattern (a new state-management approach, a new way of structuring API routes, a new test style), check whether the codebase already has one and reuse it.
 
