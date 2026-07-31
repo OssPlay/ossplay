@@ -20,11 +20,7 @@ async function findValidInvitationByToken(token: string) {
     .select()
     .from(invitations)
     .where(eq(invitations.tokenHash, tokenHash));
-  if (
-    !invitation ||
-    invitation.status !== 'pending' ||
-    invitation.expiresAt.getTime() < Date.now()
-  ) {
+  if (invitation?.status !== 'pending' || invitation.expiresAt.getTime() < Date.now()) {
     return null;
   }
   return invitation;

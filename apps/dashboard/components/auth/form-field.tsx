@@ -1,5 +1,5 @@
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 type FormFieldProps = {
   id: string;
@@ -10,15 +10,15 @@ type FormFieldProps = {
   required?: boolean;
   minLength?: number;
   helpText?: string;
-  autoComplete?: React.InputHTMLAttributes<HTMLInputElement>["autoComplete"];
-  autoFocus?: React.InputHTMLAttributes<HTMLInputElement>["autoFocus"];
+  autoComplete?: React.InputHTMLAttributes<HTMLInputElement>['autoComplete'];
+  autoFocus?: React.InputHTMLAttributes<HTMLInputElement>['autoFocus'];
   disabled?: boolean;
 };
 
 export function FormField({
   id,
   label,
-  type = "text",
+  type = 'text',
   value,
   onChange,
   required,

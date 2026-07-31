@@ -135,7 +135,7 @@ twoFactorRoute.post('/verify', async (c) => {
   }
 
   const [user] = await getDb().select().from(users).where(eq(users.id, challenge.userId));
-  if (!user || !user.totpSecret) {
+  if (!user?.totpSecret) {
     clearTwoFactorChallengeCookie(c);
     return c.json({ error: 'Log in again' }, 401);
   }
