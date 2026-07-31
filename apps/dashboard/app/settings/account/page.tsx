@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import QRCode from 'react-qr-code';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
+import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingButton } from '@/components/ui/loading-button';
 import {
   Table,
   TableBody,
@@ -14,7 +17,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ApiError, apiFetch } from '@/lib/api';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkey';
 
 type Me = {
@@ -46,15 +50,10 @@ type SessionRow = {
 };
 
 export default function AccountSettingsPage() {
-  const [me, setMe] = useState<Me['user'] | null>(null);
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-
-  function refresh() {
-    apiFetch<Me>('/auth/me').then((res) => setMe(res.user));
-    apiFetch<{ sessions: SessionRow[] }>('/auth/sessions').then((res) => setSessions(res.sessions));
-  }
-
-  useEffect(refresh, []);
+  const { data: me, mutate: mutateMe } = useSWR<Me>('/auth/me');
+  const { data: sessionsData, mutate: mutateSessions } = useSWR<{ sessions: SessionRow[] }>(
+    '/auth/sessions',
+  );
 
   if (!me) return null;
 
@@ -65,19 +64,19 @@ export default function AccountSettingsPage() {
           <CardTitle>Profile</CardTitle>
         </CardHeader>
         <CardContent className="text-sm">
-          <p>{me.name}</p>
-          <p className="text-muted-foreground">{me.email}</p>
+          <p>{me.user.name}</p>
+          <p className="text-muted-foreground">{me.user.email}</p>
         </CardContent>
       </Card>
 
       <ChangePasswordCard />
       <PasskeysCard />
       <TwoFactorCard
-        totpEnabled={me.totpEnabled}
-        recoveryCodesRemaining={me.recoveryCodesRemaining}
-        onChange={refresh}
+        totpEnabled={me.user.totpEnabled}
+        recoveryCodesRemaining={me.user.recoveryCodesRemaining}
+        onChange={() => mutateMe()}
       />
-      <SessionsCard sessions={sessions} onChange={refresh} />
+      <SessionsCard sessions={sessionsData?.sessions ?? []} onChange={() => mutateSessions()} />
     </div>
   );
 }
@@ -85,27 +84,27 @@ export default function AccountSettingsPage() {
 function ChangePasswordCard() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit() {
-    setError(null);
-    setSuccess(false);
-    setSubmitting(true);
-    try {
-      await apiFetch('/auth/change-password', {
+  const changePassword = useAction(
+    () =>
+      apiFetch('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      setCurrentPassword('');
-      setNewPassword('');
-      setSuccess(true);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not change password');
-    } finally {
-      setSubmitting(false);
-    }
+      }),
+    { error: 'Could not change password' },
+  );
+
+  async function handleSubmit() {
+    setSuccess(false);
+    await changePassword
+      .trigger()
+      .then(() => {
+        setCurrentPassword('');
+        setNewPassword('');
+        setSuccess(true);
+      })
+      .catch(() => {});
   }
 
   return (
@@ -120,6 +119,7 @@ function ChangePasswordCard() {
           type="password"
           value={currentPassword}
           onChange={setCurrentPassword}
+          disabled={changePassword.isLoading}
         />
         <FormField
           id="newPassword"
@@ -129,20 +129,24 @@ function ChangePasswordCard() {
           onChange={setNewPassword}
           minLength={12}
           helpText="At least 12 characters."
+          disabled={changePassword.isLoading}
         />
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        <FormError
+          message={
+            changePassword.error
+              ? errorMessage(changePassword.error, 'Could not change password')
+              : null
+          }
+        />
         {success && <p className="text-sm text-muted-foreground">Password changed.</p>}
-        <Button
+        <LoadingButton
           type="button"
+          loading={changePassword.isLoading}
           onClick={handleSubmit}
-          disabled={submitting || !currentPassword || newPassword.length < 12}
+          disabled={!currentPassword || newPassword.length < 12}
         >
-          {submitting ? 'Changing…' : 'Change password'}
-        </Button>
+          Change password
+        </LoadingButton>
       </CardContent>
     </Card>
   );
@@ -158,55 +162,69 @@ function TwoFactorCard({
   onChange: () => void;
 }) {
   const [step, setStep] = useState<'idle' | 'setup' | 'recovery-codes' | 'regenerate'>('idle');
-  const [otpauthUrl, setOtpauthUrl] = useState('');
   const [code, setCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
   const [showDisable, setShowDisable] = useState(false);
   const [regeneratePassword, setRegeneratePassword] = useState('');
 
+  const setupAction = useAction(
+    () => apiFetch<{ secret: string; otpauthUrl: string }>('/auth/2fa/setup', { method: 'POST' }),
+    { error: 'Could not start 2FA setup' },
+  );
+  const confirmAction = useAction(
+    () =>
+      apiFetch<{ recoveryCodes: string[] }>('/auth/2fa/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    { error: 'Invalid code' },
+  );
+  const regenerateAction = useAction(
+    () =>
+      apiFetch<{ recoveryCodes: string[] }>('/auth/2fa/recovery-codes/regenerate', {
+        method: 'POST',
+        body: JSON.stringify({ password: regeneratePassword }),
+      }),
+    { error: 'Could not regenerate recovery codes' },
+  );
+  const disableAction = useAction(
+    () =>
+      apiFetch('/auth/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({ password: disablePassword, code: disableCode }),
+      }),
+    { error: 'Could not disable 2FA' },
+  );
+
   async function startSetup() {
-    setError(null);
-    const res = await apiFetch<{ secret: string; otpauthUrl: string }>('/auth/2fa/setup', {
-      method: 'POST',
-    });
-    setOtpauthUrl(res.otpauthUrl);
-    setStep('setup');
+    await setupAction
+      .trigger()
+      .then(() => setStep('setup'))
+      .catch(() => {});
   }
 
   async function confirmSetup() {
-    setError(null);
-    try {
-      const res = await apiFetch<{ recoveryCodes: string[] }>('/auth/2fa/confirm', {
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      });
-      setRecoveryCodes(res.recoveryCodes);
-      setStep('recovery-codes');
-      setCode('');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Invalid code');
-    }
+    await confirmAction
+      .trigger()
+      .then((res) => {
+        setRecoveryCodes(res.recoveryCodes);
+        setStep('recovery-codes');
+        setCode('');
+      })
+      .catch(() => {});
   }
 
   async function regenerateRecoveryCodes() {
-    setError(null);
-    try {
-      const res = await apiFetch<{ recoveryCodes: string[] }>(
-        '/auth/2fa/recovery-codes/regenerate',
-        {
-          method: 'POST',
-          body: JSON.stringify({ password: regeneratePassword }),
-        },
-      );
-      setRecoveryCodes(res.recoveryCodes);
-      setRegeneratePassword('');
-      setStep('recovery-codes');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not regenerate recovery codes');
-    }
+    await regenerateAction
+      .trigger()
+      .then((res) => {
+        setRecoveryCodes(res.recoveryCodes);
+        setRegeneratePassword('');
+        setStep('recovery-codes');
+      })
+      .catch(() => {});
   }
 
   function finishSetup() {
@@ -215,20 +233,16 @@ function TwoFactorCard({
     onChange();
   }
 
-  async function disable() {
-    setError(null);
-    try {
-      await apiFetch('/auth/2fa/disable', {
-        method: 'POST',
-        body: JSON.stringify({ password: disablePassword, code: disableCode }),
-      });
-      setShowDisable(false);
-      setDisablePassword('');
-      setDisableCode('');
-      onChange();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not disable 2FA');
-    }
+  async function disable2fa() {
+    await disableAction
+      .trigger()
+      .then(() => {
+        setShowDisable(false);
+        setDisablePassword('');
+        setDisableCode('');
+        onChange();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -240,28 +254,39 @@ function TwoFactorCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {step === 'idle' && !totpEnabled && <Button onClick={startSetup}>Enable 2FA</Button>}
+        {step === 'idle' && !totpEnabled && (
+          <LoadingButton loading={setupAction.isLoading} onClick={startSetup}>
+            Enable 2FA
+          </LoadingButton>
+        )}
 
         {step === 'setup' && (
           <div className="flex flex-col gap-4">
             <div className="w-fit rounded-lg border border-border bg-white p-3">
-              <QRCode value={otpauthUrl} size={160} />
+              <QRCode value={setupAction.data?.otpauthUrl ?? ''} size={160} />
             </div>
-            <p className="text-xs text-muted-foreground break-all">{otpauthUrl}</p>
+            <p className="text-xs text-muted-foreground break-all">
+              {setupAction.data?.otpauthUrl}
+            </p>
             <FormField
               id="totpCode"
               label="Enter the 6-digit code from your app"
               value={code}
               onChange={setCode}
+              disabled={confirmAction.isLoading}
             />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button onClick={confirmSetup} disabled={code.length !== 6}>
+            <FormError
+              message={
+                confirmAction.error ? errorMessage(confirmAction.error, 'Invalid code') : null
+              }
+            />
+            <LoadingButton
+              loading={confirmAction.isLoading}
+              onClick={confirmSetup}
+              disabled={code.length !== 6}
+            >
               Confirm
-            </Button>
+            </LoadingButton>
           </div>
         )}
 
@@ -301,17 +326,28 @@ function TwoFactorCard({
               type="password"
               value={regeneratePassword}
               onChange={setRegeneratePassword}
+              disabled={regenerateAction.isLoading}
             />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+            <FormError
+              message={
+                regenerateAction.error
+                  ? errorMessage(regenerateAction.error, 'Could not regenerate recovery codes')
+                  : null
+              }
+            />
             <div className="flex gap-2">
-              <Button onClick={regenerateRecoveryCodes} disabled={!regeneratePassword}>
+              <LoadingButton
+                loading={regenerateAction.isLoading}
+                onClick={regenerateRecoveryCodes}
+                disabled={!regeneratePassword}
+              >
                 Regenerate
-              </Button>
-              <Button variant="ghost" onClick={() => setStep('idle')}>
+              </LoadingButton>
+              <Button
+                variant="ghost"
+                onClick={() => setStep('idle')}
+                disabled={regenerateAction.isLoading}
+              >
                 Cancel
               </Button>
             </div>
@@ -332,25 +368,30 @@ function TwoFactorCard({
               type="password"
               value={disablePassword}
               onChange={setDisablePassword}
+              disabled={disableAction.isLoading}
             />
             <FormField
               id="disableCode"
               label="Authenticator or recovery code"
               value={disableCode}
               onChange={setDisableCode}
+              disabled={disableAction.isLoading}
             />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button
+            <FormError
+              message={
+                disableAction.error
+                  ? errorMessage(disableAction.error, 'Could not disable 2FA')
+                  : null
+              }
+            />
+            <LoadingButton
               variant="destructive"
-              onClick={disable}
+              loading={disableAction.isLoading}
+              onClick={disable2fa}
               disabled={!disablePassword || !disableCode}
             >
               Confirm disable
-            </Button>
+            </LoadingButton>
           </div>
         )}
       </CardContent>
@@ -359,43 +400,30 @@ function TwoFactorCard({
 }
 
 function PasskeysCard() {
-  const [passkeys, setPasskeys] = useState<PasskeyRow[]>([]);
+  const { data, mutate } = useSWR<{ credentials: PasskeyRow[] }>('/auth/passkey');
+  const passkeys = data?.credentials ?? [];
   const [deviceName, setDeviceName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   // Checked after mount, not during render, so the server-rendered HTML
   // matches the client's first render — same reasoning as the /login
   // passkey button.
   const [supported, setSupported] = useState(false);
 
-  const refresh = useCallback(() => {
-    apiFetch<{ credentials: PasskeyRow[] }>('/auth/passkey').then((res) =>
-      setPasskeys(res.credentials),
-    );
+  useEffect(() => {
+    setSupported(browserSupportsWebAuthn());
   }, []);
 
-  useEffect(() => {
-    refresh();
-    setSupported(browserSupportsWebAuthn());
-  }, [refresh]);
+  const register = useAction(() => registerPasskey(deviceName || undefined), {
+    error: 'Could not register passkey',
+  });
 
   async function handleRegister() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await registerPasskey(deviceName || undefined);
-      setDeviceName('');
-      refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not register passkey');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function remove(id: string) {
-    await apiFetch(`/auth/passkey/${id}`, { method: 'DELETE' });
-    refresh();
+    await register
+      .trigger()
+      .then(() => {
+        setDeviceName('');
+        mutate();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -420,20 +448,7 @@ function PasskeysCard() {
             </TableHeader>
             <TableBody>
               {passkeys.map((passkey) => (
-                <TableRow key={passkey.id}>
-                  <TableCell>{passkey.deviceName ?? 'Unnamed passkey'}</TableCell>
-                  <TableCell>{new Date(passkey.createdAt).toLocaleDateString()}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {passkey.lastUsedAt
-                      ? new Date(passkey.lastUsedAt).toLocaleDateString()
-                      : 'Never'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => remove(passkey.id)}>
-                      Remove
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <PasskeyRowItem key={passkey.id} passkey={passkey} onRemoved={() => mutate()} />
               ))}
             </TableBody>
           </Table>
@@ -448,33 +463,62 @@ function PasskeysCard() {
                 value={deviceName}
                 onChange={setDeviceName}
                 helpText="e.g. “MacBook Touch ID”"
+                disabled={register.isLoading}
               />
             </div>
-            <Button type="button" onClick={handleRegister} disabled={submitting}>
-              {submitting ? 'Waiting for passkey…' : 'Add a passkey'}
-            </Button>
+            <LoadingButton
+              type="button"
+              loading={register.isLoading}
+              loadingText="Waiting for passkey…"
+              onClick={handleRegister}
+            >
+              Add a passkey
+            </LoadingButton>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             This browser doesn&apos;t support passkeys.
           </p>
         )}
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        <FormError
+          message={
+            register.error ? errorMessage(register.error, 'Could not register passkey') : null
+          }
+        />
       </CardContent>
     </Card>
   );
 }
 
-function SessionsCard({ sessions, onChange }: { sessions: SessionRow[]; onChange: () => void }) {
-  async function revoke(id: string) {
-    await apiFetch(`/auth/sessions/${id}`, { method: 'DELETE' });
-    onChange();
+function PasskeyRowItem({ passkey, onRemoved }: { passkey: PasskeyRow; onRemoved: () => void }) {
+  const remove = useAction(() => apiFetch(`/auth/passkey/${passkey.id}`, { method: 'DELETE' }), {
+    error: 'Could not remove passkey',
+  });
+
+  async function handleRemove() {
+    await remove
+      .trigger()
+      .then(onRemoved)
+      .catch(() => {});
   }
 
+  return (
+    <TableRow>
+      <TableCell>{passkey.deviceName ?? 'Unnamed passkey'}</TableCell>
+      <TableCell>{new Date(passkey.createdAt).toLocaleDateString()}</TableCell>
+      <TableCell className="text-muted-foreground">
+        {passkey.lastUsedAt ? new Date(passkey.lastUsedAt).toLocaleDateString() : 'Never'}
+      </TableCell>
+      <TableCell className="text-right">
+        <LoadingButton variant="ghost" size="sm" loading={remove.isLoading} onClick={handleRemove}>
+          Remove
+        </LoadingButton>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function SessionsCard({ sessions, onChange }: { sessions: SessionRow[]; onChange: () => void }) {
   return (
     <Card>
       <CardHeader>
@@ -492,26 +536,46 @@ function SessionsCard({ sessions, onChange }: { sessions: SessionRow[]; onChange
           </TableHeader>
           <TableBody>
             {sessions.map((session) => (
-              <TableRow key={session.id}>
-                <TableCell>{session.ipAddress ?? 'unknown'}</TableCell>
-                <TableCell className="max-w-[240px] truncate">
-                  {session.userAgent ?? 'unknown'}
-                </TableCell>
-                <TableCell>{new Date(session.createdAt).toLocaleString()}</TableCell>
-                <TableCell className="text-right">
-                  {session.isCurrent ? (
-                    <Badge variant="secondary">Current</Badge>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => revoke(session.id)}>
-                      Revoke
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
+              <SessionRowItem key={session.id} session={session} onRevoked={onChange} />
             ))}
           </TableBody>
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function SessionRowItem({ session, onRevoked }: { session: SessionRow; onRevoked: () => void }) {
+  const revoke = useAction(() => apiFetch(`/auth/sessions/${session.id}`, { method: 'DELETE' }), {
+    error: 'Could not revoke session',
+  });
+
+  async function handleRevoke() {
+    await revoke
+      .trigger()
+      .then(onRevoked)
+      .catch(() => {});
+  }
+
+  return (
+    <TableRow>
+      <TableCell>{session.ipAddress ?? 'unknown'}</TableCell>
+      <TableCell className="max-w-[240px] truncate">{session.userAgent ?? 'unknown'}</TableCell>
+      <TableCell>{new Date(session.createdAt).toLocaleString()}</TableCell>
+      <TableCell className="text-right">
+        {session.isCurrent ? (
+          <Badge variant="secondary">Current</Badge>
+        ) : (
+          <LoadingButton
+            variant="ghost"
+            size="sm"
+            loading={revoke.isLoading}
+            onClick={handleRevoke}
+          >
+            Revoke
+          </LoadingButton>
+        )}
+      </TableCell>
+    </TableRow>
   );
 }

@@ -1,9 +1,9 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import useSWR from 'swr';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { apiFetch } from '@/lib/api';
 
 type OnboardingStatus = {
   needsOnboarding: boolean;
@@ -23,22 +23,23 @@ const STEPS = [
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [status, setStatus] = useState<OnboardingStatus | null>(null);
+  const { data: status, mutate } = useSWR<OnboardingStatus>('/onboarding/status');
 
+  // Re-checks on every step navigation so completing a step elsewhere (or
+  // the org step itself finishing) is reflected in the indicator — SWR's
+  // own key-based caching wouldn't otherwise refetch just because the
+  // pathname changed under the same layout instance.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is a deliberate re-run trigger, not read in the body.
   useEffect(() => {
-    apiFetch<OnboardingStatus>('/onboarding/status').then((res) => {
-      // Already done — nothing left for this wizard to do, send them on.
-      if (!res.needsOnboarding && pathname !== '/onboarding/organization') {
-        router.replace('/');
-        return;
-      }
-      setStatus(res);
-    });
-    // Re-checks on every step navigation so completing a step elsewhere
-    // (or the org step itself finishing) is reflected in the indicator.
-    // `router` is a stable reference from next/navigation, so this doesn't
-    // re-run on every render.
-  }, [pathname, router]);
+    mutate();
+  }, [pathname, mutate]);
+
+  // Already done — nothing left for this wizard to do, send them on.
+  useEffect(() => {
+    if (status && !status.needsOnboarding && pathname !== '/onboarding/organization') {
+      router.replace('/');
+    }
+  }, [status, pathname, router]);
 
   if (!status) return null;
 

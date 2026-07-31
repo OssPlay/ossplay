@@ -2,10 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { toast } from 'sonner';
+import useSWR from 'swr';
+import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { useActiveActionCount } from '@/lib/action-store';
+import { apiFetch } from '@/lib/api';
 
 type Me = {
   user: { id: string; email: string; name: string; instanceRole: string | null };
@@ -14,24 +18,20 @@ type Me = {
 
 export default function Home() {
   const router = useRouter();
-  const [me, setMe] = useState<Me | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
+  const { data: me } = useSWR<Me>('/auth/me');
+  const activeActionCount = useActiveActionCount();
+  const logout = useAction(() => apiFetch('/auth/logout', { method: 'POST' }), { error: null });
 
-  useEffect(() => {
-    apiFetch<Me>('/auth/me')
-      .then(setMe)
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 401) {
-          router.replace('/login');
-        }
-      });
-  }, [router]);
-
-  async function handleLogout() {
-    setLoggingOut(true);
+  async function handleLogoutClick() {
+    if (activeActionCount > 0) {
+      toast.info('Please wait for the current action to finish.');
+      return;
+    }
     try {
-      await apiFetch('/auth/logout', { method: 'POST' });
+      await logout.trigger();
     } finally {
+      // Always navigate away, even if the server-side logout call failed —
+      // clearing local state matters more than a clean server round-trip.
       router.replace('/login');
       router.refresh();
     }
@@ -73,9 +73,9 @@ export default function Home() {
           <Link href="/settings/account" className={buttonVariants({ variant: 'outline' })}>
             Settings
           </Link>
-          <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
-            {loggingOut ? 'Logging out…' : 'Log out'}
-          </Button>
+          <LoadingButton variant="outline" loading={logout.isLoading} onClick={handleLogoutClick}>
+            Log out
+          </LoadingButton>
         </CardContent>
       </Card>
     </div>

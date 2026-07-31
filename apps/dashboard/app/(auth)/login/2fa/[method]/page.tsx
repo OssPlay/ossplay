@@ -3,9 +3,11 @@
 import { useParams, useRouter } from 'next/navigation';
 import { type SyntheticEvent, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 // Only 'totp' is a real value today (TOTP codes and recovery codes both
 // verify at the same endpoint/screen) — this route exists as forward-
@@ -17,22 +19,21 @@ export default function TwoFactorMethodPage() {
   const { method } = useParams<{ method: string }>();
   const router = useRouter();
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+
+  const verify = useAction(
+    () => apiFetch('/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+    { error: 'Invalid code' },
+  );
 
   async function handleVerify(event: SyntheticEvent) {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiFetch('/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) });
-      router.push('/');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Invalid code');
-    } finally {
-      setSubmitting(false);
-    }
+    await verify
+      .trigger()
+      .then(() => {
+        router.push('/');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -48,15 +49,25 @@ export default function TwoFactorMethodPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleVerify} className="flex flex-col gap-4">
-            <FormField id="code" label="Code" value={code} onChange={setCode} required autoFocus />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button type="submit" onClick={handleVerify} disabled={submitting || !code}>
-              {submitting ? 'Verifying…' : 'Verify'}
-            </Button>
+            <FormField
+              id="code"
+              label="Code"
+              value={code}
+              onChange={setCode}
+              required
+              autoFocus
+              disabled={verify.isLoading}
+            />
+            <FormError message={verify.error ? errorMessage(verify.error, 'Invalid code') : null} />
+            <LoadingButton
+              type="submit"
+              loading={verify.isLoading}
+              loadingText="Verifying…"
+              onClick={handleVerify}
+              disabled={!code}
+            >
+              Verify
+            </LoadingButton>
           </form>
         </CardContent>
       </Card>

@@ -4,9 +4,11 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { type SyntheticEvent, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 export default function SetupPage() {
   const router = useRouter();
@@ -14,10 +16,18 @@ export default function SetupPage() {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
 
   const passwordsMismatched = confirmPassword.length > 0 && adminPassword !== confirmPassword;
+
+  const setup = useAction(
+    () =>
+      apiFetch('/setup', {
+        method: 'POST',
+        body: JSON.stringify({ adminName, adminEmail, adminPassword }),
+      }),
+    { error: 'Setup failed' },
+  );
 
   // Explicit preventDefault on both the form's submit (Enter key in a text
   // field) and the button's click — belt and suspenders against native form
@@ -28,23 +38,17 @@ export default function SetupPage() {
   async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
     if (adminPassword !== confirmPassword) {
-      setError('Passwords do not match');
+      setMismatchError('Passwords do not match');
       return;
     }
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiFetch('/setup', {
-        method: 'POST',
-        body: JSON.stringify({ adminName, adminEmail, adminPassword }),
-      });
-      router.push('/onboarding');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Setup failed');
-    } finally {
-      setSubmitting(false);
-    }
+    setMismatchError(null);
+    await setup
+      .trigger()
+      .then(() => {
+        router.push('/onboarding');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -73,6 +77,7 @@ export default function SetupPage() {
               required
               autoComplete="name"
               autoFocus
+              disabled={setup.isLoading}
             />
             <FormField
               id="adminEmail"
@@ -82,6 +87,7 @@ export default function SetupPage() {
               onChange={setAdminEmail}
               required
               autoComplete="email"
+              disabled={setup.isLoading}
             />
             <FormField
               id="adminPassword"
@@ -93,6 +99,7 @@ export default function SetupPage() {
               minLength={12}
               helpText="At least 12 characters."
               autoComplete="new-password"
+              disabled={setup.isLoading}
             />
             <FormField
               id="confirmPassword"
@@ -104,19 +111,22 @@ export default function SetupPage() {
               minLength={12}
               autoComplete="new-password"
               helpText={passwordsMismatched ? 'Passwords do not match.' : undefined}
+              disabled={setup.isLoading}
             />
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button
+            <FormError
+              message={
+                mismatchError ?? (setup.error ? errorMessage(setup.error, 'Setup failed') : null)
+              }
+            />
+            <LoadingButton
               type="submit"
+              loading={setup.isLoading}
+              loadingText="Setting up…"
               onClick={handleSubmit}
-              disabled={submitting || passwordsMismatched}
+              disabled={passwordsMismatched}
             >
-              {submitting ? 'Setting up…' : 'Create admin account'}
-            </Button>
+              Create admin account
+            </LoadingButton>
           </form>
         </CardContent>
       </Card>

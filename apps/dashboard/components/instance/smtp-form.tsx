@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Label } from '@/components/ui/label';
+import { LoadingButton } from '@/components/ui/loading-button';
 import { Switch } from '@/components/ui/switch';
-import { ApiError, apiFetch } from '@/lib/api';
+import { useAction } from '@/hooks/use-action';
+import { ApiError, apiFetch, errorMessage } from '@/lib/api';
 
 type InstanceSettings = {
   smtpHost: string | null;
@@ -28,7 +31,11 @@ export function SmtpForm({
   saveLabel?: string;
   onSaved?: () => void;
 }) {
-  const [settings, setSettings] = useState<InstanceSettings | null>(null);
+  const {
+    data: settings,
+    error: settingsError,
+    mutate,
+  } = useSWR<InstanceSettings>('/instance/settings');
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('');
   const [smtpUsername, setSmtpUsername] = useState('');
@@ -36,33 +43,27 @@ export function SmtpForm({
   const [smtpFromAddress, setSmtpFromAddress] = useState('');
   const [smtpFromName, setSmtpFromName] = useState('');
   const [smtpSecure, setSmtpSecure] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [forbidden, setForbidden] = useState(false);
+  // Seeds the editable fields from the fetched value exactly once — a
+  // background SWR revalidation must not stomp on what the user is
+  // currently typing.
+  const seeded = useRef(false);
 
   useEffect(() => {
-    apiFetch<InstanceSettings>('/instance/settings')
-      .then((res) => {
-        setSettings(res);
-        setSmtpHost(res.smtpHost ?? '');
-        setSmtpPort(res.smtpPort ? String(res.smtpPort) : '');
-        setSmtpUsername(res.smtpUsername ?? '');
-        setSmtpFromAddress(res.smtpFromAddress ?? '');
-        setSmtpFromName(res.smtpFromName ?? '');
-        setSmtpSecure(res.smtpSecure);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 403) setForbidden(true);
-      });
-  }, []);
+    if (settings && !seeded.current) {
+      setSmtpHost(settings.smtpHost ?? '');
+      setSmtpPort(settings.smtpPort ? String(settings.smtpPort) : '');
+      setSmtpUsername(settings.smtpUsername ?? '');
+      setSmtpFromAddress(settings.smtpFromAddress ?? '');
+      setSmtpFromName(settings.smtpFromName ?? '');
+      setSmtpSecure(settings.smtpSecure);
+      seeded.current = true;
+    }
+  }, [settings]);
 
-  async function handleSubmit() {
-    setError(null);
-    setSuccess(false);
-    setSubmitting(true);
-    try {
-      await apiFetch('/instance/settings', {
+  const save = useAction(
+    () =>
+      apiFetch('/instance/settings', {
         method: 'PUT',
         body: JSON.stringify({
           smtpHost: smtpHost || null,
@@ -75,17 +76,24 @@ export function SmtpForm({
           smtpFromName: smtpFromName || null,
           smtpSecure,
         }),
-      });
-      setSmtpPassword('');
-      setSuccess(true);
-      onSaved?.();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not save settings');
-    } finally {
-      setSubmitting(false);
-    }
+      }),
+    { error: 'Could not save settings' },
+  );
+
+  async function handleSubmit() {
+    setSuccess(false);
+    await save
+      .trigger()
+      .then(() => {
+        setSmtpPassword('');
+        setSuccess(true);
+        mutate();
+        onSaved?.();
+      })
+      .catch(() => {});
   }
 
+  const forbidden = settingsError instanceof ApiError && settingsError.status === 403;
   if (forbidden) {
     return (
       <p className="text-sm text-muted-foreground">Only the instance root can view this page.</p>
@@ -96,13 +104,26 @@ export function SmtpForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <FormField id="smtpHost" label="Host" value={smtpHost} onChange={setSmtpHost} />
-      <FormField id="smtpPort" label="Port" value={smtpPort} onChange={setSmtpPort} />
+      <FormField
+        id="smtpHost"
+        label="Host"
+        value={smtpHost}
+        onChange={setSmtpHost}
+        disabled={save.isLoading}
+      />
+      <FormField
+        id="smtpPort"
+        label="Port"
+        value={smtpPort}
+        onChange={setSmtpPort}
+        disabled={save.isLoading}
+      />
       <FormField
         id="smtpUsername"
         label="Username"
         value={smtpUsername}
         onChange={setSmtpUsername}
+        disabled={save.isLoading}
       />
       <FormField
         id="smtpPassword"
@@ -113,6 +134,7 @@ export function SmtpForm({
         helpText={
           settings.smtpPasswordSet ? 'A password is set. Leave blank to keep it.' : undefined
         }
+        disabled={save.isLoading}
       />
       <FormField
         id="smtpFromAddress"
@@ -120,26 +142,31 @@ export function SmtpForm({
         type="email"
         value={smtpFromAddress}
         onChange={setSmtpFromAddress}
+        disabled={save.isLoading}
       />
       <FormField
         id="smtpFromName"
         label="From name"
         value={smtpFromName}
         onChange={setSmtpFromName}
+        disabled={save.isLoading}
       />
       <div className="flex items-center gap-2">
-        <Switch id="smtpSecure" checked={smtpSecure} onCheckedChange={setSmtpSecure} />
+        <Switch
+          id="smtpSecure"
+          checked={smtpSecure}
+          onCheckedChange={setSmtpSecure}
+          disabled={save.isLoading}
+        />
         <Label htmlFor="smtpSecure">Use TLS</Label>
       </div>
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+      <FormError
+        message={save.error ? errorMessage(save.error, 'Could not save settings') : null}
+      />
       {success && <p className="text-sm text-muted-foreground">Saved.</p>}
-      <Button type="button" onClick={handleSubmit} disabled={submitting}>
-        {submitting ? 'Saving…' : saveLabel}
-      </Button>
+      <LoadingButton type="button" loading={save.isLoading} onClick={handleSubmit}>
+        {saveLabel}
+      </LoadingButton>
     </div>
   );
 }

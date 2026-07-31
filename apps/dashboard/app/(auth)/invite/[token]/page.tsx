@@ -1,11 +1,14 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useState } from 'react';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 type InviteDetails = {
   email: string;
@@ -18,38 +21,33 @@ type InviteDetails = {
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
-  const [details, setDetails] = useState<InviteDetails | null>(null);
+  const { data: details, error: lookupError } = useSWR<InviteDetails>(
+    `/invitations/token/${token}`,
+  );
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [notFound, setNotFound] = useState(false);
 
-  useEffect(() => {
-    apiFetch<InviteDetails>(`/invitations/token/${token}`)
-      .then(setDetails)
-      .catch(() => setNotFound(true));
-  }, [token]);
+  const accept = useAction(
+    () =>
+      apiFetch(`/invitations/token/${token}/accept`, {
+        method: 'POST',
+        body: details?.accountExists ? undefined : JSON.stringify({ name, password }),
+      }),
+    { error: 'Could not accept invitation' },
+  );
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiFetch(`/invitations/token/${token}/accept`, {
-        method: 'POST',
-        body: details?.accountExists ? undefined : JSON.stringify({ name, password }),
-      });
-      router.push('/');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not accept invitation');
-    } finally {
-      setSubmitting(false);
-    }
+    await accept
+      .trigger()
+      .then(() => {
+        router.push('/');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
-  if (notFound) {
+  if (lookupError) {
     return (
       <div className="flex flex-1 items-center justify-center bg-card">
         <p className="text-sm text-muted-foreground">This invitation is no longer valid.</p>
@@ -72,7 +70,14 @@ export default function InvitePage() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {!details.accountExists && (
               <>
-                <FormField id="name" label="Your name" value={name} onChange={setName} required />
+                <FormField
+                  id="name"
+                  label="Your name"
+                  value={name}
+                  onChange={setName}
+                  required
+                  disabled={accept.isLoading}
+                />
                 <FormField
                   id="password"
                   label="Password"
@@ -82,6 +87,7 @@ export default function InvitePage() {
                   required
                   minLength={12}
                   helpText="At least 12 characters."
+                  disabled={accept.isLoading}
                 />
               </>
             )}
@@ -90,14 +96,19 @@ export default function InvitePage() {
                 Log in as {details.email}, then come back to this page to accept.
               </p>
             )}
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button type="submit" onClick={handleSubmit} disabled={submitting}>
-              {submitting ? 'Joining…' : 'Accept invitation'}
-            </Button>
+            <FormError
+              message={
+                accept.error ? errorMessage(accept.error, 'Could not accept invitation') : null
+              }
+            />
+            <LoadingButton
+              type="submit"
+              loading={accept.isLoading}
+              loadingText="Joining…"
+              onClick={handleSubmit}
+            >
+              Accept invitation
+            </LoadingButton>
           </form>
         </CardContent>
       </Card>

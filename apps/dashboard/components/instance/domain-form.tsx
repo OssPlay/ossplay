@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
-import { ApiError, apiFetch } from '@/lib/api';
+import { FormError } from '@/components/form-error';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 // Shared by /settings/instance and /onboarding/dns — same field, same
 // PUT /instance/domain call. Caddy's admin API may not be reachable (local
@@ -16,36 +19,40 @@ export function DomainForm({
   saveLabel?: string;
   onSaved?: () => void;
 }) {
+  const { data, mutate } = useSWR<{ domain: string | null }>('/instance/settings');
   const [domain, setDomain] = useState('');
-  const [existingDomain, setExistingDomain] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Seeds the editable field from the fetched value exactly once — a
+  // background SWR revalidation must not stomp on what the user is
+  // currently typing.
+  const seeded = useRef(false);
 
   useEffect(() => {
-    apiFetch<{ domain: string | null }>('/instance/settings').then((res) => {
-      setExistingDomain(res.domain);
-      setDomain(res.domain ?? '');
-    });
-  }, []);
+    if (data && !seeded.current) {
+      setDomain(data.domain ?? '');
+      seeded.current = true;
+    }
+  }, [data]);
 
-  async function handleSubmit() {
-    setError(null);
-    setMessage(null);
-    setSubmitting(true);
-    try {
-      const res = await apiFetch<{ domain: string | null; caddyApplied: boolean; message: string }>(
+  const save = useAction(
+    () =>
+      apiFetch<{ domain: string | null; caddyApplied: boolean; message: string }>(
         '/instance/domain',
         { method: 'PUT', body: JSON.stringify({ domain: domain || null }) },
-      );
-      setExistingDomain(res.domain);
-      setMessage(res.message);
-      onSaved?.();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not save domain');
-    } finally {
-      setSubmitting(false);
-    }
+      ),
+    { error: 'Could not save domain' },
+  );
+
+  async function handleSubmit() {
+    setMessage(null);
+    await save
+      .trigger()
+      .then((res) => {
+        setMessage(res.message);
+        mutate();
+        onSaved?.();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -56,18 +63,15 @@ export function DomainForm({
         value={domain}
         onChange={setDomain}
         helpText="e.g. ossplay.example.com — needs to already point at this server."
+        disabled={save.isLoading}
       />
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+      <FormError message={save.error ? errorMessage(save.error, 'Could not save domain') : null} />
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
-      <Button type="button" onClick={handleSubmit} disabled={submitting}>
-        {submitting ? 'Saving…' : saveLabel}
-      </Button>
-      {existingDomain && (
-        <p className="text-xs text-muted-foreground">Currently configured: {existingDomain}</p>
+      <LoadingButton type="button" loading={save.isLoading} onClick={handleSubmit}>
+        {saveLabel}
+      </LoadingButton>
+      {data?.domain && (
+        <p className="text-xs text-muted-foreground">Currently configured: {data.domain}</p>
       )}
     </div>
   );

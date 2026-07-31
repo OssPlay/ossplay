@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
+import { FormError } from '@/components/form-error';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { LoadingButton } from '@/components/ui/loading-button';
 import {
   Table,
   TableBody,
@@ -14,7 +16,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ApiError, apiFetch } from '@/lib/api';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 type Me = { organizations: Array<{ orgId: string; orgName: string; role: string }> };
 type Member = {
@@ -36,41 +39,31 @@ type Invitation = {
 const ROLES = ['member', 'admin', 'owner'] as const;
 
 export default function OrganizationSettingsPage() {
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [orgName, setOrgName] = useState('');
-  const [members, setMembers] = useState<Member[]>([]);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
-  const [canManageMembers, setCanManageMembers] = useState(false);
+  const { data: me } = useSWR<Me>('/auth/me');
+  const org = me?.organizations[0];
+  const orgId = org?.orgId ?? null;
 
-  const refresh = useCallback((id: string) => {
-    apiFetch<{ members: Member[] }>(`/organizations/${id}/members`).then((res) =>
-      setMembers(res.members),
-    );
-    apiFetch<{ invitations: Invitation[] }>(`/organizations/${id}/invitations`)
-      .then((res) => {
-        setInvitations(res.invitations);
-        setCanManageMembers(true);
-      })
-      .catch(() => setCanManageMembers(false));
-  }, []);
+  const { data: membersData, mutate: mutateMembers } = useSWR<{ members: Member[] }>(
+    orgId ? `/organizations/${orgId}/members` : null,
+  );
+  const { data: invitationsData, mutate: mutateInvitations } = useSWR<{
+    invitations: Invitation[];
+  }>(orgId ? `/organizations/${orgId}/invitations` : null);
 
-  useEffect(() => {
-    apiFetch<Me>('/auth/me').then((me) => {
-      const org = me.organizations[0];
-      if (!org) return;
-      setOrgId(org.orgId);
-      setOrgName(org.orgName);
-      refresh(org.orgId);
-    });
-  }, [refresh]);
+  if (!orgId || !org) return null;
 
-  if (!orgId) return null;
+  const canManageMembers = Boolean(invitationsData);
+
+  function refresh() {
+    mutateMembers();
+    mutateInvitations();
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>{orgName}</CardTitle>
+          <CardTitle>{org.orgName}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -83,7 +76,7 @@ export default function OrganizationSettingsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {members.map((member) => (
+              {(membersData?.members ?? []).map((member) => (
                 <TableRow key={member.userId}>
                   <TableCell>{member.name}</TableCell>
                   <TableCell>{member.email}</TableCell>
@@ -102,8 +95,8 @@ export default function OrganizationSettingsPage() {
 
       {canManageMembers && (
         <>
-          <InviteCard orgId={orgId} onInvited={() => refresh(orgId)} />
-          <InvitationsCard invitations={invitations} onChange={() => refresh(orgId)} />
+          <InviteCard orgId={orgId} onInvited={refresh} />
+          <InvitationsCard invitations={invitationsData?.invitations ?? []} onChange={refresh} />
         </>
       )}
     </div>
@@ -113,27 +106,27 @@ export default function OrganizationSettingsPage() {
 function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<(typeof ROLES)[number]>('member');
-  const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit() {
-    setError(null);
-    setWarning(null);
-    setSubmitting(true);
-    try {
-      const res = await apiFetch<{ warning?: string }>(`/organizations/${orgId}/invitations`, {
+  const invite = useAction(
+    () =>
+      apiFetch<{ warning?: string }>(`/organizations/${orgId}/invitations`, {
         method: 'POST',
         body: JSON.stringify({ email, role }),
-      });
-      if (res.warning) setWarning(res.warning);
-      setEmail('');
-      onInvited();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not send invitation');
-    } finally {
-      setSubmitting(false);
-    }
+      }),
+    { error: 'Could not send invitation' },
+  );
+
+  async function handleSubmit() {
+    setWarning(null);
+    await invite
+      .trigger()
+      .then((res) => {
+        if (res.warning) setWarning(res.warning);
+        setEmail('');
+        onInvited();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -150,6 +143,7 @@ function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void
               type="email"
               value={email}
               onChange={setEmail}
+              disabled={invite.isLoading}
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -158,6 +152,7 @@ function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void
               id="inviteRole"
               value={role}
               onChange={(e) => setRole(e.target.value as (typeof ROLES)[number])}
+              disabled={invite.isLoading}
               className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
             >
               {ROLES.map((r) => (
@@ -167,15 +162,18 @@ function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void
               ))}
             </select>
           </div>
-          <Button type="button" onClick={handleSubmit} disabled={submitting || !email}>
+          <LoadingButton
+            type="button"
+            loading={invite.isLoading}
+            onClick={handleSubmit}
+            disabled={!email}
+          >
             Invite
-          </Button>
+          </LoadingButton>
         </div>
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        <FormError
+          message={invite.error ? errorMessage(invite.error, 'Could not send invitation') : null}
+        />
         {warning && (
           <p className="text-sm text-muted-foreground">{warning} — share the link manually.</p>
         )}
@@ -191,11 +189,6 @@ function InvitationsCard({
   invitations: Invitation[];
   onChange: () => void;
 }) {
-  async function revoke(id: string) {
-    await apiFetch(`/invitations/${id}/revoke`, { method: 'POST' });
-    onChange();
-  }
-
   const pending = invitations.filter((i) => i.status === 'pending');
   if (pending.length === 0) return null;
 
@@ -216,24 +209,48 @@ function InvitationsCard({
           </TableHeader>
           <TableBody>
             {pending.map((invitation) => (
-              <TableRow key={invitation.id}>
-                <TableCell>{invitation.email}</TableCell>
-                <TableCell>
-                  <Badge variant="secondary">{invitation.role}</Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {invitation.isExpired ? 'Expired' : 'Pending'}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => revoke(invitation.id)}>
-                    Revoke
-                  </Button>
-                </TableCell>
-              </TableRow>
+              <InvitationRowItem key={invitation.id} invitation={invitation} onRevoked={onChange} />
             ))}
           </TableBody>
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function InvitationRowItem({
+  invitation,
+  onRevoked,
+}: {
+  invitation: Invitation;
+  onRevoked: () => void;
+}) {
+  const revoke = useAction(
+    () => apiFetch(`/invitations/${invitation.id}/revoke`, { method: 'POST' }),
+    { error: 'Could not revoke invitation' },
+  );
+
+  async function handleRevoke() {
+    await revoke
+      .trigger()
+      .then(onRevoked)
+      .catch(() => {});
+  }
+
+  return (
+    <TableRow>
+      <TableCell>{invitation.email}</TableCell>
+      <TableCell>
+        <Badge variant="secondary">{invitation.role}</Badge>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {invitation.isExpired ? 'Expired' : 'Pending'}
+      </TableCell>
+      <TableCell className="text-right">
+        <LoadingButton variant="ghost" size="sm" loading={revoke.isLoading} onClick={handleRevoke}>
+          Revoke
+        </LoadingButton>
+      </TableCell>
+    </TableRow>
   );
 }

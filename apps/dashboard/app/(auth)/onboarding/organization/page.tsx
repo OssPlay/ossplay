@@ -3,31 +3,32 @@
 import { useRouter } from 'next/navigation';
 import { type SyntheticEvent, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { CardDescription } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 // The only required onboarding step — an instance needs at least one
 // organization before the dashboard itself is useful for anything.
 export default function OnboardingOrganizationStep() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+
+  const createOrg = useAction(
+    () => apiFetch('/organizations', { method: 'POST', body: JSON.stringify({ name }) }),
+    { error: 'Could not create organization' },
+  );
 
   async function handleSubmit(event: SyntheticEvent) {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiFetch('/organizations', { method: 'POST', body: JSON.stringify({ name }) });
-      router.push('/');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create organization');
-    } finally {
-      setSubmitting(false);
-    }
+    await createOrg
+      .trigger()
+      .then(() => {
+        router.push('/');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -40,15 +41,22 @@ export default function OnboardingOrganizationStep() {
         onChange={setName}
         required
         autoFocus
+        disabled={createOrg.isLoading}
       />
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-      <Button type="submit" onClick={handleSubmit} disabled={submitting || !name}>
-        {submitting ? 'Creating…' : 'Finish setup'}
-      </Button>
+      <FormError
+        message={
+          createOrg.error ? errorMessage(createOrg.error, 'Could not create organization') : null
+        }
+      />
+      <LoadingButton
+        type="submit"
+        loading={createOrg.isLoading}
+        loadingText="Creating…"
+        onClick={handleSubmit}
+        disabled={!name}
+      >
+        Finish setup
+      </LoadingButton>
     </form>
   );
 }

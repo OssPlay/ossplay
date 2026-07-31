@@ -2,20 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/api';
+import useSWR from 'swr';
 
 type Me = { user: { instanceRole: string | null } };
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [isRoot, setIsRoot] = useState(false);
-
-  useEffect(() => {
-    apiFetch<Me>('/auth/me')
-      .then((me) => setIsRoot(me.user.instanceRole === 'root'))
-      .catch(() => {});
-  }, []);
+  const { data: me } = useSWR<Me>('/auth/me');
+  const isRoot = me?.user.instanceRole === 'root';
 
   const tabs = [
     { href: '/settings/account', label: 'Account' },

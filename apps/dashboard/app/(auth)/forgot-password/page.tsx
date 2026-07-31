@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { type FormEvent, type SyntheticEvent, useEffect, useState } from 'react';
+import { type FormEvent, type SyntheticEvent, useState } from 'react';
+import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
 import { apiFetch } from '@/lib/api';
 
 // Two recovery methods: email (if this instance has SMTP configured — a
@@ -16,28 +18,25 @@ import { apiFetch } from '@/lib/api';
 // here: they only make sense once a password has already been proven, and
 // the login flow already handles that case.
 export default function ForgotPasswordPage() {
+  const { data } = useSWR<{ smtpConfigured: boolean }>('/setup/status');
+  const smtpConfigured = data?.smtpConfigured ?? null;
   const [email, setEmail] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
-  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
 
-  useEffect(() => {
-    apiFetch<{ smtpConfigured: boolean }>('/setup/status').then((res) =>
-      setSmtpConfigured(res.smtpConfigured),
-    );
-  }, []);
+  // The API never reveals whether the email exists either — a failed
+  // request still shows the same confirmation, so the toast/error surface
+  // useAction would otherwise show is suppressed here on purpose.
+  const forgotPassword = useAction(
+    () => apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+    { error: null },
+  );
 
   async function handleSubmit(event: FormEvent | SyntheticEvent) {
     event.preventDefault();
-    setSubmitting(true);
-    try {
-      await apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
-    } finally {
-      // Always show the same confirmation — the API itself never reveals
-      // whether the email exists either.
-      setSent(true);
-      setSubmitting(false);
-    }
+    await forgotPassword
+      .trigger()
+      .catch(() => {})
+      .finally(() => setSent(true));
   }
 
   return (
@@ -67,10 +66,16 @@ export default function ForgotPasswordPage() {
                     onChange={setEmail}
                     required
                     autoFocus
+                    disabled={forgotPassword.isLoading}
                   />
-                  <Button type="submit" onClick={handleSubmit} disabled={submitting}>
-                    {submitting ? 'Sending…' : 'Send reset link'}
-                  </Button>
+                  <LoadingButton
+                    type="submit"
+                    loading={forgotPassword.isLoading}
+                    loadingText="Sending…"
+                    onClick={handleSubmit}
+                  >
+                    Send reset link
+                  </LoadingButton>
                 </form>
               )}
               {smtpConfigured === false && (

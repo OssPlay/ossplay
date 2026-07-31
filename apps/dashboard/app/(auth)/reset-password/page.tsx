@@ -3,33 +3,35 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, Suspense, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { apiFetch, errorMessage } from '@/lib/api';
 
 function ResetPasswordForm() {
   const router = useRouter();
   const token = useSearchParams().get('token') ?? '';
   const [newPassword, setNewPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+
+  const reset = useAction(
+    () =>
+      apiFetch('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, newPassword }),
+      }),
+    { error: 'Could not reset password' },
+  );
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await apiFetch('/auth/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ token, newPassword }),
-      });
-      router.push('/');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not reset password');
-    } finally {
-      setSubmitting(false);
-    }
+    await reset
+      .trigger()
+      .then(() => {
+        router.push('/');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
   if (!token) {
@@ -47,15 +49,20 @@ function ResetPasswordForm() {
         required
         minLength={12}
         helpText="At least 12 characters."
+        disabled={reset.isLoading}
       />
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-      <Button type="submit" onClick={handleSubmit} disabled={submitting || newPassword.length < 12}>
-        {submitting ? 'Resetting…' : 'Reset password'}
-      </Button>
+      <FormError
+        message={reset.error ? errorMessage(reset.error, 'Could not reset password') : null}
+      />
+      <LoadingButton
+        type="submit"
+        loading={reset.isLoading}
+        loadingText="Resetting…"
+        onClick={handleSubmit}
+        disabled={newPassword.length < 12}
+      >
+        Reset password
+      </LoadingButton>
     </form>
   );
 }

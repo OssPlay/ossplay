@@ -1,22 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import { DomainForm } from '@/components/instance/domain-form';
 import { SmtpForm } from '@/components/instance/smtp-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError, apiFetch } from '@/lib/api';
+import { ApiError } from '@/lib/api';
 
 export default function InstanceSettingsPage() {
-  const [forbidden, setForbidden] = useState(false);
-
-  // SmtpForm/DomainForm each fetch their own data — this just probes once
-  // up front so a non-root visitor sees a single clear message instead of
+  // SmtpForm/DomainForm each read the same '/instance/settings' key —
+  // SWR dedupes all three into one request, so this just probes once up
+  // front so a non-root visitor sees a single clear message instead of
   // two independently-403ing cards.
-  useEffect(() => {
-    apiFetch('/instance/settings').catch((err) => {
-      if (err instanceof ApiError && err.status === 403) setForbidden(true);
-    });
-  }, []);
+  const { error } = useSWR('/instance/settings');
+  const forbidden = error instanceof ApiError && error.status === 403;
 
   if (forbidden) {
     return (

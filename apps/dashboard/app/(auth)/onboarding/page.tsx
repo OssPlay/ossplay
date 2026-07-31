@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { apiFetch } from '@/lib/api';
+import useSWR from 'swr';
 
 type OnboardingStatus = {
   needsOnboarding: boolean;
@@ -16,14 +16,14 @@ type OnboardingStatus = {
 // Index route — just picks the first incomplete step and redirects there.
 export default function OnboardingIndexPage() {
   const router = useRouter();
+  const { data } = useSWR<OnboardingStatus>('/onboarding/status');
 
   useEffect(() => {
-    apiFetch<OnboardingStatus>('/onboarding/status').then((res) => {
-      if (!res.steps.dns.completed) router.replace('/onboarding/dns');
-      else if (!res.steps.smtp.completed) router.replace('/onboarding/smtp');
-      else router.replace('/onboarding/organization');
-    });
-  }, [router]);
+    if (!data) return;
+    if (!data.steps.dns.completed) router.replace('/onboarding/dns');
+    else if (!data.steps.smtp.completed) router.replace('/onboarding/smtp');
+    else router.replace('/onboarding/organization');
+  }, [data, router]);
 
   return null;
 }

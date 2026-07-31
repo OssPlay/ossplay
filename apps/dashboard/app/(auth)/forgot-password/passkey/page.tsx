@@ -2,9 +2,11 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { FormError } from '@/components/form-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ApiError } from '@/lib/api';
+import { LoadingButton } from '@/components/ui/loading-button';
+import { useAction } from '@/hooks/use-action';
+import { errorMessage } from '@/lib/api';
 import { browserSupportsWebAuthn, loginWithPasskey } from '@/lib/passkey';
 
 // Reuses the exact same ceremony as the /login passkey button — a
@@ -13,26 +15,22 @@ import { browserSupportsWebAuthn, loginWithPasskey } from '@/lib/passkey';
 // on the API side.
 export default function ForgotPasswordPasskeyPage() {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [supported, setSupported] = useState<boolean | null>(null);
 
   useEffect(() => {
     setSupported(browserSupportsWebAuthn());
   }, []);
 
+  const recover = useAction(() => loginWithPasskey(), { error: 'Passkey recovery failed' });
+
   async function handleClick() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await loginWithPasskey();
-      router.push('/');
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Passkey recovery failed');
-    } finally {
-      setSubmitting(false);
-    }
+    await recover
+      .trigger()
+      .then(() => {
+        router.push('/');
+        router.refresh();
+      })
+      .catch(() => {});
   }
 
   return (
@@ -51,14 +49,18 @@ export default function ForgotPasswordPasskeyPage() {
               This browser doesn&apos;t support passkeys.
             </p>
           )}
-          {error && (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-          <Button type="button" onClick={handleClick} disabled={submitting || supported === false}>
-            {submitting ? 'Waiting for passkey…' : 'Continue with a passkey'}
-          </Button>
+          <FormError
+            message={recover.error ? errorMessage(recover.error, 'Passkey recovery failed') : null}
+          />
+          <LoadingButton
+            type="button"
+            loading={recover.isLoading}
+            loadingText="Waiting for passkey…"
+            onClick={handleClick}
+            disabled={supported === false}
+          >
+            Continue with a passkey
+          </LoadingButton>
         </CardContent>
       </Card>
     </div>
