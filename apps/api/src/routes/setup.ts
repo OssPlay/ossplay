@@ -15,7 +15,7 @@ import type { AppEnv } from '../types';
 // routes/organizations.ts) — setup now only creates the instance root.
 const setupSchema = z.object({
   adminName: z.string().trim().min(1).max(200),
-  adminEmail: z.string().trim().email(),
+  adminEmail: z.email(),
   adminPassword: z.string().min(12).max(200),
 });
 
@@ -63,7 +63,7 @@ setupRoute.post('/', async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = setupSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+    return c.json({ error: 'Invalid input', details: z.treeifyError(parsed.error) }, 400);
   }
 
   const { adminName, adminPassword } = parsed.data;
@@ -72,7 +72,12 @@ setupRoute.post('/', async (c) => {
 
   const [user] = await getDb()
     .insert(users)
-    .values({ email: adminEmail, passwordHash, name: adminName, instanceRole: 'root' })
+    .values({
+      email: adminEmail,
+      passwordHash,
+      name: adminName,
+      instanceRole: 'root',
+    })
     .returning();
   // A single-row insert's RETURNING always yields exactly one row — drizzle's
   // type just can't express that statically.

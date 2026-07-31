@@ -2,6 +2,7 @@
   "extends": "@ossplay/config/tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "types": ["bun"],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"

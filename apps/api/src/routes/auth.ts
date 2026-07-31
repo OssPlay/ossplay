@@ -23,7 +23,7 @@ import { requireAuth } from '../middleware/require-auth';
 import type { AppEnv } from '../types';
 
 const loginSchema = z.object({
-  email: z.string().trim().email(),
+  email: z.email(),
   password: z.string().min(1),
 });
 
@@ -52,7 +52,9 @@ authRoute.post('/login', async (c) => {
   const invalidCredentials = () => c.json({ error: 'Invalid email or password' }, 401);
 
   if (!user) return invalidCredentials();
-  if (!(await verifyPassword(parsed.data.password, user.passwordHash))) return invalidCredentials();
+  if (!(await verifyPassword(parsed.data.password, user.passwordHash))) {
+    return invalidCredentials();
+  }
 
   resetRateLimit(rateLimitKey);
 

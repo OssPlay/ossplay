@@ -41,7 +41,10 @@ instanceUsersRoute.get('/', async (c) => {
   }
 
   return c.json({
-    users: rows.map((row) => ({ ...row, passkeyCount: passkeyCounts.get(row.id) ?? 0 })),
+    users: rows.map((row) => ({
+      ...row,
+      passkeyCount: passkeyCounts.get(row.id) ?? 0,
+    })),
   });
 });
 
@@ -57,7 +60,13 @@ const setPasswordSchema = z
 instanceUsersRoute.put('/:id/password', async (c) => {
   const parsed = setPasswordSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+    return c.json(
+      {
+        error: 'Invalid input',
+        details: z.treeifyError(parsed.error),
+      },
+      400,
+    );
   }
 
   const [target] = await getDb()
@@ -71,7 +80,9 @@ instanceUsersRoute.put('/:id/password', async (c) => {
   // in the dashboard's one-time reveal.
   const temporaryPassword = parsed.data.generateTemporary ? generateToken(18) : undefined;
   const newPassword = parsed.data.newPassword ?? temporaryPassword;
-  if (!newPassword) throw new Error('Expected a password to have been resolved by now');
+  if (!newPassword) {
+    throw new Error('Expected a password to have been resolved by now');
+  }
 
   await setUserPassword(target.id, await hashPassword(newPassword));
 

@@ -34,7 +34,7 @@ const settingsSchema = z.object({
   // Omitted or empty: leave the stored password unchanged. Set to null
   // explicitly to clear it.
   smtpPassword: z.string().max(1000).optional().nullable(),
-  smtpFromAddress: z.string().trim().email().nullable(),
+  smtpFromAddress: z.email().nullable(),
   smtpFromName: z.string().trim().max(255).nullable(),
   smtpSecure: z.boolean(),
 });
@@ -42,11 +42,18 @@ const settingsSchema = z.object({
 instanceRoute.put('/settings', async (c) => {
   const parsed = settingsSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+    return c.json({ error: 'Invalid input', details: z.treeifyError(parsed.error) }, 400);
   }
 
-  const { smtpHost, smtpPort, smtpUsername, smtpPassword, smtpFromAddress, smtpFromName, smtpSecure } =
-    parsed.data;
+  const {
+    smtpHost,
+    smtpPort,
+    smtpUsername,
+    smtpPassword,
+    smtpFromAddress,
+    smtpFromName,
+    smtpSecure,
+  } = parsed.data;
   writeInstanceConfig({
     smtp: {
       host: smtpHost,
@@ -56,7 +63,9 @@ instanceRoute.put('/settings', async (c) => {
       secure: smtpSecure,
       ...(smtpPassword === undefined
         ? {}
-        : { passwordEncrypted: smtpPassword ? encryptSecret(smtpPassword) : null }),
+        : {
+            passwordEncrypted: smtpPassword ? encryptSecret(smtpPassword) : null,
+          }),
     },
   });
 
@@ -84,7 +93,7 @@ const domainSchema = z.object({
 instanceRoute.put('/domain', async (c) => {
   const parsed = domainSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ error: 'Invalid input', details: parsed.error.flatten() }, 400);
+    return c.json({ error: 'Invalid input', details: z.treeifyError(parsed.error) }, 400);
   }
   const { domain } = parsed.data;
 

@@ -92,7 +92,7 @@ organizationsRoute.get(
 );
 
 const createInvitationSchema = z.object({
-  email: z.string().trim().email(),
+  email: z.email(),
   role: z.enum(['owner', 'admin', 'member']),
 });
 
@@ -123,7 +123,12 @@ organizationsRoute.post(
         ),
       );
     if (existingPending) {
-      return c.json({ error: 'An invitation is already pending for this email' }, 409);
+      return c.json(
+        {
+          error: 'An invitation is already pending for this email',
+        },
+        409,
+      );
     }
 
     const token = generateToken();
@@ -146,7 +151,11 @@ organizationsRoute.post(
     try {
       await sendMail(
         email,
-        inviteEmail({ orgName: org.name, inviterName: inviter.name, acceptUrl }),
+        inviteEmail({
+          orgName: org.name,
+          inviterName: inviter.name,
+          acceptUrl,
+        }),
       );
     } catch (err) {
       // The invitation record still exists — an admin can share the link

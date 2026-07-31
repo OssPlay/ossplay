@@ -41,7 +41,7 @@ passwordRoute.post('/change-password', requireAuth, async (c) => {
   return c.body(null, 204);
 });
 
-const forgotPasswordSchema = z.object({ email: z.string().trim().email() });
+const forgotPasswordSchema = z.object({ email: z.email() });
 
 passwordRoute.post('/forgot-password', async (c) => {
   const parsed = forgotPasswordSchema.safeParse(await c.req.json().catch(() => null));
@@ -69,7 +69,9 @@ passwordRoute.post('/forgot-password', async (c) => {
     }
   }
 
-  return c.json({ message: 'If that email exists, a reset link has been sent.' });
+  return c.json({
+    message: 'If that email exists, a reset link has been sent.',
+  });
 });
 
 const resetPasswordSchema = z.object({
