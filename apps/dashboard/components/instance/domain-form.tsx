@@ -8,7 +8,7 @@ import { LoadingButton } from '@/components/ui/loading-button';
 import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
 
-// Shared by /settings/instance and /onboarding/dns — same field, same
+// Shared by /instance/settings and /onboarding/dns — same field, same
 // PUT /instance/domain call. Caddy's admin API may not be reachable (local
 // dev, or any non-Docker-Compose deployment) — caddyApplied surfaces that
 // honestly rather than implying a certificate was issued.

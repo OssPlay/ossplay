@@ -27,7 +27,7 @@ export async function loginWithPasskey(): Promise<{ user: LoginUser }> {
   });
 }
 
-// Used by the passkeys section in /settings/account — requires an existing
+// Used by the passkeys section in /settings/security — requires an existing
 // session (register-options/register-verify are both requireAuth).
 export async function registerPasskey(
   deviceName?: string,

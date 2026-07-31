@@ -20,7 +20,7 @@ type InstanceSettings = {
   smtpSecure: boolean;
 };
 
-// Shared by /settings/instance and /onboarding/smtp — same fields, same
+// Shared by /instance/settings and /onboarding/smtp — same fields, same
 // PUT /instance/settings call. `saveLabel`/`onSaved` are the only things
 // that differ between the two call sites (settings just says "Saved.";
 // onboarding advances to the next step).
