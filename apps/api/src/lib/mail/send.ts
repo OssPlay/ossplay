@@ -1,47 +1,61 @@
+import { getDb, type SmtpConfig, smtpConfigs } from '@ossplay/db';
+import { eq } from 'drizzle-orm';
 import nodemailer from 'nodemailer';
-import { readInstanceConfig } from '../config/instance-config';
 import { decryptSecret } from '../crypto/secret-box';
 import type { MailMessage } from './templates';
 
-// Kept as an async function (the file read behind it is synchronous) purely
-// so existing `await getInstanceSettings()` call sites don't need touching.
-export async function getInstanceSettings() {
-  return readInstanceConfig();
+// Instance-wide, DB-backed (not the file-based instance-config.ts) — SMTP
+// moved off ossplay.yaml's old singleton `smtp` section once multiple named
+// configs with a default flag became a real requirement. Exactly one row
+// (or zero) has isDefault: true at any time, enforced app-side by
+// instance-smtp.ts's PUT .../default handler, not a DB constraint.
+export async function getDefaultSmtpConfig(): Promise<SmtpConfig | null> {
+  const [config] = await getDb().select().from(smtpConfigs).where(eq(smtpConfigs.isDefault, true));
+  return config ?? null;
 }
 
-export function isSmtpConfigured(
-  smtp: Awaited<ReturnType<typeof getInstanceSettings>>['smtp'],
-): boolean {
-  return Boolean(smtp.host && smtp.port && smtp.from.address);
+export async function isSmtpConfigured(): Promise<boolean> {
+  return (await getDefaultSmtpConfig()) !== null;
 }
 
 // SMTP protocol/TLS negotiation is genuinely complex and risk-prone to hand-
 // roll (unlike TOTP or session tokens) — nodemailer is the well-tested
-// library for it. Throws a clear, catchable error if SMTP isn't configured
-// rather than silently failing.
+// library for it. Throws a clear, catchable error if no default config is
+// set rather than silently failing.
 export async function sendMail(to: string, message: MailMessage): Promise<void> {
-  const { smtp } = await getInstanceSettings();
-  if (!isSmtpConfigured(smtp)) {
+  const config = await getDefaultSmtpConfig();
+  if (!config) {
     throw new Error(
-      'Email is not configured for this instance — an instance root must set SMTP settings first.',
+      'Email is not configured for this instance — an instance root must set a default SMTP config first.',
     );
   }
 
+  await sendMailWithConfig(config, to, message);
+}
+
+// Split out from sendMail so instance-smtp.ts's "Test" action can send
+// through a specific (possibly not-yet-default) config without first
+// promoting it.
+export async function sendMailWithConfig(
+  config: SmtpConfig,
+  to: string,
+  message: MailMessage,
+): Promise<void> {
   const transport = nodemailer.createTransport({
-    host: smtp.host as string,
-    port: smtp.port as number,
-    secure: smtp.secure,
-    auth: smtp.username
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: config.username
       ? {
-          user: smtp.username,
-          pass: smtp.passwordEncrypted ? decryptSecret(smtp.passwordEncrypted) : '',
+          user: config.username,
+          pass: config.passwordEncrypted ? decryptSecret(config.passwordEncrypted) : '',
         }
       : undefined,
   });
 
-  const from = smtp.from.name
-    ? `"${smtp.from.name}" <${smtp.from.address}>`
-    : (smtp.from.address as string);
+  const from = config.fromName
+    ? `"${config.fromName}" <${config.fromAddress}>`
+    : config.fromAddress;
 
   try {
     await transport.sendMail({

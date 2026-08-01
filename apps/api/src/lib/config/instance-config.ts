@@ -7,22 +7,12 @@ import { parse, stringify } from 'yaml';
 // future SaaS deployment (a per-tenant file/ConfigMap mounted at the same
 // well-known path). See OSSPLAY_CONFIG_PATH below.
 //
-// Nested by section (smtp/domain), not a flat DB-row-shaped bag of
-// smtpHost/smtpPort/etc — this file is meant to be readable and
-// hand-editable on disk, not just machine-written.
+// SMTP used to live here too (a singleton `smtp` section) but moved to the
+// smtpConfigs DB table once multiple named configs with a default flag
+// became a real requirement — see lib/mail/send.ts. This file now only
+// holds domain/TLS settings, which stay genuinely singleton and benefit
+// from being readable/hand-editable on disk.
 export interface InstanceConfig {
-  smtp: {
-    host: string | null;
-    port: number | null;
-    username: string | null;
-    // AES-256-GCM via lib/crypto/secret-box.ts, same treatment it always had.
-    passwordEncrypted: string | null;
-    from: {
-      address: string | null;
-      name: string | null;
-    };
-    secure: boolean;
-  };
   domain: {
     name: string | null;
     configuredAt: string | null; // ISO string — plain YAML has no native Date type
@@ -30,25 +20,13 @@ export interface InstanceConfig {
 }
 
 // Only the fields a caller is actually setting — writeInstanceConfig merges
-// this over the current file per section (smtp, domain, smtp.from), so a
-// caller can patch e.g. just the domain without needing to know or re-send
-// the current SMTP settings.
+// this over the current file per section, so a caller can patch a subset
+// without needing to know or re-send the rest.
 export interface InstanceConfigPatch {
-  smtp?: Partial<Omit<InstanceConfig['smtp'], 'from'>> & {
-    from?: Partial<InstanceConfig['smtp']['from']>;
-  };
   domain?: Partial<InstanceConfig['domain']>;
 }
 
 const DEFAULTS: InstanceConfig = {
-  smtp: {
-    host: null,
-    port: null,
-    username: null,
-    passwordEncrypted: null,
-    from: { address: null, name: null },
-    secure: true,
-  },
   domain: { name: null, configuredAt: null },
 };
 
@@ -56,9 +34,9 @@ function configPath(): string {
   return process.env.OSSPLAY_CONFIG_PATH ?? './ossplay.yaml';
 }
 
-// Merges over DEFAULTS at every level (not just top-level smtp/domain), so
-// a hand-edited file missing a field — or missing an entire section — still
-// parses into a fully-populated, correctly-typed object.
+// Merges over DEFAULTS at every level, so a hand-edited file missing a
+// field — or missing the section entirely — still parses into a
+// fully-populated, correctly-typed object.
 export function readInstanceConfig(): InstanceConfig {
   const path = configPath();
   let parsed: Partial<InstanceConfig> = {};
@@ -69,11 +47,6 @@ export function readInstanceConfig(): InstanceConfig {
     // {}, so every field below falls through to its default.
   }
   return {
-    smtp: {
-      ...DEFAULTS.smtp,
-      ...parsed.smtp,
-      from: { ...DEFAULTS.smtp.from, ...parsed.smtp?.from },
-    },
     domain: { ...DEFAULTS.domain, ...parsed.domain },
   };
 }
@@ -84,11 +57,6 @@ export function readInstanceConfig(): InstanceConfig {
 export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig {
   const current = readInstanceConfig();
   const next: InstanceConfig = {
-    smtp: {
-      ...current.smtp,
-      ...patch.smtp,
-      from: { ...current.smtp.from, ...patch.smtp?.from },
-    },
     domain: { ...current.domain, ...patch.domain },
   };
 
@@ -123,5 +91,5 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 // README's `touch infra/ossplay.yaml` prerequisite), so reset means "back
 // to defaults," not "gone."
 export function resetInstanceConfig(): InstanceConfig {
-  return writeInstanceConfig({ smtp: DEFAULTS.smtp, domain: DEFAULTS.domain });
+  return writeInstanceConfig({ domain: DEFAULTS.domain });
 }

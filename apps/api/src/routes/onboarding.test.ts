@@ -43,16 +43,17 @@ describe.skipIf(!process.env.DATABASE_URL)('onboarding status', () => {
   });
 
   it('smtp step completes once instance SMTP is configured', async () => {
-    await jsonRequest('/instance/settings', {
-      method: 'PUT',
+    await jsonRequest('/instance/smtp', {
+      method: 'POST',
       cookie: rootCookie,
       body: JSON.stringify({
-        smtpHost: 'smtp.example.com',
-        smtpPort: 587,
-        smtpUsername: null,
-        smtpFromAddress: 'noreply@example.com',
-        smtpFromName: null,
-        smtpSecure: true,
+        name: 'Default',
+        host: 'smtp.example.com',
+        port: 587,
+        username: null,
+        fromAddress: 'noreply@example.com',
+        fromName: null,
+        secure: true,
       }),
     });
 

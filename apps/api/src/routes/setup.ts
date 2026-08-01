@@ -8,7 +8,7 @@ import { hashPassword } from '../lib/auth/password';
 import { checkRateLimit } from '../lib/auth/rate-limit';
 import { getClientIp, getUserAgent } from '../lib/auth/request-info';
 import { completeSignIn } from '../lib/auth/session';
-import { getInstanceSettings, isSmtpConfigured } from '../lib/mail/send';
+import { isSmtpConfigured } from '../lib/mail/send';
 import type { AppEnv } from '../types';
 
 // Org creation moved to `POST /organizations` (see routes/onboarding.ts +
@@ -38,10 +38,9 @@ async function instanceNeedsSetup(): Promise<boolean> {
 // option without needing a separate public endpoint (instanceRoute's guard
 // is blanket-applied and this must stay reachable while logged out).
 setupRoute.get('/status', async (c) => {
-  const settings = await getInstanceSettings();
   return c.json({
     needsSetup: await instanceNeedsSetup(),
-    smtpConfigured: isSmtpConfigured(settings.smtp),
+    smtpConfigured: await isSmtpConfigured(),
   });
 });
 

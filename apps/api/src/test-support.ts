@@ -31,7 +31,7 @@ export function extractCookie(res: Response, name: string): string {
 export async function truncateAllTables(): Promise<void> {
   resetAllRateLimitsForTests();
   await getDb().execute(
-    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges, smtp_configs RESTART IDENTITY CASCADE`,
   );
   rmSync(TEST_CONFIG_PATH, { force: true });
 }

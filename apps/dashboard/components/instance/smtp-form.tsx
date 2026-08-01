@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
@@ -8,163 +8,135 @@ import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/ui/loading-button';
 import { Switch } from '@/components/ui/switch';
 import { useAction } from '@/hooks/use-action';
-import { ApiError, apiFetch, errorMessage } from '@/lib/api';
+import { apiFetch, errorMessage } from '@/lib/api';
 
-type InstanceSettings = {
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpUsername: string | null;
-  smtpPasswordSet: boolean;
-  smtpFromAddress: string | null;
-  smtpFromName: string | null;
-  smtpSecure: boolean;
-};
-
-// Shared by /instance/smtp and /onboarding/smtp — same fields, same
-// PUT /instance/settings call. `saveLabel`/`onSaved` are the only things
-// that differ between the two call sites (settings just says "Saved.";
-// onboarding advances to the next step).
+// Onboarding-only: creates the instance's first SMTP config (auto-becomes
+// the default — see instance-smtp.ts). Managing configs after that (add
+// more, edit, make default, delete, test-send) happens on /instance/smtp,
+// which is its own richer list UI, not this form.
 export function SmtpForm({
-  saveLabel = 'Save',
+  saveLabel = 'Continue',
   onSaved,
 }: {
   saveLabel?: string;
   onSaved?: () => void;
 }) {
-  const {
-    data: settings,
-    error: settingsError,
-    mutate,
-  } = useSWR<InstanceSettings>('/instance/settings');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('');
-  const [smtpUsername, setSmtpUsername] = useState('');
-  const [smtpPassword, setSmtpPassword] = useState('');
-  const [smtpFromAddress, setSmtpFromAddress] = useState('');
-  const [smtpFromName, setSmtpFromName] = useState('');
-  const [smtpSecure, setSmtpSecure] = useState(true);
-  const [success, setSuccess] = useState(false);
-  // Seeds the editable fields from the fetched value exactly once — a
-  // background SWR revalidation must not stomp on what the user is
-  // currently typing.
-  const seeded = useRef(false);
+  const { data, isLoading: isChecking } = useSWR<{ configs: unknown[] }>('/instance/smtp');
+  const alreadyConfigured = (data?.configs.length ?? 0) > 0;
 
-  useEffect(() => {
-    if (settings && !seeded.current) {
-      setSmtpHost(settings.smtpHost ?? '');
-      setSmtpPort(settings.smtpPort ? String(settings.smtpPort) : '');
-      setSmtpUsername(settings.smtpUsername ?? '');
-      setSmtpFromAddress(settings.smtpFromAddress ?? '');
-      setSmtpFromName(settings.smtpFromName ?? '');
-      setSmtpSecure(settings.smtpSecure);
-      seeded.current = true;
-    }
-  }, [settings]);
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [fromAddress, setFromAddress] = useState('');
+  const [fromName, setFromName] = useState('');
+  const [secure, setSecure] = useState(true);
 
   const save = useAction(
     () =>
-      apiFetch('/instance/settings', {
-        method: 'PUT',
+      apiFetch('/instance/smtp', {
+        method: 'POST',
         body: JSON.stringify({
-          smtpHost: smtpHost || null,
-          smtpPort: smtpPort ? Number(smtpPort) : null,
-          smtpUsername: smtpUsername || null,
-          // Omitted entirely if left blank, so an existing stored password
-          // isn't wiped just because the field wasn't re-typed.
-          ...(smtpPassword ? { smtpPassword } : {}),
-          smtpFromAddress: smtpFromAddress || null,
-          smtpFromName: smtpFromName || null,
-          smtpSecure,
+          name: 'Default',
+          host,
+          port: Number(port),
+          username: username || null,
+          password: password || null,
+          fromAddress,
+          fromName: fromName || null,
+          secure,
         }),
       }),
-    { error: 'Could not save settings' },
+    { error: 'Could not save SMTP settings' },
   );
 
   async function handleSubmit() {
-    setSuccess(false);
     await save
       .trigger()
-      .then(() => {
-        setSmtpPassword('');
-        setSuccess(true);
-        mutate();
-        onSaved?.();
-      })
+      .then(() => onSaved?.())
       .catch(() => {});
   }
 
-  const forbidden = settingsError instanceof ApiError && settingsError.status === 403;
-  if (forbidden) {
+  if (isChecking) return null;
+
+  if (alreadyConfigured) {
     return (
-      <p className="text-sm text-muted-foreground">Only the instance root can view this page.</p>
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">
+          SMTP is already configured for this instance — manage it later from Instance → Email &amp;
+          SMTP.
+        </p>
+        <LoadingButton type="button" loading={false} onClick={() => onSaved?.()}>
+          {saveLabel}
+        </LoadingButton>
+      </div>
     );
   }
-
-  if (!settings) return null;
 
   return (
     <div className="flex flex-col gap-4">
       <FormField
         id="smtpHost"
         label="Host"
-        value={smtpHost}
-        onChange={setSmtpHost}
+        value={host}
+        onChange={setHost}
         disabled={save.isLoading}
       />
       <FormField
         id="smtpPort"
         label="Port"
-        value={smtpPort}
-        onChange={setSmtpPort}
+        value={port}
+        onChange={setPort}
         disabled={save.isLoading}
       />
       <FormField
         id="smtpUsername"
         label="Username"
-        value={smtpUsername}
-        onChange={setSmtpUsername}
+        value={username}
+        onChange={setUsername}
         disabled={save.isLoading}
       />
       <FormField
         id="smtpPassword"
         label="Password"
         type="password"
-        value={smtpPassword}
-        onChange={setSmtpPassword}
-        helpText={
-          settings.smtpPasswordSet ? 'A password is set. Leave blank to keep it.' : undefined
-        }
+        value={password}
+        onChange={setPassword}
         disabled={save.isLoading}
       />
       <FormField
         id="smtpFromAddress"
         label="From address"
         type="email"
-        value={smtpFromAddress}
-        onChange={setSmtpFromAddress}
+        value={fromAddress}
+        onChange={setFromAddress}
         disabled={save.isLoading}
       />
       <FormField
         id="smtpFromName"
         label="From name"
-        value={smtpFromName}
-        onChange={setSmtpFromName}
+        value={fromName}
+        onChange={setFromName}
         disabled={save.isLoading}
       />
       <div className="flex items-center gap-2">
         <Switch
           id="smtpSecure"
-          checked={smtpSecure}
-          onCheckedChange={setSmtpSecure}
+          checked={secure}
+          onCheckedChange={setSecure}
           disabled={save.isLoading}
         />
         <Label htmlFor="smtpSecure">Use TLS</Label>
       </div>
       <FormError
-        message={save.error ? errorMessage(save.error, 'Could not save settings') : null}
+        message={save.error ? errorMessage(save.error, 'Could not save SMTP settings') : null}
       />
-      {success && <p className="text-sm text-muted-foreground">Saved.</p>}
-      <LoadingButton type="button" loading={save.isLoading} onClick={handleSubmit}>
+      <LoadingButton
+        type="button"
+        loading={save.isLoading}
+        onClick={handleSubmit}
+        disabled={!host || !port || !fromAddress}
+      >
         {saveLabel}
       </LoadingButton>
     </div>

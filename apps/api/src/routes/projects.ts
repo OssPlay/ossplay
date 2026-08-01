@@ -1,4 +1,4 @@
-import { getDb, projects, type ProjectRules } from '@ossplay/db';
+import { getDb, type ProjectRules, projects } from '@ossplay/db';
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -18,7 +18,12 @@ const DEFAULT_PROJECT_RULES: ProjectRules = {
 
 projectsRoute.get('/:orgId/projects', requireAuth, requireOrgMembership, async (c) => {
   const rows = await getDb()
-    .select({ id: projects.id, name: projects.name, orgId: projects.orgId, createdAt: projects.createdAt })
+    .select({
+      id: projects.id,
+      name: projects.name,
+      orgId: projects.orgId,
+      createdAt: projects.createdAt,
+    })
     .from(projects)
     .where(eq(projects.orgId, c.req.param('orgId')));
 

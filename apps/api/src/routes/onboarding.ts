@@ -1,7 +1,8 @@
 import { getDb, organizationMembers } from '@ossplay/db';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { getInstanceSettings, isSmtpConfigured } from '../lib/mail/send';
+import { readInstanceConfig } from '../lib/config/instance-config';
+import { isSmtpConfigured } from '../lib/mail/send';
 import { requireAuth } from '../middleware/require-auth';
 import { requireInstancePermission } from '../middleware/require-instance-permission';
 import type { AppEnv } from '../types';
@@ -28,13 +29,13 @@ onboardingRoute.get(
       .limit(1);
     const orgCompleted = Boolean(membership);
 
-    const settings = await getInstanceSettings();
+    const { domain } = readInstanceConfig();
 
     return c.json({
       needsOnboarding: !orgCompleted,
       steps: {
-        dns: { skippable: true, completed: Boolean(settings.domain.name) },
-        smtp: { skippable: true, completed: isSmtpConfigured(settings.smtp) },
+        dns: { skippable: true, completed: Boolean(domain.name) },
+        smtp: { skippable: true, completed: await isSmtpConfigured() },
         org: { skippable: false, completed: orgCompleted },
       },
     });

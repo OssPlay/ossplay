@@ -19,7 +19,9 @@ export function DomainForm({
   saveLabel?: string;
   onSaved?: () => void;
 }) {
-  const { data, mutate } = useSWR<{ domain: string | null }>('/instance/settings');
+  const { data, mutate } = useSWR<{ domain: string | null; domainConfiguredAt: string | null }>(
+    '/instance/domain',
+  );
   const [domain, setDomain] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   // Seeds the editable field from the fetched value exactly once — a
