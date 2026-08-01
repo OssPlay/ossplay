@@ -5,6 +5,7 @@ import QRCode from 'react-qr-code';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
+import { useAuth } from '@/components/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,17 +21,6 @@ import {
 import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkey';
-
-type Me = {
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    instanceRole: string | null;
-    totpEnabled: boolean;
-    recoveryCodesRemaining: number;
-  };
-};
 
 type PasskeyRow = {
   id: string;
@@ -50,21 +40,19 @@ type SessionRow = {
 };
 
 export default function SecuritySettingsPage() {
-  const { data: me, mutate: mutateMe } = useSWR<Me>('/auth/me');
+  const { user, mutate } = useAuth();
   const { data: sessionsData, mutate: mutateSessions } = useSWR<{ sessions: SessionRow[] }>(
     '/auth/sessions',
   );
-
-  if (!me) return null;
 
   return (
     <div className="flex flex-col gap-6">
       <ChangePasswordCard />
       <PasskeysCard />
       <TwoFactorCard
-        totpEnabled={me.user.totpEnabled}
-        recoveryCodesRemaining={me.user.recoveryCodesRemaining}
-        onChange={() => mutateMe()}
+        totpEnabled={user.totpEnabled}
+        recoveryCodesRemaining={user.recoveryCodesRemaining}
+        onChange={() => mutate()}
       />
       <SessionsCard sessions={sessionsData?.sessions ?? []} onChange={() => mutateSessions()} />
     </div>

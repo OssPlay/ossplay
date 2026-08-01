@@ -2,7 +2,6 @@
 
 import { ChevronsUpDownIcon, FolderIcon, PlusIcon } from 'lucide-react';
 import { useState } from 'react';
-import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
 import {
@@ -32,20 +31,17 @@ import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { useCurrentOrgId } from '@/lib/current-org';
 import { setCurrentProjectId, useCurrentProjectId } from '@/lib/current-project';
+import { useAuth } from '../providers/auth-provider';
 
-type Me = { organizations: Array<{ orgId: string; orgName: string; role: string }> };
 type Project = { id: string; name: string; orgId: string };
 
 export function ProjectSwitcher() {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const orgId = useCurrentOrgId(me?.organizations.map((o) => o.orgId));
-  const org = me?.organizations.find((o) => o.orgId === orgId);
+  const { organizations, mutate } = useAuth();
+  const orgId = useCurrentOrgId(organizations.map((o) => o.id));
+  const org = organizations.find((o) => o.id === orgId);
 
-  const { data: projectsData, mutate } = useSWR<{ projects: Project[] }>(
-    orgId ? `/organizations/${orgId}/projects` : null,
-  );
-  const projectList = projectsData?.projects ?? [];
-  const projectId = useCurrentProjectId(projectsData ? projectList.map((p) => p.id) : undefined);
+  const projectList = org?.projects ?? [];
+  const projectId = useCurrentProjectId(projectList.map((p) => p.id));
   const currentProject = projectList.find((p) => p.id === projectId);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -80,12 +76,12 @@ export function ProjectSwitcher() {
         <SidebarMenuItem>
           <DropdownMenu>
             <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+              <div className="flex items-center justify-center rounded-lg aspect-square size-8 bg-sidebar-primary text-sidebar-primary-foreground">
                 <FolderIcon className="size-4" />
               </div>
               <div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
-                <span className="truncate font-medium">{currentProject?.name ?? 'No project'}</span>
-                <span className="truncate text-xs text-muted-foreground">{org.orgName}</span>
+                <span className="font-medium truncate">{currentProject?.name ?? 'No project'}</span>
+                <span className="text-xs truncate text-muted-foreground">{org.name}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
             </DropdownMenuTrigger>

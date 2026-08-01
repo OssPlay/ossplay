@@ -87,19 +87,38 @@ authRoute.get('/me', requireAuth, async (c) => {
   const userWithRelations = await db.query.users.findFirst({
     where: eq(users.id, user.id),
     with: {
-      organizationMemberships: { with: { organization: true } },
+      organizationMemberships: {
+        columns: {
+          role: true,
+        },
+        with: {
+          organization: {
+            columns: {
+              id: true,
+              name: true,
+            },
+            with: {
+              projects: {
+                columns: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
       // Only worth fetching (and counting) when 2FA is actually enabled —
       // an unused-code count is meaningless otherwise.
-      ...(user.totpEnabled
-        ? { recoveryCodes: { where: isNull(userRecoveryCodes.usedAt) } }
-        : {}),
+      ...(user.totpEnabled ? { recoveryCodes: { where: isNull(userRecoveryCodes.usedAt) } } : {}),
     },
   });
 
   const memberships = (userWithRelations?.organizationMemberships ?? []).map((membership) => ({
-    orgId: membership.orgId,
-    orgName: membership.organization.name,
+    id: membership.organization.id,
+    name: membership.organization.name,
     role: membership.role,
+    projects: membership.organization.projects,
   }));
 
   return c.json({

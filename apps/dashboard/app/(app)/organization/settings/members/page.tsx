@@ -4,6 +4,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
+import { useAuth } from '@/components/providers/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -20,7 +21,6 @@ import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { useCurrentOrgId } from '@/lib/current-org';
 
-type Me = { organizations: Array<{ orgId: string; orgName: string; role: string }> };
 type Member = {
   userId: string;
   name: string;
@@ -40,8 +40,8 @@ type Invitation = {
 const ROLES = ['member', 'admin', 'owner'] as const;
 
 export default function MembersPage() {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const orgId = useCurrentOrgId(me?.organizations.map((o) => o.orgId));
+  const { organizations } = useAuth();
+  const orgId = useCurrentOrgId(organizations.map((o) => o.id));
 
   const { data: membersData, mutate: mutateMembers } = useSWR<{ members: Member[] }>(
     orgId ? `/organizations/${orgId}/members` : null,

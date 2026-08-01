@@ -4,7 +4,6 @@ import { BellIcon, MoonIcon, ServerIcon, SunIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import { Fragment, useEffect, useState } from 'react';
-import useSWR from 'swr';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -26,11 +25,8 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { setCurrentOrgId, useCurrentOrgId } from '@/lib/current-org';
 import { useBreadcrumbs } from '@/lib/nav-store';
 import { cn } from '@/lib/utils';
-
-type Me = {
-  user: { instanceRole: string | null };
-  organizations: Array<{ orgId: string; orgName: string; role: string }>;
-};
+import type { MeOrganization } from '@/types/auth';
+import { useAuth } from '../providers/auth-provider';
 
 function AppBreadcrumbs() {
   const breadcrumbs = useBreadcrumbs();
@@ -61,24 +57,24 @@ function AppBreadcrumbs() {
   );
 }
 
-function OrgSwitcher({ me }: { me: Me }) {
-  const orgId = useCurrentOrgId(me.organizations.map((o) => o.orgId));
-  const org = me.organizations.find((o) => o.orgId === orgId);
+function OrgSwitcher({ organizations }: { organizations: Array<MeOrganization> }) {
+  const orgId = useCurrentOrgId(organizations.map((o) => o.id));
+  const org = organizations.find((o) => o.id === orgId);
   if (!org) return null;
 
-  if (me.organizations.length <= 1) {
-    return <span className="px-3 text-sm text-muted-foreground">{org.orgName}</span>;
+  if (organizations.length <= 1) {
+    return <span className="px-3 text-sm text-muted-foreground">{org.name}</span>;
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
-        {org.orgName}
+        {org.name}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {me.organizations.map((o) => (
-          <DropdownMenuItem key={o.orgId} onClick={() => setCurrentOrgId(o.orgId)}>
-            {o.orgName}
+        {organizations.map((o) => (
+          <DropdownMenuItem key={o.id} onClick={() => setCurrentOrgId(o.id)}>
+            {o.name}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -126,14 +122,13 @@ function ThemeToggle() {
 }
 
 export function AppHeader() {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const isRoot = me?.user.instanceRole === 'root';
+  const { user, organizations } = useAuth();
+  const isRoot = user.instanceRole === 'root';
 
   return (
     <header
       className={cn(
         'sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-zinc-900/5 px-4 backdrop-blur-sm dark:border-white/10',
-        isRoot ? 'bg-red-50/90 dark:bg-red-950/20' : 'bg-background/90',
       )}
     >
       <SidebarTrigger className="-ml-1" />
@@ -142,14 +137,17 @@ export function AppHeader() {
         className="mr-2 data-vertical:h-4 data-vertical:self-auto"
       />
       <AppBreadcrumbs />
-      <div className="ml-auto flex items-center gap-1">
-        {me && <OrgSwitcher me={me} />}
+      <div className="flex items-center gap-1 ml-auto">
+        {organizations.length > 0 && <OrgSwitcher organizations={organizations} />}
         <NotificationsButton />
         <ThemeToggle />
         {isRoot && (
           <Link
-            href="/instance/settings"
-            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            href="/instance"
+            className={buttonVariants({
+              variant: 'ghost',
+              size: 'sm',
+            })}
           >
             <ServerIcon className="size-4" />
             Instance settings

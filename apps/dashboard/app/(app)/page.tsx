@@ -1,36 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import useSWR from 'swr';
+import { useAuth } from '@/components/providers/auth-provider';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Container from '@/components/ui/container';
 import { LoadingButton } from '@/components/ui/loading-button';
-import { useLogout } from '@/hooks/use-logout';
-
-type Me = {
-  user: {
-    id: string;
-    email: string;
-    name: string;
-    instanceRole: string | null;
-  };
-  organizations: Array<{ orgId: string; orgName: string; role: string }>;
-};
 
 export default function Home() {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const { handleLogout, isLoading } = useLogout();
+  const { user, organizations, handleLogout, isLoading } = useAuth();
 
-  if (!me) {
-    return (
-      <div className="flex flex-1 items-center justify-center bg-zinc-50 p-8 dark:bg-black">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </div>
-    );
-  }
-
-  const primaryOrg = me.organizations[0];
+  const primaryOrg = organizations[0];
 
   return (
     <Container>
@@ -44,11 +24,11 @@ export default function Home() {
         <CardContent className="flex flex-col gap-4">
           <div className="text-sm">
             <p>
-              Signed in as <span className="font-medium">{me.user.name}</span> ({me.user.email})
+              Signed in as <span className="font-medium">{user.name}</span> ({user.email})
             </p>
             {primaryOrg && (
               <p className="text-muted-foreground">
-                {primaryOrg.orgName} — {primaryOrg.role}
+                {primaryOrg.name} — {primaryOrg.role}
               </p>
             )}
           </div>
@@ -58,7 +38,7 @@ export default function Home() {
           <Link href="/settings/profile" className={buttonVariants({ variant: 'outline' })}>
             Settings
           </Link>
-          <LoadingButton variant="outline" loading={isLoading} onClick={handleLogout}>
+          <LoadingButton variant="outline" loading={isLoading} onClick={() => handleLogout()}>
             Log out
           </LoadingButton>
         </CardContent>

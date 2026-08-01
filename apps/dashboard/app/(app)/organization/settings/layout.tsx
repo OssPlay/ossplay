@@ -1,23 +1,36 @@
 'use client';
 
-import { ArrowLeftIcon, Building2Icon, UsersIcon } from 'lucide-react';
-import useSWR from 'swr';
+import { ArrowLeftIcon, Building2Icon, DatabaseIcon, ServerIcon, UsersIcon } from 'lucide-react';
 import { Section } from '@/components/layout/section';
+import { useAuth } from '@/components/providers/auth-provider';
 import { useCurrentOrgId } from '@/lib/current-org';
 import type { Sidepanel } from '@/lib/nav-types';
 
-type Me = { organizations: Array<{ orgId: string; orgName: string; role: string }> };
-
 const sidepanel: Sidepanel = [
   { title: 'Back to Dashboard', href: '/', icon: ArrowLeftIcon },
+  {
+    title: 'Configuration',
+    items: [
+      {
+        title: 'S3 Destinations',
+        href: '/organization/destinations',
+        icon: DatabaseIcon,
+      },
+      {
+        title: 'Remote Servers',
+        href: '/organization/servers',
+        icon: ServerIcon,
+      },
+    ],
+  },
   { title: 'General', href: '/organization/settings', icon: Building2Icon },
   { title: 'Members', href: '/organization/settings/members', icon: UsersIcon },
 ];
 
 export default function OrganizationSettingsLayout({ children }: { children: React.ReactNode }) {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const orgId = useCurrentOrgId(me?.organizations.map((o) => o.orgId));
-  const access = me ? me.organizations.some((o) => o.orgId === orgId) : undefined;
+  const { organizations } = useAuth();
+  const orgId = useCurrentOrgId(organizations.map((o) => o.id));
+  const access = organizations.some((o) => o.id === orgId);
 
   return (
     <Section sidepanel={sidepanel} breadcrumb={{ title: 'Organization' }} access={access}>

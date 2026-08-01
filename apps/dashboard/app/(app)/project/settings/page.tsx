@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
+import { useAuth } from '@/components/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingButton } from '@/components/ui/loading-button';
@@ -13,13 +14,12 @@ import { apiFetch, errorMessage } from '@/lib/api';
 import { useCurrentOrgId } from '@/lib/current-org';
 import { useCurrentProjectId } from '@/lib/current-project';
 
-type Me = { organizations: Array<{ orgId: string; orgName: string; role: string }> };
 type Project = { id: string; name: string; orgId: string };
 
 export default function ProjectGeneralPage() {
   const router = useRouter();
-  const { data: me } = useSWR<Me>('/auth/me');
-  const orgId = useCurrentOrgId(me?.organizations.map((o) => o.orgId));
+  const { organizations } = useAuth();
+  const orgId = useCurrentOrgId(organizations.map((o) => o.id));
   const { data: projectsData, mutate } = useSWR<{ projects: Project[] }>(
     orgId ? `/organizations/${orgId}/projects` : null,
   );

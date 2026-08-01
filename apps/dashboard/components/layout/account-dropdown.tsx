@@ -2,7 +2,6 @@
 
 import { BookOpenIcon, LogOutIcon, SettingsIcon, UserIcon } from 'lucide-react';
 import Link from 'next/link';
-import useSWR from 'swr';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -19,10 +18,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { useLogout } from '@/hooks/use-logout';
 import packageJson from '../../package.json';
-
-type Me = { user: { name: string; email: string } };
+import { useAuth } from '../providers/auth-provider';
 
 const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL;
 
@@ -39,10 +36,23 @@ function initials(name: string): string {
 }
 
 export function AccountDropdown() {
-  const { data: me } = useSWR<Me>('/auth/me');
-  const { handleLogout, isLoading } = useLogout();
+  const { user, handleLogout, isLoading } = useAuth();
 
-  if (!me) return null;
+  function UserItem() {
+    return (
+      <>
+        <Avatar className="size-8">
+          <AvatarFallback className="overflow-hidden rounded-full">
+            {initials(user.name)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
+          <span className="font-medium truncate">{user.name}</span>
+          <span className="text-xs truncate text-muted-foreground">{user.email}</span>
+        </div>
+      </>
+    );
+  }
 
   return (
     <SidebarFooter>
@@ -50,19 +60,12 @@ export function AccountDropdown() {
         <SidebarMenuItem>
           <DropdownMenu>
             <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-              <Avatar className="size-8 rounded-lg">
-                <AvatarFallback className="rounded-lg">{initials(me.user.name)}</AvatarFallback>
-              </Avatar>
-              <div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
-                <span className="truncate font-medium">{me.user.name}</span>
-                <span className="truncate text-xs text-muted-foreground">{me.user.email}</span>
-              </div>
+              <UserItem />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top">
               <DropdownMenuGroup>
-                <DropdownMenuLabel>
-                  <p className="font-medium text-foreground">{me.user.name}</p>
-                  <p>{me.user.email}</p>
+                <DropdownMenuLabel className="flex gap-2">
+                  <UserItem />
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
@@ -78,14 +81,18 @@ export function AccountDropdown() {
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" disabled={isLoading} onClick={handleLogout}>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={isLoading}
+                onClick={() => handleLogout()}
+              >
                 <LogOutIcon /> Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>
       </SidebarMenu>
-      <p className="px-2 pb-1 text-center text-xs text-muted-foreground">v{packageJson.version}</p>
+      <p className="px-2 pb-1 text-xs text-center text-muted-foreground">v{packageJson.version}</p>
     </SidebarFooter>
   );
 }
