@@ -1,5 +1,5 @@
-import { getDb, organizationMembers, organizations, userRecoveryCodes, users } from '@ossplay/db';
-import { and, eq, isNull } from 'drizzle-orm';
+import { getDb, userRecoveryCodes, users } from '@ossplay/db';
+import { eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
@@ -84,22 +84,23 @@ authRoute.get('/me', requireAuth, async (c) => {
   const user = c.get('user');
   const db = getDb();
 
-  const memberships = await db
-    .select({
-      orgId: organizationMembers.orgId,
-      orgName: organizations.name,
-      role: organizationMembers.role,
-    })
-    .from(organizationMembers)
-    .innerJoin(organizations, eq(organizationMembers.orgId, organizations.id))
-    .where(eq(organizationMembers.userId, user.id));
+  const userWithRelations = await db.query.users.findFirst({
+    where: eq(users.id, user.id),
+    with: {
+      organizationMemberships: { with: { organization: true } },
+      // Only worth fetching (and counting) when 2FA is actually enabled —
+      // an unused-code count is meaningless otherwise.
+      ...(user.totpEnabled
+        ? { recoveryCodes: { where: isNull(userRecoveryCodes.usedAt) } }
+        : {}),
+    },
+  });
 
-  const unusedRecoveryCodes = user.totpEnabled
-    ? await db
-        .select({ id: userRecoveryCodes.id })
-        .from(userRecoveryCodes)
-        .where(and(eq(userRecoveryCodes.userId, user.id), isNull(userRecoveryCodes.usedAt)))
-    : [];
+  const memberships = (userWithRelations?.organizationMemberships ?? []).map((membership) => ({
+    orgId: membership.orgId,
+    orgName: membership.organization.name,
+    role: membership.role,
+  }));
 
   return c.json({
     user: {
@@ -108,7 +109,7 @@ authRoute.get('/me', requireAuth, async (c) => {
       name: user.name,
       instanceRole: user.instanceRole,
       totpEnabled: user.totpEnabled,
-      recoveryCodesRemaining: unusedRecoveryCodes.length,
+      recoveryCodesRemaining: userWithRelations?.recoveryCodes?.length ?? 0,
     },
     organizations: memberships,
   });
