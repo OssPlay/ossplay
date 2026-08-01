@@ -1,18 +1,19 @@
 'use client';
 
+import { GlobeIcon } from 'lucide-react';
 import { DomainForm } from '@/components/instance/domain-form';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Container from '@/components/ui/container';
 
 export default function InstanceDomainPage() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Domain</CardTitle>
-        <CardDescription>Point a domain at this server for automatic HTTPS.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <DomainForm />
-      </CardContent>
-    </Card>
+    <Container
+      header={{
+        icon: GlobeIcon,
+        title: 'Domain',
+        description: 'Point a domain at this server for automatic HTTPS.',
+      }}
+    >
+      <DomainForm />
+    </Container>
   );
 }

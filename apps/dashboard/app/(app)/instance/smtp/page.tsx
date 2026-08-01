@@ -1,18 +1,19 @@
 'use client';
 
+import { MailIcon } from 'lucide-react';
 import { SmtpForm } from '@/components/instance/smtp-form';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Container from '@/components/ui/container';
 
 export default function InstanceSmtpPage() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>SMTP</CardTitle>
-        <CardDescription>Used to send invitation and password-reset emails.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <SmtpForm />
-      </CardContent>
-    </Card>
+    <Container
+      header={{
+        icon: MailIcon,
+        title: 'SMTP',
+        description: 'Used to send invitation and password-reset emails.',
+      }}
+    >
+      <SmtpForm />
+    </Container>
   );
 }
