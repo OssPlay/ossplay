@@ -146,6 +146,11 @@ twoFactorRoute.post('/verify', async (c) => {
   if (!validCode) {
     return c.json({ error: 'Invalid code' }, 400);
   }
+  // Blocked by an instance root since the password step — see auth.ts's
+  // matching check.
+  if (user.disabledAt) {
+    return c.json({ error: 'This account has been disabled' }, 403);
+  }
 
   await deleteTwoFactorChallenge(challengeToken);
   clearTwoFactorChallengeCookie(c);

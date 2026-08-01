@@ -225,6 +225,11 @@ passkeyRoute.post('/login-verify', async (c) => {
 
   const [user] = await db.select().from(users).where(eq(users.id, credentialRow.userId));
   if (!user) return c.json({ error: 'Account no longer exists' }, 401);
+  // Passkeys are a full password alternative, not just a 2FA step — needs
+  // its own disabled check since it never goes through auth.ts's.
+  if (user.disabledAt) {
+    return c.json({ error: 'This account has been disabled' }, 403);
+  }
 
   await db
     .update(webauthnCredentials)

@@ -29,6 +29,12 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     clearSessionCookie(c);
     return c.json({ error: 'Unauthorized' }, 401);
   }
+  // Authoritative check: blocks a user mid-session the moment an instance
+  // root disables them, not just at their next login attempt.
+  if (user.disabledAt) {
+    clearSessionCookie(c);
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
 
   c.set('user', user);
   c.set('session', session);

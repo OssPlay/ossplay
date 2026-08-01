@@ -55,6 +55,11 @@ authRoute.post('/login', async (c) => {
   if (!(await verifyPassword(parsed.data.password, user.passwordHash))) {
     return invalidCredentials();
   }
+  // Correct password, but blocked by an instance root — a distinct message
+  // is fine here (no enumeration risk left once credentials are proven).
+  if (user.disabledAt) {
+    return c.json({ error: 'This account has been disabled' }, 403);
+  }
 
   resetRateLimit(rateLimitKey);
 
