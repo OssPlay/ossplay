@@ -12,10 +12,15 @@ import { parse, stringify } from 'yaml';
 // became a real requirement — see lib/mail/send.ts. This file now only
 // holds domain/TLS settings, which stay genuinely singleton and benefit
 // from being readable/hand-editable on disk.
+export type CertProvider = 'letsencrypt' | 'zerossl' | 'custom';
+
 export interface InstanceConfig {
   domain: {
     name: string | null;
     configuredAt: string | null; // ISO string — plain YAML has no native Date type
+    letsEncryptEmail: string | null; // ACME contact email — required by every provider below, not just Let's Encrypt
+    certProvider: CertProvider;
+    customAcmeUrl: string | null; // only meaningful when certProvider is 'custom'
   };
 }
 
@@ -27,7 +32,13 @@ export interface InstanceConfigPatch {
 }
 
 const DEFAULTS: InstanceConfig = {
-  domain: { name: null, configuredAt: null },
+  domain: {
+    name: null,
+    configuredAt: null,
+    letsEncryptEmail: null,
+    certProvider: 'letsencrypt',
+    customAcmeUrl: null,
+  },
 };
 
 function configPath(): string {

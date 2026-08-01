@@ -25,17 +25,22 @@ export default function Container({
   children,
   className,
   header,
+  size,
   ...props
 }: React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> & {
   inner?: React.HTMLAttributes<HTMLDivElement>;
   header?: ContainerHeaderConfig;
+  size?: 'lg' | 'md' | 'sm';
 }) {
   return (
     <section
       {...props}
       className={cn(
-        'flex flex-col p-4 border-sidebar-border dark:bg-card bg-muted/50 border rounded-4xl',
+        'flex flex-col p-4 border-sidebar-border dark:bg-card bg-muted/50 border rounded-4xl w-full mx-auto',
         className,
+        size === 'lg' && 'max-w-7xl',
+        size === 'md' && 'max-w-5xl',
+        size === 'sm' && 'max-w-3xl',
       )}
     >
       <div
@@ -53,7 +58,7 @@ export default function Container({
             </div>
             {header.action && (
               <Button
-                variant={header.action.variant ?? 'outline'}
+                variant={header.action.variant ?? 'default'}
                 size="sm"
                 disabled={header.action.disabled}
                 onClick={header.action.onClick}

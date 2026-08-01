@@ -120,7 +120,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  return NextResponse.redirect(new URL(target, request.url));
+  const destination = new URL(target, request.url);
+  if (target === '/login') {
+    destination.searchParams.set('continue', pathname + request.nextUrl.search);
+  }
+  return NextResponse.redirect(destination);
 }
 
 export const config = {

@@ -66,7 +66,10 @@ describe.skipIf(!process.env.DATABASE_URL)('onboarding status', () => {
     await jsonRequest('/instance/domain', {
       method: 'PUT',
       cookie: rootCookie,
-      body: JSON.stringify({ domain: 'ossplay.example.com' }),
+      body: JSON.stringify({
+        domain: 'ossplay.example.com',
+        letsEncryptEmail: 'admin@ossplay.example.com',
+      }),
     });
 
     const res = await jsonRequest('/onboarding/status', { cookie: rootCookie });

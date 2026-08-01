@@ -20,16 +20,32 @@ function isGroup(entry: SidepanelItem | SidepanelGroup): entry is SidepanelGroup
   return 'items' in entry;
 }
 
-function isActivePath(pathname: string, href: string): boolean {
+function matchesPath(pathname: string, href: string): boolean {
   return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function SidepanelLink({ item }: { item: SidepanelItem }) {
-  const pathname = usePathname();
+// Sidepanels routinely nest a parent path's own page under a more specific
+// sibling (e.g. "/instance" alongside "/instance/domain") — a plain prefix
+// match would flag both as active on "/instance/domain". Picking the
+// longest matching href instead ensures exactly one item lights up.
+function findActiveHref(pathname: string, sidepanel: Sidepanel): string | undefined {
+  let best: string | undefined;
+  for (const entry of sidepanel) {
+    const items = isGroup(entry) ? entry.items : [entry];
+    for (const item of items) {
+      if (matchesPath(pathname, item.href) && (!best || item.href.length > best.length)) {
+        best = item.href;
+      }
+    }
+  }
+  return best;
+}
+
+function SidepanelLink({ item, isActive }: { item: SidepanelItem; isActive: boolean }) {
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        isActive={isActivePath(pathname, item.href)}
+        isActive={isActive}
         render={<Link href={item.href} target={item.target} />}
       >
         <item.icon />
@@ -42,7 +58,12 @@ function SidepanelLink({ item }: { item: SidepanelItem }) {
 // Consecutive bare SidepanelItems share one labelless SidebarGroup; each
 // SidepanelGroup gets its own labeled one — keeps ungrouped entries (e.g.
 // "Back to Dashboard") from each getting their own group's worth of padding.
-type Chunk = { kind: 'items'; items: SidepanelItem[] } | { kind: 'group'; group: SidepanelGroup };
+type Chunk =
+  | { kind: 'items'; items: SidepanelItem[] }
+  | {
+      kind: 'group';
+      group: SidepanelGroup;
+    };
 
 function toChunks(sidepanel: Sidepanel): Chunk[] {
   const chunks: Chunk[] = [];
@@ -63,6 +84,8 @@ function toChunks(sidepanel: Sidepanel): Chunk[] {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const sidepanel = useSidepanel();
+  const pathname = usePathname();
+  const activeHref = findActiveHref(pathname, sidepanel ?? []);
 
   return (
     <Sidebar variant="floating" {...props}>
@@ -71,10 +94,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         {toChunks(sidepanel ?? []).map((chunk, index) =>
           chunk.kind === 'group' ? (
             <SidebarGroup key={`group-${chunk.group.title}`}>
-              <SidebarGroupLabel>{chunk.group.title}</SidebarGroupLabel>
+              <SidebarGroupLabel>
+                {chunk.group.icon && <chunk.group.icon className="mr-2" />}
+                {chunk.group.title}
+              </SidebarGroupLabel>
               <SidebarMenu>
                 {chunk.group.items.map((item) => (
-                  <SidepanelLink key={item.href} item={item} />
+                  <SidepanelLink key={item.href} item={item} isActive={item.href === activeHref} />
                 ))}
               </SidebarMenu>
             </SidebarGroup>
@@ -83,7 +109,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroup key={`items-${index}`}>
               <SidebarMenu>
                 {chunk.items.map((item) => (
-                  <SidepanelLink key={item.href} item={item} />
+                  <SidepanelLink key={item.href} item={item} isActive={item.href === activeHref} />
                 ))}
               </SidebarMenu>
             </SidebarGroup>

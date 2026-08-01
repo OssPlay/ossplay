@@ -80,6 +80,8 @@ export function SmtpForm({
         label="Host"
         value={host}
         onChange={setHost}
+        autoComplete="off"
+        autoFocus
         disabled={save.isLoading}
       />
       <FormField
@@ -87,6 +89,7 @@ export function SmtpForm({
         label="Port"
         value={port}
         onChange={setPort}
+        autoComplete="off"
         disabled={save.isLoading}
       />
       <FormField
@@ -94,6 +97,7 @@ export function SmtpForm({
         label="Username"
         value={username}
         onChange={setUsername}
+        autoComplete="off"
         disabled={save.isLoading}
       />
       <FormField
@@ -102,6 +106,7 @@ export function SmtpForm({
         type="password"
         value={password}
         onChange={setPassword}
+        autoComplete="new-password"
         disabled={save.isLoading}
       />
       <FormField
@@ -110,6 +115,7 @@ export function SmtpForm({
         type="email"
         value={fromAddress}
         onChange={setFromAddress}
+        autoComplete="off"
         disabled={save.isLoading}
       />
       <FormField
@@ -117,6 +123,7 @@ export function SmtpForm({
         label="From name"
         value={fromName}
         onChange={setFromName}
+        autoComplete="off"
         disabled={save.isLoading}
       />
       <div className="flex items-center gap-2">

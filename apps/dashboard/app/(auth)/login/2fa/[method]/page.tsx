@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { type SyntheticEvent, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { LoadingButton } from '@/components/ui/loading-button';
 import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
+import { getSafeContinuePath } from '@/lib/safe-redirect';
 
 // Only 'totp' is a real value today (TOTP codes and recovery codes both
 // verify at the same endpoint/screen) — this route exists as forward-
@@ -18,6 +19,8 @@ import { apiFetch, errorMessage } from '@/lib/api';
 export default function TwoFactorMethodPage() {
   const { method } = useParams<{ method: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const continuePath = getSafeContinuePath(searchParams.get('continue'));
   const [code, setCode] = useState('');
 
   const verify = useAction(
@@ -30,7 +33,7 @@ export default function TwoFactorMethodPage() {
     await verify
       .trigger()
       .then(() => {
-        router.push('/');
+        router.push(continuePath ?? '/');
         router.refresh();
       })
       .catch(() => {});

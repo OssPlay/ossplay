@@ -16,7 +16,13 @@ afterEach(() => {
 describe('instance-config', () => {
   it('returns defaults when the file does not exist', () => {
     expect(readInstanceConfig()).toEqual({
-      domain: { name: null, configuredAt: null },
+      domain: {
+        name: null,
+        configuredAt: null,
+        letsEncryptEmail: null,
+        certProvider: 'letsencrypt',
+        customAcmeUrl: null,
+      },
     });
   });
 

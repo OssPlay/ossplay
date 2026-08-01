@@ -36,8 +36,9 @@ function handleSessionExpired(): void {
   // (not router.push — this needs to work with no React context, and a
   // full reload guarantees no stale client state survives into /login)
   // wipes it.
+  const returnTo = window.location.pathname + window.location.search;
   setTimeout(() => {
-    window.location.href = '/login';
+    window.location.href = `/login?continue=${encodeURIComponent(returnTo)}`;
   }, 1500);
 }
 

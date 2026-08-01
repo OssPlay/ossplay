@@ -3,14 +3,31 @@
 import { ArrowLeftIcon, UserIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
 import useSWR from 'swr';
 import { FormError } from '@/components/form-error';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Container from '@/components/ui/container';
 import { LoadingButton } from '@/components/ui/loading-button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -104,8 +121,6 @@ export default function InstanceUserDetailPage() {
 }
 
 function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () => void }) {
-  const [confirmingReset2fa, setConfirmingReset2fa] = useState(false);
-
   const resetPassword = useAction(
     () =>
       apiFetch<{ temporaryPassword: string }>(`/instance/users/${user.id}/password`, {
@@ -131,10 +146,7 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
   async function handleReset2fa() {
     await reset2fa
       .trigger()
-      .then(() => {
-        setConfirmingReset2fa(false);
-        onChange();
-      })
+      .then(onChange)
       .catch(() => {});
   }
 
@@ -159,7 +171,7 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
         ) : (
           <div className="flex flex-wrap gap-2">
             <LoadingButton
-              variant="outline"
+              variant="secondary"
               size="sm"
               loading={resetPassword.isLoading}
               onClick={() => resetPassword.trigger()}
@@ -168,34 +180,34 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
             </LoadingButton>
 
             {user.totpEnabled || user.passkeyCount > 0 ? (
-              confirmingReset2fa ? (
-                <>
-                  <LoadingButton
-                    variant="destructive"
-                    size="sm"
-                    loading={reset2fa.isLoading}
-                    onClick={handleReset2fa}
-                  >
-                    Confirm reset 2FA &amp; passkeys
-                  </LoadingButton>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setConfirmingReset2fa(false)}
-                    disabled={reset2fa.isLoading}
-                  >
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Button variant="outline" size="sm" onClick={() => setConfirmingReset2fa(true)}>
-                  Reset 2FA &amp; passkeys
-                </Button>
-              )
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="secondary" size="sm">
+                      Reset 2FA &amp; passkeys
+                    </Button>
+                  }
+                />
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reset 2FA &amp; passkeys?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {user.name} will lose their authenticator and every registered passkey, and
+                      will need to set 2FA up again. This can't be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction disabled={reset2fa.isLoading} onClick={handleReset2fa}>
+                      Reset 2FA &amp; passkeys
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
 
             <LoadingButton
-              variant={user.disabledAt ? 'default' : 'outline'}
+              variant="secondary"
               size="sm"
               loading={toggleBlock.isLoading}
               onClick={handleToggleBlock}
@@ -267,8 +279,6 @@ function OrgMembershipRow({
   org: OrgMembership;
   onChange: () => void;
 }) {
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
-
   const changeRole = useAction(
     (role: string) =>
       apiFetch(`/instance/users/${userId}/organizations/${org.id}/role`, {
@@ -294,57 +304,59 @@ function OrgMembershipRow({
     <TableRow>
       <TableCell>{org.name}</TableCell>
       <TableCell>
-        <select
+        <Select
           value={org.role}
-          onChange={(e) =>
+          onValueChange={(role) =>
             changeRole
-              .trigger(e.target.value)
+              .trigger(role as string)
               .then(onChange)
               .catch(() => {})
           }
           disabled={changeRole.isLoading}
-          className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
         >
-          {ORG_ROLES.map((role) => (
-            <option key={role} value={role}>
-              {role}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ORG_ROLES.map((role) => (
+              <SelectItem key={role} value={role}>
+                {role}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </TableCell>
       <TableCell className="text-right">
-        {confirmingRemove ? (
-          <div className="flex justify-end gap-2">
-            <LoadingButton
-              variant="destructive"
-              size="sm"
-              loading={remove.isLoading}
-              onClick={handleRemove}
-            >
-              Confirm remove
-            </LoadingButton>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setConfirmingRemove(false)}
-              disabled={remove.isLoading}
-            >
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={() => setConfirmingRemove(true)}>
-            Remove
-          </Button>
-        )}
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button variant="secondary" size="sm">
+                Remove
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove from "{org.name}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This user will lose access to every project in this organization. This can't be
+                undone from here — they'd need to be re-invited.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction disabled={remove.isLoading} onClick={handleRemove}>
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </TableCell>
     </TableRow>
   );
 }
 
 function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => void }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-
   const deleteUser = useAction(() => apiFetch(`/instance/users/${user.id}`, { method: 'DELETE' }), {
     error: 'Could not delete user',
   });
@@ -367,28 +379,30 @@ function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => vo
             deleteUser.error ? errorMessage(deleteUser.error, 'Could not delete user') : null
           }
         />
-        {confirmingDelete ? (
-          <div className="flex gap-2">
-            <LoadingButton
-              variant="destructive"
-              loading={deleteUser.isLoading}
-              onClick={handleDelete}
-            >
-              Confirm delete
-            </LoadingButton>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={deleteUser.isLoading}
-            >
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button variant="outline" onClick={() => setConfirmingDelete(true)}>
-            Delete user
-          </Button>
-        )}
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button variant="secondary" className="w-fit">
+                Delete user
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {user.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes the account and removes it from every organization. This
+                can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction disabled={deleteUser.isLoading} onClick={handleDelete}>
+                Delete user
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

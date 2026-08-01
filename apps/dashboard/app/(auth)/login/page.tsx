@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { type SyntheticEvent, useEffect, useState } from 'react';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
@@ -10,6 +10,7 @@ import { LoadingButton } from '@/components/ui/loading-button';
 import { useAction } from '@/hooks/use-action';
 import { apiFetch, errorMessage } from '@/lib/api';
 import { browserSupportsWebAuthn, loginWithPasskey } from '@/lib/passkey';
+import { getSafeContinuePath } from '@/lib/safe-redirect';
 
 type LoginResponse =
   | { requiresTwoFactor: true }
@@ -17,6 +18,8 @@ type LoginResponse =
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const continuePath = getSafeContinuePath(searchParams.get('continue'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   // Checked after mount, not during render, so the server-rendered HTML
@@ -52,10 +55,12 @@ export default function LoginPage() {
       .trigger()
       .then((res) => {
         if ('requiresTwoFactor' in res) {
-          router.push('/login/2fa/totp');
+          router.push(
+            `/login/2fa/totp${continuePath ? `?continue=${encodeURIComponent(continuePath)}` : ''}`,
+          );
           return;
         }
-        router.push('/');
+        router.push(continuePath ?? '/');
         router.refresh();
       })
       .catch(() => {});
@@ -66,7 +71,7 @@ export default function LoginPage() {
     await passkeyLogin
       .trigger()
       .then(() => {
-        router.push('/');
+        router.push(continuePath ?? '/');
         router.refresh();
       })
       .catch(() => {});

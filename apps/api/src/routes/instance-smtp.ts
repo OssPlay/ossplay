@@ -164,6 +164,8 @@ instanceSmtpRoute.put('/:id/default', async (c) => {
   return c.body(null, 204);
 });
 
+const testSchema = z.object({ to: z.email().optional() });
+
 instanceSmtpRoute.post('/:id/test', async (c) => {
   const [config] = await getDb()
     .select()
@@ -171,9 +173,15 @@ instanceSmtpRoute.post('/:id/test', async (c) => {
     .where(eq(smtpConfigs.id, c.req.param('id')));
   if (!config) return c.json({ error: 'SMTP config not found' }, 404);
 
+  const parsed = testSchema.safeParse((await c.req.json().catch(() => null)) ?? {});
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid input', details: z.treeifyError(parsed.error) }, 400);
+  }
+
   const actor = c.get('user');
+  const to = parsed.data.to ?? actor.email;
   try {
-    await sendMailWithConfig(config, actor.email, {
+    await sendMailWithConfig(config, to, {
       subject: 'OSSPlay SMTP test',
       text: `This is a test email sent from the "${config.name}" SMTP config on your OSSPlay instance.`,
       html: `<p>This is a test email sent from the "${config.name}" SMTP config on your OSSPlay instance.</p>`,

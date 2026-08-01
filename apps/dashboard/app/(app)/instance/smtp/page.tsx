@@ -1,10 +1,22 @@
 'use client';
 
-import { MailIcon, PlusIcon } from 'lucide-react';
+import { MailIcon, PlusIcon, SendIcon } from 'lucide-react';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { FormField } from '@/components/auth/form-field';
 import { FormError } from '@/components/form-error';
+import { useAuth } from '@/components/providers/auth-provider';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Container from '@/components/ui/container';
@@ -17,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { LoadingButton } from '@/components/ui/loading-button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import {
   Table,
@@ -58,8 +71,13 @@ export default function InstanceSmtpPage() {
         icon: MailIcon,
         title: 'Email & SMTP',
         description: 'Used to send invitation and password-reset emails.',
-        action: { icon: PlusIcon, title: 'Add config', onClick: () => setDialogOpen(true) },
+        action: {
+          icon: PlusIcon,
+          title: 'Add config',
+          onClick: () => setDialogOpen(true),
+        },
       }}
+      size="lg"
     >
       {configs.length === 0 ? (
         <p className="text-sm text-muted-foreground">No SMTP configs yet.</p>
@@ -92,12 +110,6 @@ export default function InstanceSmtpPage() {
 }
 
 function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChange: () => void }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-
-  const test = useAction(() => apiFetch(`/instance/smtp/${config.id}/test`, { method: 'POST' }), {
-    error: 'Could not send test email',
-    success: 'Test email sent',
-  });
   const makeDefault = useAction(
     () => apiFetch(`/instance/smtp/${config.id}/default`, { method: 'PUT' }),
     { error: 'Could not set as default' },
@@ -125,7 +137,7 @@ function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChan
           <Badge variant="secondary">Default</Badge>
         ) : (
           <LoadingButton
-            variant="ghost"
+            variant="secondary"
             size="sm"
             loading={makeDefault.isLoading}
             onClick={() =>
@@ -141,41 +153,111 @@ function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChan
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-2">
-          <LoadingButton
-            variant="ghost"
-            size="sm"
-            loading={test.isLoading}
-            onClick={() => test.trigger()}
-          >
-            Test
-          </LoadingButton>
-          {confirmingDelete ? (
-            <>
-              <LoadingButton
-                variant="destructive"
-                size="sm"
-                loading={remove.isLoading}
-                onClick={handleRemove}
-              >
-                Confirm
-              </LoadingButton>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={remove.isLoading}
-              >
-                Cancel
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </Button>
-          )}
+          <TestSmtpConfigButton configId={config.id} configName={config.name} />
+          <DeleteSmtpConfigButton
+            configName={config.name}
+            loading={remove.isLoading}
+            onConfirm={handleRemove}
+          />
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+function DeleteSmtpConfigButton({
+  configName,
+  loading,
+  onConfirm,
+}: {
+  configName: string;
+  loading: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button variant="secondary" size="sm">
+            Delete
+          </Button>
+        }
+      />
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete "{configName}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This SMTP config will stop being usable immediately. This can't be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" disabled={loading} onClick={onConfirm}>
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function TestSmtpConfigButton({ configId, configName }: { configId: string; configName: string }) {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState(user.email);
+
+  const test = useAction(
+    () =>
+      apiFetch(`/instance/smtp/${configId}/test`, {
+        method: 'POST',
+        body: JSON.stringify({ to }),
+      }),
+    { error: 'Could not send test email', success: 'Test email sent' },
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setTo(user.email);
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <Button variant="secondary" size="sm">
+            Test
+          </Button>
+        }
+      />
+      <PopoverContent className="w-80">
+        <div className="flex flex-col gap-3">
+          <FormField
+            id={`smtpTestTo-${configId}`}
+            label="Send test email to"
+            type="email"
+            value={to}
+            onChange={setTo}
+            autoComplete="email"
+            autoFocus
+            disabled={test.isLoading}
+          />
+          <LoadingButton
+            size="sm"
+            loading={test.isLoading}
+            disabled={!to}
+            onClick={() =>
+              test
+                .trigger()
+                .then(() => setOpen(false))
+                .catch(() => {})
+            }
+          >
+            <SendIcon /> Send from "{configName}"
+          </LoadingButton>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -235,7 +317,7 @@ function AddSmtpConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Add SMTP config</DialogTitle>
         </DialogHeader>
@@ -245,27 +327,35 @@ function AddSmtpConfigDialog({
             label="Name"
             value={name}
             onChange={setName}
+            autoComplete="off"
+            autoFocus
             disabled={create.isLoading}
           />
-          <FormField
-            id="smtpHost"
-            label="Host"
-            value={host}
-            onChange={setHost}
-            disabled={create.isLoading}
-          />
-          <FormField
-            id="smtpPort"
-            label="Port"
-            value={port}
-            onChange={setPort}
-            disabled={create.isLoading}
-          />
+          <div className="flex gap-4 flex-nowrap">
+            <FormField
+              id="smtpHost"
+              label="Host"
+              value={host}
+              onChange={setHost}
+              autoComplete="off"
+              disabled={create.isLoading}
+            />
+            <FormField
+              id="smtpPort"
+              label="Port"
+              value={port}
+              onChange={setPort}
+              autoComplete="off"
+              disabled={create.isLoading}
+              type="number"
+            />
+          </div>
           <FormField
             id="smtpUsername"
             label="Username"
             value={username}
             onChange={setUsername}
+            autoComplete="off"
             disabled={create.isLoading}
           />
           <FormField
@@ -274,23 +364,35 @@ function AddSmtpConfigDialog({
             type="password"
             value={password}
             onChange={setPassword}
+            autoComplete="new-password"
             disabled={create.isLoading}
           />
-          <FormField
-            id="smtpFromAddress"
-            label="From address"
-            type="email"
-            value={fromAddress}
-            onChange={setFromAddress}
-            disabled={create.isLoading}
+          <div className="flex gap-4 flex-nowrap">
+            <FormField
+              id="smtpFromName"
+              label="From name"
+              value={fromName}
+              onChange={setFromName}
+              autoComplete="off"
+              disabled={create.isLoading}
+            />
+            <FormField
+              id="smtpFromAddress"
+              label="From address"
+              type="email"
+              value={fromAddress}
+              onChange={setFromAddress}
+              autoComplete="off"
+              disabled={create.isLoading}
+            />
+          </div>
+          <FormError
+            message={
+              create.error ? errorMessage(create.error, 'Could not create SMTP config') : null
+            }
           />
-          <FormField
-            id="smtpFromName"
-            label="From name"
-            value={fromName}
-            onChange={setFromName}
-            disabled={create.isLoading}
-          />
+        </div>
+        <DialogFooter className="sm:justify-between">
           <div className="flex items-center gap-2">
             <Switch
               id="smtpSecure"
@@ -300,13 +402,6 @@ function AddSmtpConfigDialog({
             />
             <Label htmlFor="smtpSecure">Use TLS</Label>
           </div>
-          <FormError
-            message={
-              create.error ? errorMessage(create.error, 'Could not create SMTP config') : null
-            }
-          />
-        </div>
-        <DialogFooter>
           <LoadingButton
             loading={create.isLoading}
             onClick={handleCreate}
