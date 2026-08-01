@@ -11,7 +11,8 @@ export type InstancePermission =
   | 'instance:manage_workers'
   | 'instance:manage_settings'
   | 'instance:manage_orgs'
-  | 'instance:manage_users';
+  | 'instance:manage_users'
+  | 'instance:view_audit_log';
 
 export type OrgPermission =
   | 'org:manage_settings'
@@ -30,6 +31,7 @@ const INSTANCE_ROLE_PERMISSIONS: Record<'root', readonly InstancePermission[]> =
     'instance:manage_settings',
     'instance:manage_orgs',
     'instance:manage_users',
+    'instance:view_audit_log',
   ],
 };
 

@@ -1,5 +1,6 @@
 import { relations } from 'drizzle-orm';
 import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { auditLogs, remoteServers, sshKeys } from './instance.schema';
 import { invitations, organizationMembers } from './organization.schema';
 import { sessions } from './session.schema';
 
@@ -24,6 +25,10 @@ export const users = pgTable('users', {
   // does not enable 2FA on its own.
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').default(false).notNull(),
+  // Set by an instance root from /instance/users ("block"). Checked at
+  // login and session validation — a blocked user can't authenticate, but
+  // their row/history stays intact, distinct from a destructive delete.
+  disabledAt: timestamp('disabled_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -114,6 +119,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   passwordResetTokens: many(passwordResetTokens),
   webauthnCredentials: many(webauthnCredentials),
   webauthnChallenges: many(webauthnChallenges),
+  sshKeysCreated: many(sshKeys),
+  remoteServersCreated: many(remoteServers),
+  auditLogEntries: many(auditLogs),
 }));
 
 export const twoFactorChallengesRelations = relations(twoFactorChallenges, ({ one }) => ({
