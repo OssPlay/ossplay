@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { applyDomainConfig } from '../lib/caddy/admin';
 import { readInstanceConfig, writeInstanceConfig } from '../lib/config/instance-config';
+import { detectServerIp, readServiceVersions } from '../lib/server-info';
 import { requireAuth } from '../middleware/require-auth';
 import { requireInstancePermission } from '../middleware/require-instance-permission';
 import type { AppEnv } from '../types';
@@ -9,6 +10,28 @@ import type { AppEnv } from '../types';
 export const instanceRoute = new Hono<AppEnv>();
 
 instanceRoute.use('*', requireAuth, requireInstancePermission('instance:manage_settings'));
+
+instanceRoute.get('/overview', async (c) => {
+  const [serverIp, versions] = await Promise.all([
+    detectServerIp(),
+    Promise.resolve(readServiceVersions()),
+  ]);
+  return c.json({ serverIp, versions });
+});
+
+// The updater sidecar (infra/updater) is currently a stub with no HTTP
+// endpoint of its own (see its own file header) — there's nothing to check
+// against yet, so this always degrades gracefully rather than pretending a
+// real check happened. Kept as its own endpoint (not folded into GET
+// /overview) since a real implementation will be a genuine outbound call,
+// not something to run on every page load.
+instanceRoute.post('/updates/check', (c) => {
+  return c.json({
+    available: false,
+    reason:
+      'Automatic update checks are not available on this deployment yet — the update sidecar has no update-check endpoint implemented.',
+  });
+});
 
 instanceRoute.get('/domain', (c) => {
   const { domain } = readInstanceConfig();
