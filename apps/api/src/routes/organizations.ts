@@ -2,6 +2,7 @@ import { getDb, invitations, organizationMembers, organizations, users } from '@
 import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { logAudit } from '../lib/audit/log';
 import { getPublicUrl } from '../lib/auth/request-info';
 import { generateToken, hashToken } from '../lib/auth/tokens';
 import { sendMail } from '../lib/mail/send';
@@ -42,6 +43,13 @@ organizationsRoute.post(
     await getDb()
       .insert(organizationMembers)
       .values({ userId: user.id, orgId: organization.id, role: 'owner' });
+
+    await logAudit(c, {
+      action: 'organization.create',
+      targetType: 'organization',
+      targetId: organization.id,
+      metadata: { name: organization.name },
+    });
 
     return c.json({ organization }, 201);
   },

@@ -96,8 +96,9 @@ Not originally specified in earlier drafts of this document (§2.1's wizard only
 1. **First boot has no admin account.** Setup creates just the instance root (see §2.1) — organization creation moved to the required onboarding step, so it's no longer bundled into the same submission.
 2. **Two permission scopes, not one:** instance (`root` — implicit full access to everything in this deployment, including every organization; manages worker-fleet provisioning, domain/SSL, the auto-updater, and — per §2.4 — every user's password/2FA/passkeys) and organization (`owner` / `admin` / `member`, scoped to one org's settings/projects/assets). The bootstrap admin becomes instance `root`, and an explicit `owner` of whichever organization they create during onboarding.
 3. **Storage is configured separately, not during bootstrap.** An organization can exist before its S3 credentials are set — nothing forces that choice before you can log in and look around.
+4. **A minimal, append-only audit log now exists** (reversing the earlier "no audit-log subsystem exists anywhere yet" line below — see 2026-08-02 in MEMORY.md), gated by its own `instance:view_audit_log` permission and viewable at `/instance/audit-logs`. It is deliberately not a general-purpose event bus: it only records a fixed, short list of root-initiated actions — instance settings changes (domain, SMTP config), user password reset/2FA clear/block/unblock/delete/org-role change, SSH key/remote server add/delete, and organization create. Read-only actions and org-member-level actions are never logged.
 
-Explicitly out of scope for now: granting `root` to more than the bootstrap admin, and any audit trail of who reset whose password/2FA (no audit-log subsystem exists anywhere yet, not just here). Inviting additional users, password reset, and account recovery are now built — see §2.4.
+Explicitly out of scope for now: granting `root` to more than the bootstrap admin. Inviting additional users, password reset, and account recovery are now built — see §2.4.
 
 ### 2.4. Account Security & Recovery
 

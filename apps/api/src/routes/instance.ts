@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { logAudit } from '../lib/audit/log';
 import { applyDomainConfig } from '../lib/caddy/admin';
 import { readInstanceConfig, writeInstanceConfig } from '../lib/config/instance-config';
 import { detectServerIp, readServiceVersions } from '../lib/server-info';
@@ -100,6 +101,13 @@ instanceRoute.put('/domain', async (c) => {
       certProvider,
       customAcmeUrl: customAcmeUrl ?? null,
     },
+  });
+
+  await logAudit(c, {
+    action: 'instance.domain.update',
+    targetType: 'domain',
+    targetId: domain ?? undefined,
+    metadata: { domain, certProvider, caddyApplied: result.applied },
   });
 
   return c.json({
