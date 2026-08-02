@@ -1,5 +1,5 @@
 import { getDb, organizationMembers, organizations, users, webauthnCredentials } from '@ossplay/db';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { logAudit } from '../lib/audit/log';
@@ -54,24 +54,53 @@ async function findSoleOwnerOrgs(userId: string): Promise<Array<{ id: string; na
     .where(inArray(organizations.id, soleOwnerOrgIds));
 }
 
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 100;
+
 instanceUsersRoute.get('/', async (c) => {
   const db = getDb();
-  const rows = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      instanceRole: users.instanceRole,
-      totpEnabled: users.totpEnabled,
-      disabledAt: users.disabledAt,
-      createdAt: users.createdAt,
-      lastSignInAt: users.lastSignInAt,
-    })
-    .from(users);
+  const search = c.req.query('search')?.trim() ?? '';
+  const page = Math.max(0, Number.parseInt(c.req.query('page') ?? '0', 10) || 0);
+  const pageSize = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(1, Number.parseInt(c.req.query('pageSize') ?? '', 10) || DEFAULT_PAGE_SIZE),
+  );
 
-  const credentials = await db
-    .select({ userId: webauthnCredentials.userId })
-    .from(webauthnCredentials);
+  const whereClause = search
+    ? or(ilike(users.name, `%${search}%`), ilike(users.email, `%${search}%`))
+    : undefined;
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        instanceRole: users.instanceRole,
+        totpEnabled: users.totpEnabled,
+        disabledAt: users.disabledAt,
+        createdAt: users.createdAt,
+        lastSignInAt: users.lastSignInAt,
+      })
+      .from(users)
+      .where(whereClause)
+      .orderBy(desc(users.createdAt))
+      .limit(pageSize)
+      .offset(page * pageSize),
+    db.select({ total: count() }).from(users).where(whereClause),
+  ]);
+
+  const credentials = rows.length
+    ? await db
+        .select({ userId: webauthnCredentials.userId })
+        .from(webauthnCredentials)
+        .where(
+          inArray(
+            webauthnCredentials.userId,
+            rows.map((row) => row.id),
+          ),
+        )
+    : [];
   const passkeyCounts = new Map<string, number>();
   for (const { userId } of credentials) {
     passkeyCounts.set(userId, (passkeyCounts.get(userId) ?? 0) + 1);
@@ -82,6 +111,9 @@ instanceUsersRoute.get('/', async (c) => {
       ...row,
       passkeyCount: passkeyCounts.get(row.id) ?? 0,
     })),
+    total: totalRows[0]?.total ?? 0,
+    page,
+    pageSize,
   });
 });
 

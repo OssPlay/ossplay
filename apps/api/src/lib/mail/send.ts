@@ -33,6 +33,23 @@ export async function sendMail(to: string, message: MailMessage): Promise<void> 
   await sendMailWithConfig(config, to, message);
 }
 
+// nodemailer's `secure` option means implicit TLS from the first byte —
+// only correct for port 465. Every other encrypted port (587, 25) speaks
+// plaintext first and upgrades via STARTTLS; passing `secure: true` there
+// makes nodemailer attempt a raw TLS handshake against a server expecting
+// an SMTP greeting, which surfaces as a confusing cert/altname mismatch
+// rather than a clear connection error. A stored config's `secure` field
+// only records "this config wants an encrypted connection" — which of the
+// two encryption modes that means is derived from the port, not stored.
+// Exported standalone (rather than inlined) so this derivation is directly
+// unit-testable without spinning up a real SMTP connection.
+export function resolveTlsOptions(
+  config: Pick<SmtpConfig, 'secure' | 'port'>,
+): { secure: boolean; requireTLS: boolean } {
+  const implicitTls = config.secure && config.port === 465;
+  return { secure: implicitTls, requireTLS: config.secure && !implicitTls };
+}
+
 // Split out from sendMail so instance-smtp.ts's "Test" action can send
 // through a specific (possibly not-yet-default) config without first
 // promoting it.
@@ -44,7 +61,7 @@ export async function sendMailWithConfig(
   const transport = nodemailer.createTransport({
     host: config.host,
     port: config.port,
-    secure: config.secure,
+    ...resolveTlsOptions(config),
     auth: config.username
       ? {
           user: config.username,

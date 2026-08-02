@@ -3,6 +3,7 @@
 import { ArrowLeftIcon, UserIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import useSWR from 'swr';
 import { FormError } from '@/components/form-error';
 import {
@@ -121,6 +122,7 @@ export default function InstanceUserDetailPage() {
 }
 
 function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () => void }) {
+  const [reset2faOpen, setReset2faOpen] = useState(false);
   const resetPassword = useAction(
     () =>
       apiFetch<{ temporaryPassword: string }>(`/instance/users/${user.id}/password`, {
@@ -146,7 +148,10 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
   async function handleReset2fa() {
     await reset2fa
       .trigger()
-      .then(onChange)
+      .then(() => {
+        setReset2faOpen(false);
+        onChange();
+      })
       .catch(() => {});
   }
 
@@ -180,7 +185,7 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
             </LoadingButton>
 
             {user.totpEnabled || user.passkeyCount > 0 ? (
-              <AlertDialog>
+              <AlertDialog open={reset2faOpen} onOpenChange={setReset2faOpen}>
                 <AlertDialogTrigger
                   render={
                     <Button variant="secondary" size="sm">
@@ -279,6 +284,7 @@ function OrgMembershipRow({
   org: OrgMembership;
   onChange: () => void;
 }) {
+  const [removeOpen, setRemoveOpen] = useState(false);
   const changeRole = useAction(
     (role: string) =>
       apiFetch(`/instance/users/${userId}/organizations/${org.id}/role`, {
@@ -296,7 +302,10 @@ function OrgMembershipRow({
   async function handleRemove() {
     await remove
       .trigger()
-      .then(onChange)
+      .then(() => {
+        setRemoveOpen(false);
+        onChange();
+      })
       .catch(() => {});
   }
 
@@ -327,7 +336,7 @@ function OrgMembershipRow({
         </Select>
       </TableCell>
       <TableCell className="text-right">
-        <AlertDialog>
+        <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
           <AlertDialogTrigger
             render={
               <Button variant="secondary" size="sm">

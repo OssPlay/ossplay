@@ -2,7 +2,7 @@
 
 import { SearchIcon, UsersIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -20,7 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAction } from '@/hooks/use-action';
-import { usePaginatedList } from '@/hooks/use-paginated-list';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { ApiError, apiFetch } from '@/lib/api';
 
 type InstanceUser = {
@@ -34,32 +34,33 @@ type InstanceUser = {
   createdAt: string;
   lastSignInAt: string | null;
 };
+type UsersResponse = { users: InstanceUser[]; total: number; page: number; pageSize: number };
 
-function matchesQuery(user: InstanceUser, query: string): boolean {
-  return user.name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query);
-}
+const DEBOUNCE_MS = 300;
 
 // Root-only: manage identity/security for every account on this instance —
 // force-reset a password or 2FA, block/delete, edit org roles. Distinct
 // from (and more powerful than) anything an org-level Members page does —
 // see ARCHITECTURE.md's Authorization Model section.
 export default function InstanceUsersPage() {
-  const { data, error, mutate } = useSWR<{ users: InstanceUser[] }>('/instance/users');
-  const forbidden = error instanceof ApiError && error.status === 403;
-
-  const users = data?.users ?? [];
-  const {
-    query,
-    setQuery,
-    page,
-    setPage,
-    pageSize,
-    setPageSize,
-    pageItems,
-    filteredCount,
-    totalPages,
-  } = usePaginatedList(users, matchesQuery);
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput, DEBOUNCE_MS);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // A stale page index (e.g. page 3 of what's now a 1-page result) must not
+  // stick once the debounced search value actually changes the result set.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally excludes `page` — this only resets page in response to `search` changing, not on every page change.
+  useEffect(() => {
+    setPage(0);
+  }, [search]);
+
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (search) query.set('search', search);
+
+  const { data, error, mutate } = useSWR<UsersResponse>(`/instance/users?${query.toString()}`);
+  const forbidden = error instanceof ApiError && error.status === 403;
 
   // Reuses the same per-user PUT endpoint SecurityActions calls on the
   // detail page — no bulk endpoint exists (or is needed) for this.
@@ -75,7 +76,10 @@ export default function InstanceUsersPage() {
     );
   }
 
-  const pageIds = pageItems.map((user) => user.id);
+  const users = data?.users ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageIds = users.map((user) => user.id);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
 
   function toggleAllOnPage(checked: boolean) {
@@ -96,6 +100,11 @@ export default function InstanceUsersPage() {
       else next.delete(id);
       return next;
     });
+  }
+
+  function handlePageSizeChange(size: number) {
+    setPageSize(size);
+    setPage(0);
   }
 
   async function handleBulk(action: 'block' | 'unblock') {
@@ -123,8 +132,8 @@ export default function InstanceUsersPage() {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search name or email…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9"
             />
           </div>
@@ -151,10 +160,10 @@ export default function InstanceUsersPage() {
           )}
         </div>
 
-        {users.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No users yet.</p>
-        ) : filteredCount === 0 ? (
-          <p className="text-sm text-muted-foreground">No users match "{query}".</p>
+        {!data ? null : total === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {search ? `No users match "${search}".` : 'No users yet.'}
+          </p>
         ) : (
           <>
             <Table>
@@ -176,7 +185,7 @@ export default function InstanceUsersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pageItems.map((user) => (
+                {users.map((user) => (
                   <TableRow key={user.id}>
                     <TableCell>
                       <Checkbox
@@ -224,9 +233,9 @@ export default function InstanceUsersPage() {
               page={page}
               totalPages={totalPages}
               pageSize={pageSize}
-              totalCount={filteredCount}
+              totalCount={total}
               onPageChange={setPage}
-              onPageSizeChange={setPageSize}
+              onPageSizeChange={handlePageSizeChange}
             />
           </>
         )}

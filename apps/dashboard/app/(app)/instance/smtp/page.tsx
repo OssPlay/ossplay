@@ -47,8 +47,10 @@ type SmtpConfigRow = {
   name: string;
   host: string;
   port: number;
+  username: string | null;
   fromAddress: string;
   fromName: string | null;
+  secure: boolean;
   isDefault: boolean;
 };
 
@@ -100,16 +102,20 @@ export default function InstanceSmtpPage() {
         </Table>
       )}
 
-      <AddSmtpConfigDialog
+      <SmtpConfigDialog
+        mode="create"
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onAdded={() => mutate()}
+        onSaved={() => mutate()}
       />
     </Container>
   );
 }
 
 function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChange: () => void }) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
   const makeDefault = useAction(
     () => apiFetch(`/instance/smtp/${config.id}/default`, { method: 'PUT' }),
     { error: 'Could not set as default' },
@@ -121,7 +127,10 @@ function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChan
   async function handleRemove() {
     await remove
       .trigger()
-      .then(onChange)
+      .then(() => {
+        setDeleteOpen(false);
+        onChange();
+      })
       .catch(() => {});
   }
 
@@ -154,50 +163,47 @@ function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChan
       <TableCell className="text-right">
         <div className="flex justify-end gap-2">
           <TestSmtpConfigButton configId={config.id} configName={config.name} />
-          <DeleteSmtpConfigButton
-            configName={config.name}
-            loading={remove.isLoading}
-            onConfirm={handleRemove}
+          <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+            Manage
+          </Button>
+          <SmtpConfigDialog
+            mode="edit"
+            config={config}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            onSaved={onChange}
           />
+
+          <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <AlertDialogTrigger
+              render={
+                <Button variant="secondary" size="sm">
+                  Delete
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{config.name}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This SMTP config will stop being usable immediately. This can't be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={remove.isLoading}
+                  onClick={handleRemove}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </TableCell>
     </TableRow>
-  );
-}
-
-function DeleteSmtpConfigButton({
-  configName,
-  loading,
-  onConfirm,
-}: {
-  configName: string;
-  loading: boolean;
-  onConfirm: () => void;
-}) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        render={
-          <Button variant="secondary" size="sm">
-            Delete
-          </Button>
-        }
-      />
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete "{configName}"?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This SMTP config will stop being usable immediately. This can't be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" disabled={loading} onClick={onConfirm}>
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }
 
@@ -242,6 +248,9 @@ function TestSmtpConfigButton({ configId, configName }: { configId: string; conf
             autoFocus
             disabled={test.isLoading}
           />
+          <FormError
+            message={test.error ? errorMessage(test.error, 'Could not send test email') : null}
+          />
           <LoadingButton
             size="sm"
             loading={test.isLoading}
@@ -261,153 +270,181 @@ function TestSmtpConfigButton({ configId, configName }: { configId: string; conf
   );
 }
 
-function AddSmtpConfigDialog({
+function SmtpConfigDialog({
+  mode,
+  config,
   open,
   onOpenChange,
-  onAdded,
+  onSaved,
 }: {
+  mode: 'create' | 'edit';
+  config?: SmtpConfigRow;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdded: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState('');
-  const [username, setUsername] = useState('');
+  const [name, setName] = useState(config?.name ?? '');
+  const [host, setHost] = useState(config?.host ?? '');
+  const [port, setPort] = useState(config ? String(config.port) : '');
+  const [username, setUsername] = useState(config?.username ?? '');
   const [password, setPassword] = useState('');
-  const [fromAddress, setFromAddress] = useState('');
-  const [fromName, setFromName] = useState('');
-  const [secure, setSecure] = useState(true);
+  const [fromAddress, setFromAddress] = useState(config?.fromAddress ?? '');
+  const [fromName, setFromName] = useState(config?.fromName ?? '');
+  const [secure, setSecure] = useState(config?.secure ?? true);
 
-  const create = useAction(
+  // Re-seeds from the current row every time the dialog opens — a prior
+  // edit's leftover state (or another row's values, since this component
+  // is remounted per-row but state could otherwise persist across opens)
+  // must not leak into the next open.
+  function handleOpenChange(next: boolean) {
+    if (next) {
+      setName(config?.name ?? '');
+      setHost(config?.host ?? '');
+      setPort(config ? String(config.port) : '');
+      setUsername(config?.username ?? '');
+      setPassword('');
+      setFromAddress(config?.fromAddress ?? '');
+      setFromName(config?.fromName ?? '');
+      setSecure(config?.secure ?? true);
+    }
+    onOpenChange(next);
+  }
+
+  const save = useAction(
     () =>
-      apiFetch('/instance/smtp', {
-        method: 'POST',
+      apiFetch(mode === 'edit' && config ? `/instance/smtp/${config.id}` : '/instance/smtp', {
+        method: mode === 'edit' ? 'PUT' : 'POST',
         body: JSON.stringify({
           name,
           host,
           port: Number(port),
           username: username || null,
-          password: password || null,
+          // Create: omitting entirely vs. sending null both mean "no
+          // password" server-side. Edit: an empty field means "leave the
+          // stored password unchanged", which needs the key omitted rather
+          // than sent as null (null would clear it) — see instance-smtp.ts.
+          ...(mode === 'edit' ? (password ? { password } : {}) : { password: password || null }),
           fromAddress,
           fromName: fromName || null,
           secure,
         }),
       }),
-    { error: 'Could not create SMTP config' },
+    { error: mode === 'edit' ? 'Could not update SMTP config' : 'Could not create SMTP config' },
   );
 
-  async function handleCreate() {
-    await create
+  async function handleSave() {
+    await save
       .trigger()
       .then(() => {
-        setName('');
-        setHost('');
-        setPort('');
-        setUsername('');
-        setPassword('');
-        setFromAddress('');
-        setFromName('');
-        setSecure(true);
         onOpenChange(false);
-        onAdded();
+        onSaved();
       })
       .catch(() => {});
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add SMTP config</DialogTitle>
+          <DialogTitle>
+            {mode === 'edit' ? `Edit "${config?.name}"` : 'Add SMTP config'}
+          </DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <FormField
-            id="smtpName"
+            id={`smtpName-${mode}`}
             label="Name"
             value={name}
             onChange={setName}
             autoComplete="off"
             autoFocus
-            disabled={create.isLoading}
+            disabled={save.isLoading}
           />
           <div className="flex gap-4 flex-nowrap">
             <FormField
-              id="smtpHost"
+              id={`smtpHost-${mode}`}
               label="Host"
               value={host}
               onChange={setHost}
               autoComplete="off"
-              disabled={create.isLoading}
+              disabled={save.isLoading}
             />
             <FormField
-              id="smtpPort"
+              id={`smtpPort-${mode}`}
               label="Port"
               value={port}
               onChange={setPort}
               autoComplete="off"
-              disabled={create.isLoading}
+              disabled={save.isLoading}
               type="number"
             />
           </div>
           <FormField
-            id="smtpUsername"
+            id={`smtpUsername-${mode}`}
             label="Username"
             value={username}
             onChange={setUsername}
             autoComplete="off"
-            disabled={create.isLoading}
+            disabled={save.isLoading}
           />
           <FormField
-            id="smtpPassword"
+            id={`smtpPassword-${mode}`}
             label="Password"
             type="password"
             value={password}
             onChange={setPassword}
             autoComplete="new-password"
-            disabled={create.isLoading}
+            helpText={mode === 'edit' ? 'Leave blank to keep the current password.' : undefined}
+            disabled={save.isLoading}
           />
           <div className="flex gap-4 flex-nowrap">
             <FormField
-              id="smtpFromName"
+              id={`smtpFromName-${mode}`}
               label="From name"
               value={fromName}
               onChange={setFromName}
               autoComplete="off"
-              disabled={create.isLoading}
+              disabled={save.isLoading}
             />
             <FormField
-              id="smtpFromAddress"
+              id={`smtpFromAddress-${mode}`}
               label="From address"
               type="email"
               value={fromAddress}
               onChange={setFromAddress}
               autoComplete="off"
-              disabled={create.isLoading}
+              disabled={save.isLoading}
             />
           </div>
           <FormError
             message={
-              create.error ? errorMessage(create.error, 'Could not create SMTP config') : null
+              save.error
+                ? errorMessage(
+                    save.error,
+                    mode === 'edit'
+                      ? 'Could not update SMTP config'
+                      : 'Could not create SMTP config',
+                  )
+                : null
             }
           />
         </div>
         <DialogFooter className="sm:justify-between">
           <div className="flex items-center gap-2">
             <Switch
-              id="smtpSecure"
+              id={`smtpSecure-${mode}`}
               checked={secure}
               onCheckedChange={setSecure}
-              disabled={create.isLoading}
+              disabled={save.isLoading}
             />
-            <Label htmlFor="smtpSecure">Use TLS</Label>
+            <Label htmlFor={`smtpSecure-${mode}`}>Use TLS</Label>
           </div>
           <LoadingButton
-            loading={create.isLoading}
-            onClick={handleCreate}
+            loading={save.isLoading}
+            onClick={handleSave}
             disabled={!name || !host || !port || !fromAddress}
           >
-            Create
+            {mode === 'edit' ? 'Save' : 'Create'}
           </LoadingButton>
         </DialogFooter>
       </DialogContent>
