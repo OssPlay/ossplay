@@ -24,32 +24,41 @@ describe.skipIf(!process.env.DATABASE_URL)("instance SSH keys", () => {
 	it("GET /instance/ssh-keys starts empty", async () => {
 		const res = await jsonRequest("/instance/ssh-keys", { cookie: rootCookie });
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ keys: [] });
+		expect(await res.json()).toEqual({ keys: [], total: 0, page: 0, pageSize: 25 });
 	});
 
-	it("POST /instance/ssh-keys (generate) creates a key and never returns the private key", async () => {
-		const res = await jsonRequest("/instance/ssh-keys", {
+	it("POST /instance/ssh-keys/generate returns a fresh Ed25519 keypair", async () => {
+		const res = await jsonRequest("/instance/ssh-keys/generate", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ mode: "generate", label: "Generated key" }),
+			body: JSON.stringify({ type: "ed25519" }),
 		});
-		expect(res.status).toBe(201);
+		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
-			key: {
-				id: string;
-				label: string;
-				publicKey: string;
-				fingerprint: string;
-				serverCount: number;
-			};
+			publicKey: string;
+			privateKey: string;
+			fingerprint: string;
+			keyType: string;
 		};
-		expect(body.key.label).toBe("Generated key");
-		expect(body.key.publicKey).toStartWith("ssh-ed25519 ");
-		expect(body.key.fingerprint).toStartWith("SHA256:");
-		expect(body.key.serverCount).toBe(0);
-		expect(body.key).not.toHaveProperty("privateKey");
-		expect(body.key).not.toHaveProperty("privateKeyEncrypted");
-		generatedKeyId = body.key.id;
+		expect(body.publicKey).toStartWith("ssh-ed25519 ");
+		expect(body.privateKey).toContain("PRIVATE KEY");
+		expect(body.fingerprint).toStartWith("SHA256:");
+		expect(body.keyType).toBe("ssh-ed25519");
+
+		const createRes = await jsonRequest("/instance/ssh-keys", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({
+				label: "Generated key",
+				publicKey: body.publicKey,
+				privateKey: body.privateKey,
+			}),
+		});
+		expect(createRes.status).toBe(201);
+		const created = (await createRes.json()) as { id: string };
+		expect(created).not.toHaveProperty("privateKey");
+		expect(created).not.toHaveProperty("privateKeyEncrypted");
+		generatedKeyId = created.id;
 	});
 
 	it("POST /instance/ssh-keys (paste) derives the same public key material from a pasted private key", async () => {
@@ -58,29 +67,72 @@ describe.skipIf(!process.env.DATABASE_URL)("instance SSH keys", () => {
 		const res = await jsonRequest("/instance/ssh-keys", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ mode: "paste", label: "Pasted key", privateKey: privateKeyPem }),
+			body: JSON.stringify({
+				label: "Pasted key",
+				publicKey: publicKeyLine,
+				privateKey: privateKeyPem,
+			}),
 		});
 		expect(res.status).toBe(201);
-		const body = (await res.json()) as { key: { id: string; publicKey: string } };
+		const { id } = (await res.json()) as { id: string };
+		pastedKeyId = id;
+
+		const listRes = await jsonRequest("/instance/ssh-keys", { cookie: rootCookie });
+		const { keys } = (await listRes.json()) as { keys: Array<{ id: string; publicKey: string }> };
+		const pasted = keys.find((k) => k.id === id);
 		// Same key material, just re-derived server-side — the base64 blob
 		// matches even though comments/formatting could differ.
-		expect(body.key.publicKey.split(" ")[1]).toBe(publicKeyLine.split(" ")[1]);
-		pastedKeyId = body.key.id;
+		expect(pasted?.publicKey.split(" ")[1]).toBe(publicKeyLine.split(" ")[1]);
 	});
 
-	it("POST /instance/ssh-keys (paste) rejects unparseable input", async () => {
+	it("POST /instance/ssh-keys rejects unparseable private key input", async () => {
 		const res = await jsonRequest("/instance/ssh-keys", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ mode: "paste", label: "Bad key", privateKey: "not a key" }),
+			body: JSON.stringify({
+				label: "Bad key",
+				publicKey: "ssh-ed25519 AAAA",
+				privateKey: "not a key",
+			}),
 		});
 		expect(res.status).toBe(400);
 	});
 
 	it("GET /instance/ssh-keys lists both keys", async () => {
 		const res = await jsonRequest("/instance/ssh-keys", { cookie: rootCookie });
-		const body = (await res.json()) as { keys: Array<{ id: string }> };
+		const body = (await res.json()) as { keys: Array<{ id: string }>; total: number };
 		expect(body.keys).toHaveLength(2);
+		expect(body.total).toBe(2);
+	});
+
+	it("GET /instance/ssh-keys?q= searches by label", async () => {
+		const res = await jsonRequest("/instance/ssh-keys?q=pasted", { cookie: rootCookie });
+		const body = (await res.json()) as { keys: Array<{ label: string }> };
+		expect(body.keys).toHaveLength(1);
+		expect(body.keys[0]?.label).toBe("Pasted key");
+	});
+
+	it("GET /instance/ssh-keys?filter_type= filters by key type", async () => {
+		const res = await jsonRequest("/instance/ssh-keys?filter_type=ssh-ed25519", {
+			cookie: rootCookie,
+		});
+		const body = (await res.json()) as { keys: unknown[]; total: number };
+		expect(body.total).toBe(2);
+
+		const noneRes = await jsonRequest("/instance/ssh-keys?filter_type=ssh-rsa", {
+			cookie: rootCookie,
+		});
+		expect(((await noneRes.json()) as { total: number }).total).toBe(0);
+	});
+
+	it("GET /instance/ssh-keys?page=&per_page= paginates", async () => {
+		const res = await jsonRequest("/instance/ssh-keys?per_page=1&page=0", {
+			cookie: rootCookie,
+		});
+		const body = (await res.json()) as { keys: unknown[]; total: number; pageSize: number };
+		expect(body.keys).toHaveLength(1);
+		expect(body.total).toBe(2);
+		expect(body.pageSize).toBe(1);
 	});
 
 	it("DELETE /instance/ssh-keys/:id removes an unreferenced key", async () => {

@@ -13,13 +13,23 @@ describe.skipIf(!process.env.DATABASE_URL)("instance remote servers", () => {
 
 	it("bootstraps the instance root and an SSH key", async () => {
 		({ sessionCookie: rootCookie } = await bootstrapAdmin());
+		const genRes = await jsonRequest("/instance/ssh-keys/generate", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({ type: "ed25519" }),
+		});
+		const generated = (await genRes.json()) as { publicKey: string; privateKey: string };
 		const res = await jsonRequest("/instance/ssh-keys", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ mode: "generate", label: "Test key" }),
+			body: JSON.stringify({
+				label: "Test key",
+				publicKey: generated.publicKey,
+				privateKey: generated.privateKey,
+			}),
 		});
-		const body = (await res.json()) as { key: { id: string } };
-		keyId = body.key.id;
+		const body = (await res.json()) as { id: string };
+		keyId = body.id;
 	});
 
 	it("rejects an unauthenticated request", async () => {

@@ -21,7 +21,11 @@ class UrlLib {
 		return this.url.pathname === url_pattern || this.url.pathname.startsWith(url_pattern + "/");
 	}
 
-	useQueryParams(params: Record<string, string | null>) {
+	// Not a hook despite the "set" verb pairing with getQueryParam below —
+	// named setQueryParams (not useQueryParams) so lint rules that key off a
+	// `use`-prefix (e.g. biome's useHookAtTopLevel) don't mistake a plain
+	// instance method for one.
+	setQueryParams(params: Record<string, string | null>) {
 		const nUrl = new URL(this.url.toString());
 		for (const key in params) {
 			if (params[key] === null) {
