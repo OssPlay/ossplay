@@ -4,6 +4,6 @@
 // request from the API, `bun docker pull`, run `drizzle-kit migrate` via a
 // temporary container, zero-downtime rolling restart) is feature work for a
 // later session, not part of this infra scaffold.
-console.log('[updater] placeholder — auto-update flow not implemented yet (see PRD.md §2.2)');
+console.log("[updater] placeholder — auto-update flow not implemented yet (see PRD.md §2.2)");
 
 setInterval(() => {}, 2 ** 31 - 1);

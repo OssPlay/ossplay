@@ -4,12 +4,12 @@
 const DEFAULT_TOKEN_BYTES = 32;
 
 export function generateToken(bytes: number = DEFAULT_TOKEN_BYTES): string {
-  const buf = new Uint8Array(bytes);
-  crypto.getRandomValues(buf);
-  return Buffer.from(buf).toString('base64url');
+	const buf = new Uint8Array(bytes);
+	crypto.getRandomValues(buf);
+	return Buffer.from(buf).toString("base64url");
 }
 
 export async function hashToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  return Buffer.from(digest).toString('hex');
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+	return Buffer.from(digest).toString("hex");
 }

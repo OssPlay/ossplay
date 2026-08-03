@@ -1,3 +1,3 @@
-import NotFound from '@/components/layout/error-boundary';
+import NotFound from "@/components/layout/error-boundary";
 
 export default NotFound;

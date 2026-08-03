@@ -1,8 +1,8 @@
 {
-  "extends": "@ossplay/config/tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "types": ["bun"]
-  },
-  "include": ["src", "drizzle.config.ts"]
+	"extends": "@ossplay/config/tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"types": ["bun"]
+	},
+	"include": ["src", "drizzle.config.ts"]
 }

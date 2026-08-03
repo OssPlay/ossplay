@@ -1,22 +1,22 @@
 {
-  "name": "@ossplay/worker",
-  "private": true,
-  "version": "0.0.0",
-  "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "start": "bun run src/index.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome lint ."
-  },
-  "dependencies": {
-    "@ossplay/core": "workspace:*",
-    "@ossplay/db": "workspace:*",
-    "bullmq": "^5.81.3",
-    "ioredis": "^5.11.1"
-  },
-  "devDependencies": {
-    "@ossplay/config": "workspace:*",
-    "@types/bun": "^1.3.14",
-    "typescript": "^5.9.3"
-  }
+	"name": "@ossplay/worker",
+	"private": true,
+	"version": "0.0.0",
+	"scripts": {
+		"dev": "bun run --hot src/index.ts",
+		"start": "bun run src/index.ts",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome lint ."
+	},
+	"dependencies": {
+		"@ossplay/core": "workspace:*",
+		"@ossplay/db": "workspace:*",
+		"bullmq": "^5.81.3",
+		"ioredis": "^5.11.1"
+	},
+	"devDependencies": {
+		"@ossplay/config": "workspace:*",
+		"@types/bun": "^1.3.14",
+		"typescript": "^5.9.3"
+	}
 }

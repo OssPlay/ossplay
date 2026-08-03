@@ -28,8 +28,7 @@ export const sshKeys = pgTable("ssh_keys", {
 	publicKey: text("public_key").notNull(),
 	privateKeyEncrypted: text("private_key_encrypted").notNull(),
 	fingerprint: text("fingerprint").notNull().unique(),
-	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow()
-		.notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
 		onDelete: "set null",
 	}),
@@ -64,8 +63,7 @@ export const remoteServers = pgTable("remote_servers", {
 	workerProvisionedAt: timestamp("worker_provisioned_at", {
 		withTimezone: true,
 	}),
-	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow()
-		.notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
 		onDelete: "set null",
 	}),
@@ -87,8 +85,7 @@ export const smtpConfigs = pgTable("smtp_configs", {
 	fromName: text("from_name"),
 	secure: boolean("secure").default(true).notNull(),
 	isDefault: boolean("is_default").default(false).notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow()
-		.notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Append-only, deliberately minimal action list (see MEMORY.md and
@@ -109,8 +106,7 @@ export const auditLogs = pgTable(
 		targetId: text("target_id"),
 		metadata: jsonb("metadata").$type<Record<string, unknown>>(),
 		ipAddress: text("ip_address"),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow()
-			.notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 	},
 	(table) => [
 		index("audit_logs_created_at_idx").on(table.createdAt.desc()),

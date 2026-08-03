@@ -1,157 +1,157 @@
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from "bun:test";
 import {
-  bootstrapAdmin,
-  extractCookie,
-  jsonRequest,
-  stampInvitationToken,
-  truncateAllTables,
-} from '../test-support';
+	bootstrapAdmin,
+	extractCookie,
+	jsonRequest,
+	stampInvitationToken,
+	truncateAllTables,
+} from "../test-support";
 
 type Invitation = { id: string; email: string; role: string; status: string };
 
-describe.skipIf(!process.env.DATABASE_URL)('organizations, members, invitations', () => {
-  beforeAll(truncateAllTables);
+describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations", () => {
+	beforeAll(truncateAllTables);
 
-  let ownerCookie: string;
-  let orgId: string;
+	let ownerCookie: string;
+	let orgId: string;
 
-  it('bootstraps an admin/owner', async () => {
-    ({ sessionCookie: ownerCookie, orgId } = await bootstrapAdmin());
-  });
+	it("bootstraps an admin/owner", async () => {
+		({ sessionCookie: ownerCookie, orgId } = await bootstrapAdmin());
+	});
 
-  it('GET /:orgId/members lists the owner', async () => {
-    const res = await jsonRequest(`/organizations/${orgId}/members`, { cookie: ownerCookie });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { members: Array<{ email: string; role: string }> };
-    expect(body.members).toHaveLength(1);
-    expect(body.members[0]).toMatchObject({ email: 'ada@example.com', role: 'owner' });
-  });
+	it("GET /:orgId/members lists the owner", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/members`, { cookie: ownerCookie });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { members: Array<{ email: string; role: string }> };
+		expect(body.members).toHaveLength(1);
+		expect(body.members[0]).toMatchObject({ email: "ada@example.com", role: "owner" });
+	});
 
-  let invitation: Invitation;
+	let invitation: Invitation;
 
-  it('POST /:orgId/invitations creates an invitation (degrading gracefully with no SMTP configured)', async () => {
-    const res = await jsonRequest(`/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      cookie: ownerCookie,
-      body: JSON.stringify({ email: 'newbie@example.com', role: 'member' }),
-    });
-    // 201 either way — with a `warning` field if SMTP isn't configured in
-    // this test environment, rather than losing the invitation.
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { invitation: Invitation };
-    expect(body.invitation.email).toBe('newbie@example.com');
-    expect(body.invitation.status).toBe('pending');
-    invitation = body.invitation;
-  });
+	it("POST /:orgId/invitations creates an invitation (degrading gracefully with no SMTP configured)", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/invitations`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ email: "newbie@example.com", role: "member" }),
+		});
+		// 201 either way — with a `warning` field if SMTP isn't configured in
+		// this test environment, rather than losing the invitation.
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { invitation: Invitation };
+		expect(body.invitation.email).toBe("newbie@example.com");
+		expect(body.invitation.status).toBe("pending");
+		invitation = body.invitation;
+	});
 
-  it('rejects a second pending invitation for the same email', async () => {
-    const res = await jsonRequest(`/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      cookie: ownerCookie,
-      body: JSON.stringify({ email: 'newbie@example.com', role: 'admin' }),
-    });
-    expect(res.status).toBe(409);
-  });
+	it("rejects a second pending invitation for the same email", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/invitations`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ email: "newbie@example.com", role: "admin" }),
+		});
+		expect(res.status).toBe(409);
+	});
 
-  it('GET /:orgId/invitations lists the pending invitation', async () => {
-    const res = await jsonRequest(`/organizations/${orgId}/invitations`, { cookie: ownerCookie });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { invitations: Invitation[] };
-    expect(body.invitations).toHaveLength(1);
-    expect(body.invitations[0]?.email).toBe('newbie@example.com');
-  });
+	it("GET /:orgId/invitations lists the pending invitation", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/invitations`, { cookie: ownerCookie });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { invitations: Invitation[] };
+		expect(body.invitations).toHaveLength(1);
+		expect(body.invitations[0]?.email).toBe("newbie@example.com");
+	});
 
-  let inviteToken: string;
+	let inviteToken: string;
 
-  it('GET /invitations/token/:token returns invite details without needing auth', async () => {
-    inviteToken = await stampInvitationToken(invitation.id);
+	it("GET /invitations/token/:token returns invite details without needing auth", async () => {
+		inviteToken = await stampInvitationToken(invitation.id);
 
-    const res = await jsonRequest(`/invitations/token/${inviteToken}`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { email: string; orgName: string; accountExists: boolean };
-    expect(body.email).toBe('newbie@example.com');
-    expect(body.orgName).toBe('Acme Inc');
-    expect(body.accountExists).toBe(false);
-  });
+		const res = await jsonRequest(`/invitations/token/${inviteToken}`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { email: string; orgName: string; accountExists: boolean };
+		expect(body.email).toBe("newbie@example.com");
+		expect(body.orgName).toBe("Acme Inc");
+		expect(body.accountExists).toBe(false);
+	});
 
-  let memberCookie: string;
+	let memberCookie: string;
 
-  it('POST /invitations/token/:token/accept creates the account and logs in', async () => {
-    const res = await jsonRequest(`/invitations/token/${inviteToken}/accept`, {
-      method: 'POST',
-      body: JSON.stringify({ name: 'Newbie User', password: 'a fresh new safe password' }),
-    });
-    expect(res.status).toBe(200);
-    memberCookie = extractCookie(res, 'ossplay_session');
+	it("POST /invitations/token/:token/accept creates the account and logs in", async () => {
+		const res = await jsonRequest(`/invitations/token/${inviteToken}/accept`, {
+			method: "POST",
+			body: JSON.stringify({ name: "Newbie User", password: "a fresh new safe password" }),
+		});
+		expect(res.status).toBe(200);
+		memberCookie = extractCookie(res, "ossplay_session");
 
-    const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
-      cookie: ownerCookie,
-    });
-    const membersBody = (await membersRes.json()) as {
-      members: Array<{ email: string; role: string }>;
-    };
-    expect(membersBody.members).toHaveLength(2);
-    expect(membersBody.members.find((m) => m.email === 'newbie@example.com')?.role).toBe('member');
-  });
+		const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+			cookie: ownerCookie,
+		});
+		const membersBody = (await membersRes.json()) as {
+			members: Array<{ email: string; role: string }>;
+		};
+		expect(membersBody.members).toHaveLength(2);
+		expect(membersBody.members.find((m) => m.email === "newbie@example.com")?.role).toBe("member");
+	});
 
-  it('the new member cannot create invitations, but can view the member list', async () => {
-    const createRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      cookie: memberCookie,
-      body: JSON.stringify({ email: 'someone-else@example.com', role: 'member' }),
-    });
-    expect(createRes.status).toBe(403);
+	it("the new member cannot create invitations, but can view the member list", async () => {
+		const createRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
+			method: "POST",
+			cookie: memberCookie,
+			body: JSON.stringify({ email: "someone-else@example.com", role: "member" }),
+		});
+		expect(createRes.status).toBe(403);
 
-    const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
-      cookie: memberCookie,
-    });
-    expect(membersRes.status).toBe(200);
-  });
+		const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+			cookie: memberCookie,
+		});
+		expect(membersRes.status).toBe(200);
+	});
 
-  it('re-inviting an existing member updates their role instead of no-op', async () => {
-    const promoteRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      cookie: ownerCookie,
-      body: JSON.stringify({ email: 'newbie@example.com', role: 'admin' }),
-    });
-    expect(promoteRes.status).toBe(201);
-    const promoteBody = (await promoteRes.json()) as { invitation: Invitation };
-    const promoteToken = await stampInvitationToken(promoteBody.invitation.id);
+	it("re-inviting an existing member updates their role instead of no-op", async () => {
+		const promoteRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ email: "newbie@example.com", role: "admin" }),
+		});
+		expect(promoteRes.status).toBe(201);
+		const promoteBody = (await promoteRes.json()) as { invitation: Invitation };
+		const promoteToken = await stampInvitationToken(promoteBody.invitation.id);
 
-    const acceptRes = await jsonRequest(`/invitations/token/${promoteToken}/accept`, {
-      method: 'POST',
-      cookie: memberCookie,
-    });
-    expect(acceptRes.status).toBe(200);
+		const acceptRes = await jsonRequest(`/invitations/token/${promoteToken}/accept`, {
+			method: "POST",
+			cookie: memberCookie,
+		});
+		expect(acceptRes.status).toBe(200);
 
-    const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
-      cookie: ownerCookie,
-    });
-    const membersBody = (await membersRes.json()) as {
-      members: Array<{ email: string; role: string }>;
-    };
-    expect(membersBody.members.find((m) => m.email === 'newbie@example.com')?.role).toBe('admin');
-  });
+		const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+			cookie: ownerCookie,
+		});
+		const membersBody = (await membersRes.json()) as {
+			members: Array<{ email: string; role: string }>;
+		};
+		expect(membersBody.members.find((m) => m.email === "newbie@example.com")?.role).toBe("admin");
+	});
 
-  it('revoking an invitation blocks a later accept', async () => {
-    const createRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
-      method: 'POST',
-      cookie: ownerCookie,
-      body: JSON.stringify({ email: 'revoke-me@example.com', role: 'member' }),
-    });
-    const createBody = (await createRes.json()) as { invitation: Invitation };
-    const revokeToken = await stampInvitationToken(createBody.invitation.id);
+	it("revoking an invitation blocks a later accept", async () => {
+		const createRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ email: "revoke-me@example.com", role: "member" }),
+		});
+		const createBody = (await createRes.json()) as { invitation: Invitation };
+		const revokeToken = await stampInvitationToken(createBody.invitation.id);
 
-    const revokeRes = await jsonRequest(`/invitations/${createBody.invitation.id}/revoke`, {
-      method: 'POST',
-      cookie: ownerCookie,
-    });
-    expect(revokeRes.status).toBe(204);
+		const revokeRes = await jsonRequest(`/invitations/${createBody.invitation.id}/revoke`, {
+			method: "POST",
+			cookie: ownerCookie,
+		});
+		expect(revokeRes.status).toBe(204);
 
-    const acceptRes = await jsonRequest(`/invitations/token/${revokeToken}/accept`, {
-      method: 'POST',
-      body: JSON.stringify({ name: 'Too Late', password: 'irrelevant password value' }),
-    });
-    expect(acceptRes.status).toBe(404);
-  });
+		const acceptRes = await jsonRequest(`/invitations/token/${revokeToken}/accept`, {
+			method: "POST",
+			body: JSON.stringify({ name: "Too Late", password: "irrelevant password value" }),
+		});
+		expect(acceptRes.status).toBe(404);
+	});
 });

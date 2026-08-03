@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from 'react';
-import type { Breadcrumbs, Sidepanel } from '@/lib/nav-types';
+import { useSyncExternalStore } from "react";
+import type { Breadcrumbs, Sidepanel } from "@/lib/nav-types";
 
 // Registered by components/layout/section.tsx, one entry per mounted
 // <Section>. `depth` (0 = the root (app) layout, increasing per nested
@@ -13,9 +13,9 @@ import type { Breadcrumbs, Sidepanel } from '@/lib/nav-types';
 // context during render, not from this store), so display is just
 // "read the deepest entry" — no flattening needed here.
 interface SectionRegistration {
-  depth: number;
-  breadcrumbs: Breadcrumbs;
-  sidepanel?: Sidepanel;
+	depth: number;
+	breadcrumbs: Breadcrumbs;
+	sidepanel?: Sidepanel;
 }
 
 const registrations = new Map<string, SectionRegistration>();
@@ -23,23 +23,23 @@ const listeners = new Set<() => void>();
 
 let version = 0;
 function notify(): void {
-  version++;
-  for (const listener of listeners) listener();
+	version++;
+	for (const listener of listeners) listener();
 }
 
 export function registerSection(id: string, registration: SectionRegistration): void {
-  registrations.set(id, registration);
-  notify();
+	registrations.set(id, registration);
+	notify();
 }
 
 export function unregisterSection(id: string): void {
-  registrations.delete(id);
-  notify();
+	registrations.delete(id);
+	notify();
 }
 
 function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+	listeners.add(listener);
+	return () => listeners.delete(listener);
 }
 
 // useSyncExternalStore requires a stable snapshot reference when nothing
@@ -49,29 +49,29 @@ function subscribe(listener: () => void): () => void {
 let breadcrumbsVersion = -1;
 let cachedBreadcrumbs: Breadcrumbs = [];
 function getBreadcrumbs(): Breadcrumbs {
-  if (breadcrumbsVersion !== version) {
-    let deepest: SectionRegistration | undefined;
-    for (const r of registrations.values()) {
-      if (!deepest || r.depth > deepest.depth) deepest = r;
-    }
-    cachedBreadcrumbs = deepest?.breadcrumbs ?? [];
-    breadcrumbsVersion = version;
-  }
-  return cachedBreadcrumbs;
+	if (breadcrumbsVersion !== version) {
+		let deepest: SectionRegistration | undefined;
+		for (const r of registrations.values()) {
+			if (!deepest || r.depth > deepest.depth) deepest = r;
+		}
+		cachedBreadcrumbs = deepest?.breadcrumbs ?? [];
+		breadcrumbsVersion = version;
+	}
+	return cachedBreadcrumbs;
 }
 
 let sidepanelVersion = -1;
 let cachedSidepanel: Sidepanel | undefined;
 function getSidepanel(): Sidepanel | undefined {
-  if (sidepanelVersion !== version) {
-    let deepest: SectionRegistration | undefined;
-    for (const r of registrations.values()) {
-      if (r.sidepanel && (!deepest || r.depth > deepest.depth)) deepest = r;
-    }
-    cachedSidepanel = deepest?.sidepanel;
-    sidepanelVersion = version;
-  }
-  return cachedSidepanel;
+	if (sidepanelVersion !== version) {
+		let deepest: SectionRegistration | undefined;
+		for (const r of registrations.values()) {
+			if (r.sidepanel && (!deepest || r.depth > deepest.depth)) deepest = r;
+		}
+		cachedSidepanel = deepest?.sidepanel;
+		sidepanelVersion = version;
+	}
+	return cachedSidepanel;
 }
 
 // A stable constant, not an inline `() => []` — a fresh array literal
@@ -80,9 +80,9 @@ function getSidepanel(): Sidepanel | undefined {
 const EMPTY_BREADCRUMBS: Breadcrumbs = [];
 
 export function useBreadcrumbs(): Breadcrumbs {
-  return useSyncExternalStore(subscribe, getBreadcrumbs, () => EMPTY_BREADCRUMBS);
+	return useSyncExternalStore(subscribe, getBreadcrumbs, () => EMPTY_BREADCRUMBS);
 }
 
 export function useSidepanel(): Sidepanel | undefined {
-  return useSyncExternalStore(subscribe, getSidepanel, () => undefined);
+	return useSyncExternalStore(subscribe, getSidepanel, () => undefined);
 }

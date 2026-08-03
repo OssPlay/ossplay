@@ -1,9 +1,9 @@
-import { getDb, users } from '@ossplay/db';
-import { eq } from 'drizzle-orm';
-import type { MiddlewareHandler } from 'hono';
-import { clearSessionCookie, getSessionCookie } from '../lib/auth/cookie';
-import { validateSessionToken } from '../lib/auth/session';
-import type { AppEnv } from '../types';
+import { getDb, users } from "@ossplay/db";
+import { eq } from "drizzle-orm";
+import type { MiddlewareHandler } from "hono";
+import { clearSessionCookie, getSessionCookie } from "../lib/auth/cookie";
+import { validateSessionToken } from "../lib/auth/session";
+import type { AppEnv } from "../types";
 
 // Any 401 below clears the cookie: the dashboard's proxy only checks cookie
 // *presence* to gate the /setup and /login redirects (a cheap check, not
@@ -13,30 +13,30 @@ import type { AppEnv } from '../types';
 // bouncing between `/` and `/login` since `/login` itself redirects away
 // whenever the cookie is present.
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const token = getSessionCookie(c);
-  if (!token) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+	const token = getSessionCookie(c);
+	if (!token) {
+		return c.json({ error: "Unauthorized" }, 401);
+	}
 
-  const session = await validateSessionToken(token);
-  if (!session) {
-    clearSessionCookie(c);
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+	const session = await validateSessionToken(token);
+	if (!session) {
+		clearSessionCookie(c);
+		return c.json({ error: "Unauthorized" }, 401);
+	}
 
-  const [user] = await getDb().select().from(users).where(eq(users.id, session.userId));
-  if (!user) {
-    clearSessionCookie(c);
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  // Authoritative check: blocks a user mid-session the moment an instance
-  // root disables them, not just at their next login attempt.
-  if (user.disabledAt) {
-    clearSessionCookie(c);
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+	const [user] = await getDb().select().from(users).where(eq(users.id, session.userId));
+	if (!user) {
+		clearSessionCookie(c);
+		return c.json({ error: "Unauthorized" }, 401);
+	}
+	// Authoritative check: blocks a user mid-session the moment an instance
+	// root disables them, not just at their next login attempt.
+	if (user.disabledAt) {
+		clearSessionCookie(c);
+		return c.json({ error: "Unauthorized" }, 401);
+	}
 
-  c.set('user', user);
-  c.set('session', session);
-  await next();
+	c.set("user", user);
+	c.set("session", session);
+	await next();
 };

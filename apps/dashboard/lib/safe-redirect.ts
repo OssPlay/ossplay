@@ -6,12 +6,12 @@
 // protocol-relative/absolute and would silently leave the app; only a
 // single-leading-slash relative path is accepted.
 export function getSafeContinuePath(value: string | null | undefined): string | null {
-  if (!value) return null;
-  if (!value.startsWith('/') || value.startsWith('//')) return null;
-  // Don't bounce back into an auth page itself — that would either loop
-  // (continue=/login) or land somewhere mid-challenge with no session yet.
-  if (value === '/login' || value.startsWith('/login/') || value.startsWith('/login?')) {
-    return null;
-  }
-  return value;
+	if (!value) return null;
+	if (!value.startsWith("/") || value.startsWith("//")) return null;
+	// Don't bounce back into an auth page itself — that would either loop
+	// (continue=/login) or land somewhere mid-challenge with no session yet.
+	if (value === "/login" || value.startsWith("/login/") || value.startsWith("/login?")) {
+		return null;
+	}
+	return value;
 }

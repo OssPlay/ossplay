@@ -5,17 +5,17 @@
  */
 
 export const QUEUE_NAMES = {
-  imageProcessing: 'image-processing',
-  videoProcessing: 'video-processing',
+	imageProcessing: "image-processing",
+	videoProcessing: "video-processing",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 type BaseAssetJob = {
-  assetId: string;
-  projectId: string;
-  s3Path: string;
-  mimeType: string;
+	assetId: string;
+	projectId: string;
+	s3Path: string;
+	mimeType: string;
 };
 
 export type ImageProcessingJob = BaseAssetJob;
@@ -23,6 +23,6 @@ export type ImageProcessingJob = BaseAssetJob;
 export type VideoProcessingJob = BaseAssetJob;
 
 export type JobPayloadByQueue = {
-  [QUEUE_NAMES.imageProcessing]: ImageProcessingJob;
-  [QUEUE_NAMES.videoProcessing]: VideoProcessingJob;
+	[QUEUE_NAMES.imageProcessing]: ImageProcessingJob;
+	[QUEUE_NAMES.videoProcessing]: VideoProcessingJob;
 };
