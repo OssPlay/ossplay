@@ -5,6 +5,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
+import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -34,21 +35,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
+import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
 
 type ServerStatus = "pending" | "checking" | "online" | "offline" | "error";
 
-type RemoteServerRow = {
+interface RemoteServerRow {
 	id: string;
 	label: string;
 	host: string;
@@ -59,7 +53,14 @@ type RemoteServerRow = {
 	lastCheckedAt: string | null;
 	lastError: string | null;
 	createdAt: string;
-};
+}
+
+interface RemoteServersResponse {
+	servers: RemoteServerRow[];
+	total: number;
+	page: number;
+	pageSize: number;
+}
 
 type SshKeyOption = { id: string; label: string };
 
@@ -72,10 +73,16 @@ const STATUS_VARIANT: Record<ServerStatus, "default" | "secondary" | "destructiv
 };
 
 export default function InstanceServersPage() {
-	const { data, error, mutate } = useSWR<{ servers: RemoteServerRow[] }>("/instance/servers");
-	const { data: keysData } = useSWR<{ keys: SshKeyOption[] }>("/instance/ssh-keys");
+	const table = useServerTable<RemoteServersResponse, RemoteServerRow>({
+		endpoint: "/instance/servers",
+		items: (response) => response.servers,
+	});
+	// Large enough that the "which SSH key" picker below won't silently miss
+	// any real instance's key list without needing its own unpaginated
+	// endpoint just for this.
+	const { data: keysData } = useSWR<{ keys: SshKeyOption[] }>("/instance/ssh-keys?per_page=100");
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const forbidden = error instanceof ApiError && error.status === 403;
+	const forbidden = table.error instanceof ApiError && table.error.status === 403;
 
 	if (forbidden) {
 		return (
@@ -83,8 +90,31 @@ export default function InstanceServersPage() {
 		);
 	}
 
-	const servers = data?.servers ?? [];
 	const sshKeys = keysData?.keys ?? [];
+
+	const columns: DataTableColumn<RemoteServerRow>[] = [
+		{ key: "label", title: "Label" },
+		{
+			key: "host",
+			title: "Host",
+			cell: (row) => `${row.sshUsername}@${row.host}:${row.port}`,
+		},
+		{
+			key: "status",
+			title: "Status",
+			cell: (row) => (
+				<div className="flex flex-col gap-1">
+					<Badge variant={STATUS_VARIANT[row.status]} className="w-fit capitalize">
+						{row.status}
+					</Badge>
+					{row.status === "error" && row.lastError && (
+						<span className="text-xs text-muted-foreground">{row.lastError}</span>
+					)}
+				</div>
+			),
+		},
+		{ key: "lastCheckedAt", title: "Last checked", formatter: "datetime" },
+	];
 
 	return (
 		<Container
@@ -96,38 +126,42 @@ export default function InstanceServersPage() {
 			}}
 			size="lg"
 		>
-			{servers.length === 0 ? (
-				<p className="text-sm text-muted-foreground">No remote servers yet.</p>
-			) : (
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>Label</TableHead>
-							<TableHead>Host</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead>Last checked</TableHead>
-							<TableHead />
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{servers.map((server) => (
-							<RemoteServerRowItem key={server.id} server={server} onChange={() => mutate()} />
-						))}
-					</TableBody>
-				</Table>
-			)}
+			<DataTable
+				table={table}
+				rowId={(row) => row.id}
+				columns={columns}
+				searchPlaceholder="Search by label or host…"
+				emptyTitle="No remote servers yet"
+				emptyDescription="Register a VPS to start running a worker container against."
+				facets={[
+					{
+						key: "status",
+						title: "Status",
+						options: [
+							{ label: "Pending", value: "pending" },
+							{ label: "Checking", value: "checking" },
+							{ label: "Online", value: "online" },
+							{ label: "Offline", value: "offline" },
+							{ label: "Error", value: "error" },
+						],
+					},
+				]}
+				rowActions={(row) => (
+					<RemoteServerRowActions server={row} onChange={() => table.mutate()} />
+				)}
+			/>
 
 			<AddServerDialog
 				open={dialogOpen}
 				onOpenChange={setDialogOpen}
 				sshKeys={sshKeys}
-				onAdded={() => mutate()}
+				onAdded={() => table.mutate()}
 			/>
 		</Container>
 	);
 }
 
-function RemoteServerRowItem({
+function RemoteServerRowActions({
 	server,
 	onChange,
 }: {
@@ -138,7 +172,9 @@ function RemoteServerRowItem({
 
 	const test = useAction(
 		() => apiFetch(`/instance/servers/${server.id}/test`, { method: "POST" }),
-		{ error: "Could not test connection" },
+		{
+			error: "Could not test connection",
+		},
 	);
 	const remove = useAction(() => apiFetch(`/instance/servers/${server.id}`, { method: "DELETE" }), {
 		error: "Could not remove server",
@@ -162,76 +198,46 @@ function RemoteServerRowItem({
 	}
 
 	return (
-		<TableRow>
-			<TableCell>{server.label}</TableCell>
-			<TableCell className="text-muted-foreground">
-				{server.sshUsername}@{server.host}:{server.port}
-			</TableCell>
-			<TableCell>
-				<div className="flex flex-col gap-1">
-					<Badge variant={STATUS_VARIANT[server.status]} className="w-fit capitalize">
-						{server.status}
-					</Badge>
-					{server.status === "error" && server.lastError && (
-						<span className="text-xs text-muted-foreground">{server.lastError}</span>
-					)}
-				</div>
-			</TableCell>
-			<TableCell className="text-muted-foreground">
-				{server.lastCheckedAt ? new Date(server.lastCheckedAt).toLocaleString() : "Never"}
-			</TableCell>
-			<TableCell className="text-right">
-				<div className="flex justify-end gap-2">
-					<LoadingButton
-						variant="secondary"
-						size="sm"
-						loading={test.isLoading}
-						onClick={handleTest}
-					>
-						Test
-					</LoadingButton>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<span className="inline-block">
-									<Button variant="secondary" size="sm" disabled>
-										Provision worker
-									</Button>
-								</span>
-							}
-						/>
-						<TooltipContent>
-							Coming soon — needs a dedicated worker image that hasn't shipped yet.
-						</TooltipContent>
-					</Tooltip>
-					<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-						<AlertDialogTrigger
-							render={
-								<Button variant="secondary" size="sm">
-									Remove
-								</Button>
-							}
-						/>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>Remove "{server.label}"?</AlertDialogTitle>
-								<AlertDialogDescription>This can't be undone.</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>Cancel</AlertDialogCancel>
-								<AlertDialogAction
-									variant="destructive"
-									disabled={remove.isLoading}
-									onClick={handleRemove}
-								>
-									Remove
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-				</div>
-			</TableCell>
-		</TableRow>
+		<div className="flex justify-end gap-2">
+			<LoadingButton variant="secondary" size="sm" loading={test.isLoading} onClick={handleTest}>
+				Test
+			</LoadingButton>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<span className="inline-block">
+							<Button variant="secondary" size="sm" disabled>
+								Provision worker
+							</Button>
+						</span>
+					}
+				/>
+				<TooltipContent>
+					Coming soon — needs a dedicated worker image that hasn't shipped yet.
+				</TooltipContent>
+			</Tooltip>
+			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+				<AlertDialogTrigger render={<Button variant="secondary" size="sm" />}>
+					Remove
+				</AlertDialogTrigger>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Remove "{server.label}"?</AlertDialogTitle>
+						<AlertDialogDescription>This can't be undone.</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							disabled={remove.isLoading}
+							onClick={handleRemove}
+						>
+							Remove
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</div>
 	);
 }
 

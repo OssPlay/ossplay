@@ -19,6 +19,7 @@ const ALWAYS_PUBLIC_PREFIXES = [
 ];
 const AUTH_PAGES = ["/setup", "/login"];
 const ONBOARDING_PREFIX = "/onboarding";
+const INSTANCE_PREFIX = "/instance";
 
 async function checkNeedsSetup(): Promise<boolean> {
 	try {
@@ -47,6 +48,27 @@ async function checkNeedsOnboarding(request: NextRequest): Promise<boolean> {
 		if (!res.ok) return false;
 		const data = (await res.json()) as { needsOnboarding: boolean };
 		return data.needsOnboarding;
+	} catch {
+		return false;
+	}
+}
+
+// The single root-only gate for the whole /instance/* tree, enforced here
+// rather than per-page: a client-side check (the old approach) still lets
+// the page mount, its data fetches fire, and only then redirects once
+// useAuth() resolves — a real 403 round-trip and a flash of content for
+// every non-root user before they bounce. Fails closed (unlike the two
+// checks above): if the API is unreachable, a request that would otherwise
+// need root access should not be let through.
+async function checkIsInstanceRoot(request: NextRequest): Promise<boolean> {
+	try {
+		const res = await fetch(`${API_INTERNAL_URL}/auth/instance-role`, {
+			cache: "no-store",
+			headers: { cookie: request.headers.get("cookie") ?? "" },
+		});
+		if (!res.ok) return false;
+		const data = (await res.json()) as { instanceRole: string | null };
+		return data.instanceRole === "root";
 	} catch {
 		return false;
 	}
@@ -107,6 +129,12 @@ export async function proxy(request: NextRequest) {
 			return NextResponse.redirect(new URL(ONBOARDING_PREFIX, request.url));
 		}
 		if (!needsOnboarding && isOnboardingPage) {
+			return NextResponse.redirect(new URL("/", request.url));
+		}
+
+		const isInstancePage =
+			pathname === INSTANCE_PREFIX || pathname.startsWith(`${INSTANCE_PREFIX}/`);
+		if (isInstancePage && !(await checkIsInstanceRoot(request))) {
 			return NextResponse.redirect(new URL("/", request.url));
 		}
 

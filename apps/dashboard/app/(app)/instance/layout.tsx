@@ -15,7 +15,6 @@ import {
 	WifiCogIcon,
 } from "lucide-react";
 import { Section } from "@/components/layout/section";
-import { useAuth } from "@/components/providers/auth-provider";
 import type { Sidepanel } from "@/lib/nav-types";
 
 const sidepanel: Sidepanel = [
@@ -63,20 +62,13 @@ const sidepanel: Sidepanel = [
 	},
 ];
 
-// The single root-only gate for the whole /instance/* tree — replaces what
-// used to be two byte-identical layouts (one at this path, one nested under
-// a since-removed /instance/settings) left over from an earlier, unfinished
-// move. Every page below inherits this Section's access check.
+// Root-only gating for the whole /instance/* tree happens in proxy.ts now
+// (checkIsInstanceRoot) — before any of this ever mounts, not after a
+// client-side useAuth() resolves. This Section just supplies the shared
+// sidepanel/breadcrumb.
 export default function InstanceLayout({ children }: { children: React.ReactNode }) {
-	const { user } = useAuth();
-	const access = user.instanceRole === "root";
-
 	return (
-		<Section
-			sidepanel={sidepanel}
-			breadcrumb={{ title: "Instance", href: "/instance" }}
-			access={access}
-		>
+		<Section sidepanel={sidepanel} breadcrumb={{ title: "Instance", href: "/instance" }}>
 			{children}
 		</Section>
 	);

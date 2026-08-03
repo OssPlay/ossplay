@@ -381,6 +381,7 @@ function OrgMembershipRow({
 }
 
 function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => void }) {
+	const [open, setOpen] = useState(false);
 	const deleteUser = useAction(() => apiFetch(`/instance/users/${user.id}`, { method: "DELETE" }), {
 		error: "Could not delete user",
 	});
@@ -388,7 +389,10 @@ function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => vo
 	async function handleDelete() {
 		await deleteUser
 			.trigger()
-			.then(onDeleted)
+			.then(() => {
+				setOpen(false);
+				onDeleted();
+			})
 			.catch(() => {});
 	}
 
@@ -403,7 +407,7 @@ function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => vo
 						deleteUser.error ? errorMessage(deleteUser.error, "Could not delete user") : null
 					}
 				/>
-				<AlertDialog>
+				<AlertDialog open={open} onOpenChange={setOpen}>
 					<AlertDialogTrigger
 						render={
 							<Button variant="secondary" className="w-fit">

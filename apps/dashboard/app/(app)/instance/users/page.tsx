@@ -1,29 +1,37 @@
 "use client";
 
-import { SearchIcon, UsersIcon } from "lucide-react";
+import { UserPlusIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import { FormField } from "@/components/auth/form-field";
+import { FormError } from "@/components/form-error";
+import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import Container from "@/components/ui/container";
-import { Input } from "@/components/ui/input";
-import { LoadingButton } from "@/components/ui/loading-button";
-import { PaginationBar } from "@/components/ui/pagination-bar";
 import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { ApiError, apiFetch } from "@/lib/api";
+import { useServerTable } from "@/hooks/use-server-table";
+import { ApiError, apiFetch, errorMessage } from "@/lib/api";
 
-type InstanceUser = {
+interface InstanceUser {
 	id: string;
 	email: string;
 	name: string;
@@ -33,45 +41,30 @@ type InstanceUser = {
 	passkeyCount: number;
 	createdAt: string;
 	lastSignInAt: string | null;
-};
-type UsersResponse = {
+}
+
+interface UsersResponse {
 	users: InstanceUser[];
 	total: number;
 	page: number;
 	pageSize: number;
-};
-
-const DEBOUNCE_MS = 300;
+}
 
 // Root-only: manage identity/security for every account on this instance —
 // force-reset a password or 2FA, block/delete, edit org roles. Distinct
 // from (and more powerful than) anything an org-level Members page does —
 // see ARCHITECTURE.md's Authorization Model section.
 export default function InstanceUsersPage() {
-	const [searchInput, setSearchInput] = useState("");
-	const search = useDebouncedValue(searchInput, DEBOUNCE_MS);
-	const [page, setPage] = useState(0);
-	const [pageSize, setPageSize] = useState(10);
-	const [selected, setSelected] = useState<Set<string>>(new Set());
-
-	// A stale page index (e.g. page 3 of what's now a 1-page result) must not
-	// stick once the debounced search value actually changes the result set.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally excludes `page` — this only resets page in response to `search` changing, not on every page change.
-	useEffect(() => {
-		setPage(0);
-	}, [search]);
-
-	const query = new URLSearchParams({
-		page: String(page),
-		pageSize: String(pageSize),
+	const table = useServerTable<UsersResponse, InstanceUser>({
+		endpoint: "/instance/users",
+		items: (response) => response.users,
+		pageSize: 10,
 	});
-	if (search) query.set("search", search);
+	const [inviteOpen, setInviteOpen] = useState(false);
+	const forbidden = table.error instanceof ApiError && table.error.status === 403;
 
-	const { data, error, mutate } = useSWR<UsersResponse>(`/instance/users?${query.toString()}`);
-	const forbidden = error instanceof ApiError && error.status === 403;
-
-	// Reuses the same per-user PUT endpoint SecurityActions calls on the
-	// detail page — no bulk endpoint exists (or is needed) for this.
+	// Reuses the same per-user PUT endpoint the detail page's SecurityActions
+	// calls — no bulk endpoint exists (or is needed) for this.
 	const bulkUpdateBlock = useAction(
 		(ids: string[], action: "block" | "unblock") =>
 			Promise.all(ids.map((id) => apiFetch(`/instance/users/${id}/${action}`, { method: "PUT" }))),
@@ -84,44 +77,54 @@ export default function InstanceUsersPage() {
 		);
 	}
 
-	const users = data?.users ?? [];
-	const total = data?.total ?? 0;
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const pageIds = users.map((user) => user.id);
-	const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+	const columns: DataTableColumn<InstanceUser>[] = [
+		{
+			key: "name",
+			title: "Name",
+			cell: (row) => (
+				<span>
+					{row.name}
+					{row.instanceRole === "root" && (
+						<Badge variant="secondary" className="ml-2">
+							root
+						</Badge>
+					)}
+				</span>
+			),
+		},
+		{ key: "email", title: "Email" },
+		{
+			key: "totpEnabled",
+			title: "2FA / Passkeys",
+			className: "text-muted-foreground",
+			cell: (row) =>
+				`${row.totpEnabled ? "2FA" : "No 2FA"} · ${row.passkeyCount} passkey${row.passkeyCount === 1 ? "" : "s"}`,
+		},
+		{
+			key: "disabledAt",
+			title: "Status",
+			cell: (row) =>
+				row.disabledAt ? (
+					<Badge variant="destructive">Blocked</Badge>
+				) : (
+					<Badge variant="secondary">Active</Badge>
+				),
+		},
+		{
+			key: "lastSignInAt",
+			title: "Last sign-in",
+			className: "text-muted-foreground",
+			cell: (row) => (row.lastSignInAt ? new Date(row.lastSignInAt).toLocaleString() : "Never"),
+		},
+	];
 
-	function toggleAllOnPage(checked: boolean) {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			for (const id of pageIds) {
-				if (checked) next.add(id);
-				else next.delete(id);
-			}
-			return next;
-		});
-	}
-
-	function toggleOne(id: string, checked: boolean) {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			if (checked) next.add(id);
-			else next.delete(id);
-			return next;
-		});
-	}
-
-	function handlePageSizeChange(size: number) {
-		setPageSize(size);
-		setPage(0);
-	}
-
-	async function handleBulk(action: "block" | "unblock") {
+	async function handleBulk(ids: InstanceUser[], action: "block" | "unblock") {
 		await bulkUpdateBlock
-			.trigger(Array.from(selected), action)
-			.then(() => {
-				setSelected(new Set());
-				mutate();
-			})
+			.trigger(
+				ids.map((u) => u.id),
+				action,
+			)
+			.then(() => table.mutate())
 			.catch(() => {});
 	}
 
@@ -131,126 +134,228 @@ export default function InstanceUsersPage() {
 				icon: UsersIcon,
 				title: "Users",
 				description: "Every account on this instance.",
+				action: {
+					icon: UserPlusIcon,
+					title: "Add user",
+					onClick: () => setInviteOpen(true),
+				},
 			}}
 			size="lg"
 		>
-			<div className="flex flex-col gap-4">
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<div className="relative w-full max-w-xs">
-						<SearchIcon className="absolute -translate-y-1/2 pointer-events-none top-1/2 left-3 size-4 text-muted-foreground" />
-						<Input
-							placeholder="Search name or email…"
-							value={searchInput}
-							onChange={(e) => setSearchInput(e.target.value)}
-							className="pl-9"
-						/>
-					</div>
-					{selected.size > 0 && (
-						<div className="flex items-center gap-2">
-							<span className="text-sm text-muted-foreground">{selected.size} selected</span>
-							<LoadingButton
-								variant="secondary"
-								size="sm"
-								loading={bulkUpdateBlock.isLoading}
-								onClick={() => handleBulk("block")}
-							>
-								Block selected
-							</LoadingButton>
-							<LoadingButton
-								variant="secondary"
-								size="sm"
-								loading={bulkUpdateBlock.isLoading}
-								onClick={() => handleBulk("unblock")}
-							>
-								Unblock selected
-							</LoadingButton>
-						</div>
-					)}
-				</div>
+			<DataTable
+				table={table}
+				rowId={(row) => row.id}
+				columns={columns}
+				searchPlaceholder="Search name or email…"
+				emptyTitle="No users yet"
+				bulkActions={[
+					{
+						label: "Block selected",
+						onClick: (selected) => handleBulk(selected, "block"),
+					},
+					{
+						label: "Unblock selected",
+						onClick: (selected) => handleBulk(selected, "unblock"),
+					},
+				]}
+				rowActions={(row) => (
+					<Link
+						href={`/instance/users/${row.id}`}
+						className={buttonVariants({ variant: "secondary", size: "sm" })}
+					>
+						Manage
+					</Link>
+				)}
+			/>
 
-				{!data ? null : total === 0 ? (
+			<InviteUserDialog
+				open={inviteOpen}
+				onOpenChange={setInviteOpen}
+				onInvited={() => table.mutate()}
+			/>
+		</Container>
+	);
+}
+
+const ROLES = ["member", "admin", "owner"] as const;
+
+function InviteUserDialog({
+	open,
+	onOpenChange,
+	onInvited,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onInvited: () => void;
+}) {
+	const { data: statusData } = useSWR<{ smtpConfigured: boolean }>("/setup/status");
+	const { data: orgsData } = useSWR<{ organizations: Array<{ id: string; name: string }> }>(
+		open ? "/organizations" : null,
+	);
+	const smtpConfigured = statusData?.smtpConfigured ?? false;
+	const organizations = orgsData?.organizations ?? [];
+
+	const [email, setEmail] = useState("");
+	const [orgId, setOrgId] = useState("");
+	const [role, setRole] = useState<(typeof ROLES)[number]>("member");
+	const [warning, setWarning] = useState<string | null>(null);
+
+	// The org list fetch (above) only starts once the dialog opens, so it's
+	// never ready by the time handleOpenChange's own reset runs — this picks
+	// a default the moment it actually arrives instead, without clobbering a
+	// selection the user already made.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally excludes `orgId` — reacting to it here would fight the user's own selection.
+	useEffect(() => {
+		if (!orgId && organizations.length > 0) setOrgId(organizations[0]?.id ?? "");
+	}, [organizations]);
+
+	const invite = useAction(
+		() =>
+			apiFetch<{ warning?: string }>(`/organizations/${orgId}/invitations`, {
+				method: "POST",
+				body: JSON.stringify({ email, role }),
+			}),
+		{ error: "Could not send invitation", success: "Invitation sent" },
+	);
+
+	function handleOpenChange(next: boolean) {
+		if (next) {
+			setEmail("");
+			setOrgId(organizations[0]?.id ?? "");
+			setRole("member");
+			setWarning(null);
+			invite.reset();
+		}
+		onOpenChange(next);
+	}
+
+	async function handleSubmit() {
+		setWarning(null);
+		await invite
+			.trigger()
+			.then((res) => {
+				if (res.warning) {
+					setWarning(res.warning);
+					return;
+				}
+				onOpenChange(false);
+				onInvited();
+			})
+			.catch(() => {});
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={handleOpenChange}>
+			<DialogContent className="sm:max-w-lg">
+				<DialogHeader>
+					<DialogTitle>Add user</DialogTitle>
+				</DialogHeader>
+				{!smtpConfigured ? (
 					<p className="text-sm text-muted-foreground">
-						{search ? `No users match "${search}".` : "No users yet."}
+						Configure a default SMTP config first — inviting a user requires sending them an email
+						with their invite link. See{" "}
+						<Link href="/instance/smtp" className="underline underline-offset-2">
+							Email &amp; SMTP
+						</Link>
+						.
+					</p>
+				) : organizations.length === 0 ? (
+					<p className="text-sm text-muted-foreground">
+						Create an organization first — a new user needs one to be invited into.
 					</p>
 				) : (
-					<>
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead className="w-10">
-										<Checkbox
-											checked={allOnPageSelected}
-											onCheckedChange={(checked) => toggleAllOnPage(Boolean(checked))}
-											aria-label="Select all users on this page"
-										/>
-									</TableHead>
-									<TableHead>Name</TableHead>
-									<TableHead>Email</TableHead>
-									<TableHead>2FA / Passkeys</TableHead>
-									<TableHead>Status</TableHead>
-									<TableHead>Last sign-in</TableHead>
-									<TableHead />
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{users.map((user) => (
-									<TableRow key={user.id}>
-										<TableCell>
-											<Checkbox
-												checked={selected.has(user.id)}
-												onCheckedChange={(checked) => toggleOne(user.id, Boolean(checked))}
-												aria-label={`Select ${user.name}`}
-											/>
-										</TableCell>
-										<TableCell>
-											{user.name}
-											{user.instanceRole === "root" && (
-												<Badge variant="secondary" className="ml-2">
-													root
-												</Badge>
-											)}
-										</TableCell>
-										<TableCell>{user.email}</TableCell>
-										<TableCell className="text-muted-foreground">
-											{user.totpEnabled ? "2FA" : "No 2FA"} · {user.passkeyCount} passkey
-											{user.passkeyCount === 1 ? "" : "s"}
-										</TableCell>
-										<TableCell>
-											{user.disabledAt ? (
-												<Badge variant="destructive">Blocked</Badge>
-											) : (
-												<Badge variant="secondary">Active</Badge>
-											)}
-										</TableCell>
-										<TableCell className="text-muted-foreground">
-											{user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString() : "Never"}
-										</TableCell>
-										<TableCell className="text-right">
-											<Link
-												href={`/instance/users/${user.id}`}
-												className={buttonVariants({
-													variant: "secondary",
-													size: "sm",
-												})}
-											>
-												Manage
-											</Link>
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-						<PaginationBar
-							page={page}
-							totalPages={totalPages}
-							pageSize={pageSize}
-							totalCount={total}
-							onPageChange={setPage}
-							onPageSizeChange={handlePageSizeChange}
+					<div className="flex flex-col gap-4">
+						<FormField
+							id="inviteUserEmail"
+							label="Email"
+							type="email"
+							value={email}
+							onChange={setEmail}
+							autoComplete="off"
+							autoFocus
+							disabled={invite.isLoading}
 						/>
-					</>
+						<div className="flex flex-col gap-1.5 w-full">
+							<Label htmlFor="inviteUserOrg">Organization</Label>
+							<Select
+								value={orgId}
+								onValueChange={(value) => setOrgId(value ?? "")}
+								disabled={invite.isLoading}
+							>
+								<SelectTrigger id="inviteUserOrg" className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{organizations.map((org) => (
+										<SelectItem key={org.id} value={org.id}>
+											{org.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="flex flex-col gap-1.5 w-full">
+							<Label htmlFor="inviteUserRole">Role</Label>
+							<Select
+								value={role}
+								onValueChange={(value) => setRole((value as (typeof ROLES)[number]) ?? "member")}
+								disabled={invite.isLoading}
+							>
+								<SelectTrigger id="inviteUserRole" className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{ROLES.map((r) => (
+										<SelectItem key={r} value={r}>
+											{r}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+						<FormError
+							message={
+								invite.error ? errorMessage(invite.error, "Could not send invitation") : null
+							}
+						/>
+						{warning && <p className="text-sm text-muted-foreground">{warning}</p>}
+					</div>
 				)}
-			</div>
-		</Container>
+				<DialogFooter>
+					{smtpConfigured && organizations.length > 0 && (
+						<InviteSubmitButton
+							loading={invite.isLoading}
+							disabled={!email || !orgId}
+							onClick={handleSubmit}
+						/>
+					)}
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function InviteSubmitButton({
+	loading,
+	disabled,
+	onClick,
+}: {
+	loading: boolean;
+	disabled: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span className="inline-block">
+						<LoadingButton loading={loading} disabled={disabled} onClick={onClick}>
+							Send invite
+						</LoadingButton>
+					</span>
+				}
+			/>
+			<TooltipContent>Sends an email invite with a link to join the organization.</TooltipContent>
+		</Tooltip>
 	);
 }

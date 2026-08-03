@@ -2,10 +2,9 @@
 
 import { MailIcon, PlusIcon, SendIcon } from "lucide-react";
 import { useState } from "react";
-import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
-import { Section } from "@/components/layout/section";
+import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
 	AlertDialog,
@@ -32,18 +31,11 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { useAction } from "@/hooks/use-action";
+import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
 
-type SmtpConfigRow = {
+interface SmtpConfigRow {
 	id: string;
 	name: string;
 	host: string;
@@ -53,12 +45,22 @@ type SmtpConfigRow = {
 	fromName: string | null;
 	secure: boolean;
 	isDefault: boolean;
-};
+}
+
+interface SmtpConfigsResponse {
+	configs: SmtpConfigRow[];
+	total: number;
+	page: number;
+	pageSize: number;
+}
 
 export default function InstanceSmtpPage() {
-	const { data, error, mutate } = useSWR<{ configs: SmtpConfigRow[] }>("/instance/smtp");
+	const table = useServerTable<SmtpConfigsResponse, SmtpConfigRow>({
+		endpoint: "/instance/smtp",
+		items: (response) => response.configs,
+	});
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const forbidden = error instanceof ApiError && error.status === 403;
+	const forbidden = table.error instanceof ApiError && table.error.status === 403;
 
 	if (forbidden) {
 		return (
@@ -66,70 +68,98 @@ export default function InstanceSmtpPage() {
 		);
 	}
 
-	const configs = data?.configs ?? [];
+	const columns: DataTableColumn<SmtpConfigRow>[] = [
+		{ key: "name", title: "Name" },
+		{ key: "host", title: "Host" },
+		{
+			key: "fromAddress",
+			title: "From",
+			cell: (row) => (row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress),
+		},
+		{
+			key: "isDefault",
+			title: "Default",
+			cell: (row) =>
+				row.isDefault ? (
+					<Badge variant="secondary">Default</Badge>
+				) : (
+					<MakeDefaultButton configId={row.id} onChange={() => table.mutate()} />
+				),
+		},
+	];
 
 	return (
-		<Section
-			breadcrumb={[
-				{
-					title: "Email & SMTP",
-					href: "/smtp",
+		<Container
+			header={{
+				icon: MailIcon,
+				title: "Email & SMTP",
+				description: "Used to send invitation and password-reset emails.",
+				action: {
+					icon: PlusIcon,
+					title: "Add config",
+					onClick: () => setDialogOpen(true),
 				},
-			]}
+			}}
+			size="lg"
 		>
-			<Container
-				header={{
-					icon: MailIcon,
-					title: "Email & SMTP",
-					description: "Used to send invitation and password-reset emails.",
-					action: {
-						icon: PlusIcon,
-						title: "Add config",
-						onClick: () => setDialogOpen(true),
-					},
-				}}
-				size="lg"
-			>
-				{configs.length === 0 ? (
-					<p className="text-sm text-muted-foreground">No SMTP configs yet.</p>
-				) : (
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Name</TableHead>
-								<TableHead>Host</TableHead>
-								<TableHead>From</TableHead>
-								<TableHead>Default</TableHead>
-								<TableHead />
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{configs.map((config) => (
-								<SmtpConfigRowItem key={config.id} config={config} onChange={() => mutate()} />
-							))}
-						</TableBody>
-					</Table>
+			<DataTable
+				table={table}
+				rowId={(row) => row.id}
+				columns={columns}
+				searchPlaceholder="Search by name or host…"
+				emptyTitle="No SMTP configs yet"
+				emptyDescription="Add one to start sending invitation and password-reset emails."
+				rowActions={(row) => (
+					<div className="flex justify-end gap-2">
+						<TestSmtpConfigButton configId={row.id} configName={row.name} />
+						<SmtpConfigManageButton config={row} onChange={() => table.mutate()} />
+					</div>
 				)}
+			/>
 
-				<SmtpConfigDialog
-					mode="create"
-					open={dialogOpen}
-					onOpenChange={setDialogOpen}
-					onSaved={() => mutate()}
-				/>
-			</Container>
-		</Section>
+			<SmtpConfigDialog
+				mode="create"
+				open={dialogOpen}
+				onOpenChange={setDialogOpen}
+				onSaved={() => table.mutate()}
+			/>
+		</Container>
 	);
 }
 
-function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChange: () => void }) {
+function MakeDefaultButton({ configId, onChange }: { configId: string; onChange: () => void }) {
+	const makeDefault = useAction(
+		() => apiFetch(`/instance/smtp/${configId}/default`, { method: "PUT" }),
+		{ error: "Could not set as default" },
+	);
+
+	return (
+		<LoadingButton
+			variant="secondary"
+			size="sm"
+			loading={makeDefault.isLoading}
+			onClick={() =>
+				makeDefault
+					.trigger()
+					.then(onChange)
+					.catch(() => {})
+			}
+		>
+			Make default
+		</LoadingButton>
+	);
+}
+
+function SmtpConfigManageButton({
+	config,
+	onChange,
+}: {
+	config: SmtpConfigRow;
+	onChange: () => void;
+}) {
 	const [editOpen, setEditOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 
-	const makeDefault = useAction(
-		() => apiFetch(`/instance/smtp/${config.id}/default`, { method: "PUT" }),
-		{ error: "Could not set as default" },
-	);
 	const remove = useAction(() => apiFetch(`/instance/smtp/${config.id}`, { method: "DELETE" }), {
 		error: "Could not delete config",
 	});
@@ -145,75 +175,42 @@ function SmtpConfigRowItem({ config, onChange }: { config: SmtpConfigRow; onChan
 	}
 
 	return (
-		<TableRow>
-			<TableCell>{config.name}</TableCell>
-			<TableCell className="text-muted-foreground">{config.host}</TableCell>
-			<TableCell className="text-muted-foreground">
-				{config.fromName ? `${config.fromName} <${config.fromAddress}>` : config.fromAddress}
-			</TableCell>
-			<TableCell>
-				{config.isDefault ? (
-					<Badge variant="secondary">Default</Badge>
-				) : (
-					<LoadingButton
-						variant="secondary"
-						size="sm"
-						loading={makeDefault.isLoading}
-						onClick={() =>
-							makeDefault
-								.trigger()
-								.then(onChange)
-								.catch(() => {})
-						}
-					>
-						Make default
-					</LoadingButton>
-				)}
-			</TableCell>
-			<TableCell className="text-right">
-				<div className="flex justify-end gap-2">
-					<TestSmtpConfigButton configId={config.id} configName={config.name} />
-					<Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
-						Manage
-					</Button>
-					<SmtpConfigDialog
-						mode="edit"
-						config={config}
-						open={editOpen}
-						onOpenChange={setEditOpen}
-						onSaved={onChange}
-					/>
+		<>
+			<Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+				Manage
+			</Button>
+			<SmtpConfigDialog
+				mode="edit"
+				config={config}
+				open={editOpen}
+				onOpenChange={setEditOpen}
+				onSaved={onChange}
+			/>
 
-					<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-						<AlertDialogTrigger
-							render={
-								<Button variant="secondary" size="sm">
-									Delete
-								</Button>
-							}
-						/>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>Delete "{config.name}"?</AlertDialogTitle>
-								<AlertDialogDescription>
-									This SMTP config will stop being usable immediately. This can't be undone.
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							<AlertDialogFooter>
-								<AlertDialogCancel>Cancel</AlertDialogCancel>
-								<AlertDialogAction
-									variant="destructive"
-									disabled={remove.isLoading}
-									onClick={handleRemove}
-								>
-									Delete
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
-				</div>
-			</TableCell>
-		</TableRow>
+			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+				<AlertDialogTrigger render={<Button variant="secondary" size="sm" />}>
+					Delete
+				</AlertDialogTrigger>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete "{config.name}"?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This SMTP config will stop being usable immediately. This can't be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							disabled={remove.isLoading}
+							onClick={handleRemove}
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }
 
