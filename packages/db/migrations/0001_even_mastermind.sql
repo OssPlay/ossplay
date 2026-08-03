@@ -1,0 +1,1 @@
+ALTER TABLE "ssh_keys" ADD CONSTRAINT "ssh_keys_fingerprint_unique" UNIQUE("fingerprint");

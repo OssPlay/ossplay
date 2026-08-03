@@ -5,43 +5,15 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1785397167908,
-      "tag": "0000_cute_rick_jones",
+      "when": 1785749671265,
+      "tag": "0000_hot_the_hand",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1785402222069,
-      "tag": "0001_real_chimera",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1785405942054,
-      "tag": "0002_exotic_blur",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1785424724929,
-      "tag": "0003_special_millenium_guard",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1785432241454,
-      "tag": "0004_strange_thaddeus_ross",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1785615902349,
-      "tag": "0005_perpetual_blacklash",
+      "when": 1785750824569,
+      "tag": "0001_even_mastermind",
       "breakpoints": true
     }
   ]
