@@ -1,9 +1,10 @@
 import { getDb, type SmtpConfig, smtpConfigs } from "@ossplay/db";
-import { eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { encryptSecret } from "../lib/crypto/secret-box";
+import { parseListQuery } from "../lib/http/list-query";
 import { sendMailWithConfig } from "../lib/mail/send";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
@@ -30,8 +31,29 @@ function serialize(config: SmtpConfig) {
 }
 
 instanceSmtpRoute.get("/", async (c) => {
-	const configs = await getDb().select().from(smtpConfigs).orderBy(smtpConfigs.createdAt);
-	return c.json({ configs: configs.map(serialize) });
+	const db = getDb();
+	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+		searchable: [smtpConfigs.name, smtpConfigs.host, smtpConfigs.fromAddress],
+		defaultPageSize: 25,
+	});
+
+	const [rows, totalRows] = await Promise.all([
+		db
+			.select()
+			.from(smtpConfigs)
+			.where(where)
+			.orderBy(desc(smtpConfigs.createdAt))
+			.limit(limit)
+			.offset(offset),
+		db.select({ total: count() }).from(smtpConfigs).where(where),
+	]);
+
+	return c.json({
+		configs: rows.map(serialize),
+		total: totalRows[0]?.total ?? 0,
+		page,
+		pageSize,
+	});
 });
 
 const createSchema = z.object({

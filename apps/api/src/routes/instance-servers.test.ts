@@ -40,7 +40,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance remote servers", () => {
 	it("GET /instance/servers starts empty", async () => {
 		const res = await jsonRequest("/instance/servers", { cookie: rootCookie });
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ servers: [] });
+		expect(await res.json()).toEqual({ servers: [], total: 0, page: 0, pageSize: 25 });
 	});
 
 	it("POST /instance/servers rejects an unknown SSH key", async () => {

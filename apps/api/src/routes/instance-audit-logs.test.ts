@@ -71,8 +71,8 @@ describe.skipIf(!process.env.DATABASE_URL)("instance audit logs", () => {
 		);
 	});
 
-	it("GET /instance/audit-logs?action filters to a single action", async () => {
-		const res = await jsonRequest("/instance/audit-logs?action=instance.domain.update", {
+	it("GET /instance/audit-logs?filter_action filters to a single action", async () => {
+		const res = await jsonRequest("/instance/audit-logs?filter_action=instance.domain.update", {
 			cookie: rootCookie,
 		});
 		const body = (await res.json()) as { logs: Array<{ action: string }>; total: number };
@@ -80,22 +80,22 @@ describe.skipIf(!process.env.DATABASE_URL)("instance audit logs", () => {
 		expect(body.logs[0]?.action).toBe("instance.domain.update");
 	});
 
-	it("GET /instance/audit-logs?actor filters by actor name or email", async () => {
-		const res = await jsonRequest(`/instance/audit-logs?actor=${encodeURIComponent(rootEmail)}`, {
+	it("GET /instance/audit-logs?q filters by actor name or email", async () => {
+		const res = await jsonRequest(`/instance/audit-logs?q=${encodeURIComponent(rootEmail)}`, {
 			cookie: rootCookie,
 		});
 		const body = (await res.json()) as { total: number };
 		expect(body.total).toBe(3);
 
-		const missRes = await jsonRequest("/instance/audit-logs?actor=nobody-matches-this", {
+		const missRes = await jsonRequest("/instance/audit-logs?q=nobody-matches-this", {
 			cookie: rootCookie,
 		});
 		const missBody = (await missRes.json()) as { total: number };
 		expect(missBody.total).toBe(0);
 	});
 
-	it("GET /instance/audit-logs?page&pageSize paginates", async () => {
-		const res = await jsonRequest("/instance/audit-logs?page=0&pageSize=1", {
+	it("GET /instance/audit-logs?page&per_page paginates", async () => {
+		const res = await jsonRequest("/instance/audit-logs?page=0&per_page=1", {
 			cookie: rootCookie,
 		});
 		const body = (await res.json()) as { logs: unknown[]; total: number };

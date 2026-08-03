@@ -81,6 +81,17 @@ describe.skipIf(!process.env.DATABASE_URL)("setup + auth flow", () => {
 		expect(res.status).toBe(401);
 	});
 
+	it("GET /auth/instance-role reports root for the bootstrapped admin", async () => {
+		const res = await jsonRequest("/auth/instance-role", { cookie: sessionCookie });
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ instanceRole: "root" });
+	});
+
+	it("GET /auth/instance-role without a cookie is 401", async () => {
+		const res = await jsonRequest("/auth/instance-role");
+		expect(res.status).toBe(401);
+	});
+
 	it("logs out and invalidates the session", async () => {
 		const logoutRes = await jsonRequest("/auth/logout", { method: "POST", cookie: sessionCookie });
 		expect(logoutRes.status).toBe(204);

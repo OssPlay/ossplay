@@ -1,5 +1,5 @@
 import { getDb, organizationMembers, organizations, users, webauthnCredentials } from "@ossplay/db";
-import { and, count, desc, eq, ilike, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
@@ -7,6 +7,7 @@ import { clearUserSecondFactors, setUserPassword } from "../lib/auth/admin-reset
 import { hashPassword } from "../lib/auth/password";
 import { revokeAllSessionsForUser } from "../lib/auth/session";
 import { generateToken } from "../lib/auth/tokens";
+import { parseListQuery } from "../lib/http/list-query";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";
@@ -54,21 +55,12 @@ async function findSoleOwnerOrgs(userId: string): Promise<Array<{ id: string; na
 		.where(inArray(organizations.id, soleOwnerOrgIds));
 }
 
-const DEFAULT_PAGE_SIZE = 10;
-const MAX_PAGE_SIZE = 100;
-
 instanceUsersRoute.get("/", async (c) => {
 	const db = getDb();
-	const search = c.req.query("search")?.trim() ?? "";
-	const page = Math.max(0, Number.parseInt(c.req.query("page") ?? "0", 10) || 0);
-	const pageSize = Math.min(
-		MAX_PAGE_SIZE,
-		Math.max(1, Number.parseInt(c.req.query("pageSize") ?? "", 10) || DEFAULT_PAGE_SIZE),
-	);
-
-	const whereClause = search
-		? or(ilike(users.name, `%${search}%`), ilike(users.email, `%${search}%`))
-		: undefined;
+	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+		searchable: [users.name, users.email],
+		defaultPageSize: 10,
+	});
 
 	const [rows, totalRows] = await Promise.all([
 		db
@@ -83,11 +75,11 @@ instanceUsersRoute.get("/", async (c) => {
 				lastSignInAt: users.lastSignInAt,
 			})
 			.from(users)
-			.where(whereClause)
+			.where(where)
 			.orderBy(desc(users.createdAt))
-			.limit(pageSize)
-			.offset(page * pageSize),
-		db.select({ total: count() }).from(users).where(whereClause),
+			.limit(limit)
+			.offset(offset),
+		db.select({ total: count() }).from(users).where(where),
 	]);
 
 	const credentials = rows.length

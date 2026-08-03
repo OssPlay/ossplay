@@ -20,6 +20,24 @@ const createOrganizationSchema = z.object({
 	name: z.string().trim().min(1).max(200),
 });
 
+// Every organization on the instance, not just ones the caller is a member
+// of — root has implicit access to all of them (see ARCHITECTURE.md's
+// Authorization Model section) but /auth/me's `organizations` field only
+// reflects real membership rows, which root often doesn't have one of for
+// most orgs. Exists for the instance Users page's "invite into org" picker.
+organizationsRoute.get(
+	"/",
+	requireAuth,
+	requireInstancePermission("instance:manage_orgs"),
+	async (c) => {
+		const rows = await getDb()
+			.select({ id: organizations.id, name: organizations.name })
+			.from(organizations)
+			.orderBy(organizations.name);
+		return c.json({ organizations: rows });
+	},
+);
+
 // General-purpose org creation, root-only — used by the onboarding "org"
 // step and available for root to create further orgs afterward. There is no
 // non-root org-creation path: organizations are provisioned by whoever runs

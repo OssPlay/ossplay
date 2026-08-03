@@ -27,6 +27,45 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 		expect(body.members[0]).toMatchObject({ email: "ada@example.com", role: "owner" });
 	});
 
+	let secondOrgId: string;
+
+	it("GET /organizations lists every org for root, even without a membership row", async () => {
+		const createRes = await jsonRequest("/organizations", {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ name: "Second Org" }),
+		});
+		expect(createRes.status).toBe(201);
+		const { organization } = (await createRes.json()) as { organization: { id: string } };
+		secondOrgId = organization.id;
+
+		const res = await jsonRequest("/organizations", { cookie: ownerCookie });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { organizations: Array<{ id: string; name: string }> };
+		expect(body.organizations.map((o) => o.name).sort()).toEqual(["Acme Inc", "Second Org"]);
+	});
+
+	it("GET /organizations is forbidden for a non-root member", async () => {
+		// Invited into the second org specifically, not `orgId` — later tests
+		// in this file assert exact member/invitation counts on `orgId` and
+		// would break if this leaked a member into it.
+		const memberRes = await jsonRequest(`/organizations/${secondOrgId}/invitations`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ email: "member-for-org-list@example.com", role: "member" }),
+		});
+		const { invitation: memberInvite } = (await memberRes.json()) as { invitation: Invitation };
+		const token = await stampInvitationToken(memberInvite.id);
+		const acceptRes = await jsonRequest(`/invitations/token/${token}/accept`, {
+			method: "POST",
+			body: JSON.stringify({ name: "Regular Member", password: "correct horse battery staple" }),
+		});
+		const memberCookie = extractCookie(acceptRes, "ossplay_session");
+
+		const res = await jsonRequest("/organizations", { cookie: memberCookie });
+		expect(res.status).toBe(403);
+	});
+
 	let invitation: Invitation;
 
 	it("POST /:orgId/invitations creates an invitation (degrading gracefully with no SMTP configured)", async () => {

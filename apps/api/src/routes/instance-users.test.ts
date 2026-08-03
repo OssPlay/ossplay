@@ -70,8 +70,8 @@ describe.skipIf(!process.env.DATABASE_URL)("instance user management", () => {
 		expect(body.pageSize).toBe(10);
 	});
 
-	it("GET /instance/users?search filters by name or email", async () => {
-		const res = await jsonRequest("/instance/users?search=member", { cookie: rootCookie });
+	it("GET /instance/users?q filters by name or email", async () => {
+		const res = await jsonRequest("/instance/users?q=member", { cookie: rootCookie });
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { users: Array<{ email: string }>; total: number };
 		expect(body.total).toBe(1);
@@ -79,15 +79,15 @@ describe.skipIf(!process.env.DATABASE_URL)("instance user management", () => {
 		expect(body.users[0]?.email).toBe(memberEmail);
 	});
 
-	it("GET /instance/users?page&pageSize paginates without duplicating or skipping rows", async () => {
-		const firstPage = await jsonRequest("/instance/users?page=0&pageSize=1", {
+	it("GET /instance/users?page&per_page paginates without duplicating or skipping rows", async () => {
+		const firstPage = await jsonRequest("/instance/users?page=0&per_page=1", {
 			cookie: rootCookie,
 		});
 		const firstBody = (await firstPage.json()) as { users: Array<{ id: string }>; total: number };
 		expect(firstBody.users).toHaveLength(1);
 		expect(firstBody.total).toBe(2);
 
-		const secondPage = await jsonRequest("/instance/users?page=1&pageSize=1", {
+		const secondPage = await jsonRequest("/instance/users?page=1&per_page=1", {
 			cookie: rootCookie,
 		});
 		const secondBody = (await secondPage.json()) as { users: Array<{ id: string }> };

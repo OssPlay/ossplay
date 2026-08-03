@@ -1,9 +1,10 @@
 import { getDb, type RemoteServer, remoteServers, sshKeys } from "@ossplay/db";
-import { eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { decryptSecret } from "../lib/crypto/secret-box";
+import { parseListQuery } from "../lib/http/list-query";
 import { testSshConnection } from "../lib/ssh/test-connection";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
@@ -31,8 +32,30 @@ function serialize(server: RemoteServer) {
 }
 
 instanceServersRoute.get("/", async (c) => {
-	const rows = await getDb().select().from(remoteServers).orderBy(remoteServers.createdAt);
-	return c.json({ servers: rows.map(serialize) });
+	const db = getDb();
+	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+		searchable: [remoteServers.label, remoteServers.host],
+		filters: { status: remoteServers.status },
+		defaultPageSize: 25,
+	});
+
+	const [rows, totalRows] = await Promise.all([
+		db
+			.select()
+			.from(remoteServers)
+			.where(where)
+			.orderBy(desc(remoteServers.createdAt))
+			.limit(limit)
+			.offset(offset),
+		db.select({ total: count() }).from(remoteServers).where(where),
+	]);
+
+	return c.json({
+		servers: rows.map(serialize),
+		total: totalRows[0]?.total ?? 0,
+		page,
+		pageSize,
+	});
 });
 
 const createSchema = z.object({

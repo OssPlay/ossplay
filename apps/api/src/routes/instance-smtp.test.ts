@@ -23,7 +23,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance SMTP configs", () => {
 	it("GET /instance/smtp starts empty", async () => {
 		const res = await jsonRequest("/instance/smtp", { cookie: rootCookie });
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ configs: [] });
+		expect(await res.json()).toEqual({ configs: [], total: 0, page: 0, pageSize: 25 });
 	});
 
 	it("POST /instance/smtp creates a config and makes the first one default", async () => {

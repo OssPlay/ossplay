@@ -85,6 +85,16 @@ authRoute.post("/logout", requireAuth, async (c) => {
 	return c.body(null, 204);
 });
 
+// Deliberately not folded into /me — proxy.ts calls this on every
+// navigation under /instance/* to gate access before the page even loads,
+// and /me's relational query (org memberships, projects, recovery codes)
+// is real overhead to pay on every single navigation just to read one
+// column requireAuth already fetched.
+authRoute.get("/instance-role", requireAuth, (c) => {
+	const user = c.get("user");
+	return c.json({ instanceRole: user.instanceRole });
+});
+
 authRoute.get("/me", requireAuth, async (c) => {
 	const user = c.get("user");
 	const db = getDb();
