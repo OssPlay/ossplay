@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
+import { errorHandler, notFoundHandler } from "./lib/errors";
 import { authRoute } from "./routes/auth";
 import { healthRoute } from "./routes/health";
 import { instanceRoute } from "./routes/instance";
@@ -19,6 +20,11 @@ import { twoFactorRoute } from "./routes/two-factor";
 import type { AppEnv } from "./types";
 
 export const app = new Hono<AppEnv>();
+
+// Normalizes every unhandled error/404 into the same `{ error: string }`
+// shape every route already returns by hand — see lib/errors.ts.
+app.onError(errorHandler);
+app.notFound(notFoundHandler);
 
 // Same-origin only, no config needed — dashboard and api are always
 // same-origin (via Caddy in prod, via Next.js rewrites in dev). See

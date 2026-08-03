@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import os from "node:os";
+import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { applyDomainConfig } from "../lib/caddy/admin";
