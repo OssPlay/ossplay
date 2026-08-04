@@ -10,12 +10,12 @@ export const FIXTURES = {
 		{
 			orgName: "Acme Corp",
 			inviterName: "Alice Johnson",
-			acceptUrl: "https://ossplay.io/invite/tok_abc123",
+			acceptUrl: "https://ossplay.com/invite/tok_abc123",
 		},
 		{
 			orgName: "Open Source Foundation",
 			inviterName: "Bob Smith",
-			acceptUrl: "https://ossplay.io/invite/tok_xyz789",
+			acceptUrl: "https://ossplay.com/invite/tok_xyz789",
 		},
 	],
 
@@ -23,13 +23,13 @@ export const FIXTURES = {
 		{
 			instanceName: "OSSPlay Production",
 			inviterName: "Carol White",
-			acceptUrl: "https://ossplay.io/invite/tok_inst_root",
+			acceptUrl: "https://ossplay.com/invite/tok_inst_root",
 			grantRoot: true,
 		},
 		{
 			instanceName: "OSSPlay Staging",
 			inviterName: "Dave Brown",
-			acceptUrl: "https://ossplay.io/invite/tok_inst_member",
+			acceptUrl: "https://ossplay.com/invite/tok_inst_member",
 			grantRoot: false,
 		},
 	],
@@ -37,7 +37,7 @@ export const FIXTURES = {
 	"password-reset-email": [
 		{
 			resetUrl:
-				"https://ossplay.io/reset-password?token=tok_reset_demo1234567890",
+				"https://ossplay.com/reset-password?token=tok_reset_demo1234567890",
 		},
 	],
 } as const;

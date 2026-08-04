@@ -13,6 +13,13 @@ import {
 } from "@react-email/components";
 import type { ReactNode } from "react";
 
+// Org-wide brand links in every email footer — env-overridable so a fork
+// (different domain/org) doesn't ship links back to the upstream project.
+// Same override pattern as apps/api/src/lib/updates/check.ts's
+// OSSPLAY_GITHUB_REPO (see infra/docker-compose.yml's api environment block).
+const WEBSITE_URL = process.env.OSSPLAY_WEBSITE_URL ?? "https://ossplay.com";
+const DOCS_URL = process.env.OSSPLAY_DOCS_URL ?? "https://docs.ossplay.com";
+
 // Design tokens translated from globals.css (oklch → hex) to match the
 // violet shadcn/ui theme used in apps/dashboard. Email clients can't parse
 // oklch(), so we convert to hex equivalents for maximum compatibility:
@@ -96,17 +103,11 @@ export function EmailLayout({ preview, children }: { preview: string; children: 
 							<Hr style={{ borderColor: "#e4e4e7", margin: "0 0 16px" }} />
 							<Text className="m-0 text-xs text-muted-fg leading-5">
 								Sent by{" "}
-								<Link
-									href="https://ossplay.io"
-									style={{ color: "#7c3aed", textDecoration: "none" }}
-								>
+								<Link href={WEBSITE_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
 									OSSPlay
 								</Link>
 								{" · "}
-								<Link
-									href="https://ossplay.io/docs"
-									style={{ color: "#7c3aed", textDecoration: "none" }}
-								>
+								<Link href={DOCS_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
 									Docs
 								</Link>
 							</Text>
