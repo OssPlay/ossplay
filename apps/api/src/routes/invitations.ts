@@ -2,6 +2,7 @@ import { getDb, invitations, organizationMembers, organizations, users } from "@
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { logAudit } from "../lib/audit/log";
 import { getSessionCookie, setSessionCookie } from "../lib/auth/cookie";
 import { hashPassword } from "../lib/auth/password";
 import { getClientIp, getUserAgent } from "../lib/auth/request-info";
@@ -102,6 +103,23 @@ invitationsRoute.post("/token/:token/accept", async (c) => {
 		.update(invitations)
 		.set({ status: "accepted", acceptedAt: new Date() })
 		.where(eq(invitations.id, invitation.id));
+
+	if (justCreatedAccount) {
+		await logAudit(c, {
+			actorUserId: userId,
+			action: "user.joined",
+			targetType: "user",
+			targetId: userId,
+			metadata: { via: "org_invitation", orgId: invitation.orgId },
+		});
+	}
+	await logAudit(c, {
+		actorUserId: userId,
+		action: "organization.member_added",
+		targetType: "organization",
+		targetId: invitation.orgId,
+		metadata: { userId, role: invitation.role },
+	});
 
 	// A brand-new account gets logged in immediately, same as setup. An
 	// already-logged-in existing user just keeps their current session.

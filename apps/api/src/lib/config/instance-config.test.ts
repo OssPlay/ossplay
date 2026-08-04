@@ -16,6 +16,7 @@ afterEach(() => {
 describe("instance-config", () => {
 	it("returns defaults when the file does not exist", () => {
 		expect(readInstanceConfig()).toEqual({
+			instanceName: null,
 			domain: {
 				name: null,
 				configuredAt: null,
@@ -24,6 +25,11 @@ describe("instance-config", () => {
 				customAcmeUrl: null,
 			},
 		});
+	});
+
+	it("writes then reads back the instance name", () => {
+		writeInstanceConfig({ instanceName: "Acme Inc" });
+		expect(readInstanceConfig().instanceName).toBe("Acme Inc");
 	});
 
 	it("writes then reads back the same values", () => {

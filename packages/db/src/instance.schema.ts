@@ -114,10 +114,33 @@ export const auditLogs = pgTable(
 	],
 );
 
+// Org-less invitations — the instance Users page's "Add user" action.
+// Unlike `invitations` (org.schema.ts), there's no orgId: this just
+// provisions a bare account (optionally with root access), the same way
+// `/setup` provisions the very first one. Getting the new user into an org
+// afterward is a separate step via the normal org-invite flow. Same
+// hashed-at-rest token pattern as `invitations`/`sessions`.
+export const instanceInvitations = pgTable("instance_invitations", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	email: text("email").notNull(),
+	grantRoot: boolean("grant_root").default(false).notNull(),
+	invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
+		onDelete: "set null",
+	}),
+	tokenHash: text("token_hash").notNull(),
+	status: text("status", { enum: ["pending", "accepted", "revoked"] })
+		.default("pending")
+		.notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+	acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type SshKey = typeof sshKeys.$inferSelect;
 export type RemoteServer = typeof remoteServers.$inferSelect;
 export type SmtpConfig = typeof smtpConfigs.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type InstanceInvitation = typeof instanceInvitations.$inferSelect;
 
 export const sshKeysRelations = relations(sshKeys, ({ one, many }) => ({
 	createdBy: one(users, {
@@ -141,6 +164,13 @@ export const remoteServersRelations = relations(remoteServers, ({ one }) => ({
 export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
 	actor: one(users, {
 		fields: [auditLogs.actorUserId],
+		references: [users.id],
+	}),
+}));
+
+export const instanceInvitationsRelations = relations(instanceInvitations, ({ one }) => ({
+	invitedBy: one(users, {
+		fields: [instanceInvitations.invitedByUserId],
 		references: [users.id],
 	}),
 }));

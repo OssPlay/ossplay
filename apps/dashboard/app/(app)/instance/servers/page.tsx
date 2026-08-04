@@ -351,7 +351,9 @@ function AddServerDialog({
 								disabled={create.isLoading}
 							>
 								<SelectTrigger className="w-full">
-									<SelectValue />
+									<SelectValue
+										items={sshKeys.map((key) => ({ value: key.id, label: key.label }))}
+									/>
 								</SelectTrigger>
 								<SelectContent>
 									{sshKeys.map((key) => (

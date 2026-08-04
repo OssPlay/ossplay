@@ -1,14 +1,15 @@
 "use client";
 
-import { UserPlusIcon, UsersIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, UserPlusIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import useSWR from "swr";
+import { useState } from "react";
+import { toast } from "sonner";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import Container from "@/components/ui/container";
 import {
 	Dialog,
@@ -19,14 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
@@ -177,8 +170,9 @@ export default function InstanceUsersPage() {
 	);
 }
 
-const ROLES = ["member", "admin", "owner"] as const;
-
+// Org-less: this only provisions a bare account (optionally with root
+// access) — getting the new user into an org afterward is a separate step
+// via that org's own Members page. See instance-users.ts's POST /invite.
 function InviteUserDialog({
 	open,
 	onOpenChange,
@@ -188,56 +182,40 @@ function InviteUserDialog({
 	onOpenChange: (open: boolean) => void;
 	onInvited: () => void;
 }) {
-	const { data: statusData } = useSWR<{ smtpConfigured: boolean }>("/setup/status");
-	const { data: orgsData } = useSWR<{ organizations: Array<{ id: string; name: string }> }>(
-		open ? "/organizations" : null,
-	);
-	const smtpConfigured = statusData?.smtpConfigured ?? false;
-	const organizations = orgsData?.organizations ?? [];
-
 	const [email, setEmail] = useState("");
-	const [orgId, setOrgId] = useState("");
-	const [role, setRole] = useState<(typeof ROLES)[number]>("member");
-	const [warning, setWarning] = useState<string | null>(null);
-
-	// The org list fetch (above) only starts once the dialog opens, so it's
-	// never ready by the time handleOpenChange's own reset runs — this picks
-	// a default the moment it actually arrives instead, without clobbering a
-	// selection the user already made.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally excludes `orgId` — reacting to it here would fight the user's own selection.
-	useEffect(() => {
-		if (!orgId && organizations.length > 0) setOrgId(organizations[0]?.id ?? "");
-	}, [organizations]);
+	const [grantRoot, setGrantRoot] = useState(false);
+	const [result, setResult] = useState<{ warning?: string; inviteUrl?: string } | null>(null);
 
 	const invite = useAction(
 		() =>
-			apiFetch<{ warning?: string }>(`/organizations/${orgId}/invitations`, {
+			apiFetch<{ warning?: string; inviteUrl?: string }>("/instance/users/invite", {
 				method: "POST",
-				body: JSON.stringify({ email, role }),
+				body: JSON.stringify({ email, grantRoot }),
 			}),
-		{ error: "Could not send invitation", success: "Invitation sent" },
+		{ error: "Could not create invitation" },
 	);
 
 	function handleOpenChange(next: boolean) {
 		if (next) {
 			setEmail("");
-			setOrgId(organizations[0]?.id ?? "");
-			setRole("member");
-			setWarning(null);
+			setGrantRoot(false);
+			setResult(null);
 			invite.reset();
 		}
 		onOpenChange(next);
 	}
 
 	async function handleSubmit() {
-		setWarning(null);
 		await invite
 			.trigger()
 			.then((res) => {
 				if (res.warning) {
-					setWarning(res.warning);
+					// Email couldn't go out — keep the dialog open with the link so
+					// root can copy and share it manually instead of losing it.
+					setResult(res);
 					return;
 				}
+				toast.success("Invitation sent");
 				onOpenChange(false);
 				onInvited();
 			})
@@ -250,19 +228,11 @@ function InviteUserDialog({
 				<DialogHeader>
 					<DialogTitle>Add user</DialogTitle>
 				</DialogHeader>
-				{!smtpConfigured ? (
-					<p className="text-sm text-muted-foreground">
-						Configure a default SMTP config first — inviting a user requires sending them an email
-						with their invite link. See{" "}
-						<Link href="/instance/smtp" className="underline underline-offset-2">
-							Email &amp; SMTP
-						</Link>
-						.
-					</p>
-				) : organizations.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						Create an organization first — a new user needs one to be invited into.
-					</p>
+				{result ? (
+					<div className="flex flex-col gap-3">
+						<p className="text-sm text-muted-foreground">{result.warning}</p>
+						{result.inviteUrl && <CopyableLink url={result.inviteUrl} />}
+					</div>
 				) : (
 					<div className="flex flex-col gap-4">
 						<FormField
@@ -275,59 +245,33 @@ function InviteUserDialog({
 							autoFocus
 							disabled={invite.isLoading}
 						/>
-						<div className="flex flex-col gap-1.5 w-full">
-							<Label htmlFor="inviteUserOrg">Organization</Label>
-							<Select
-								value={orgId}
-								onValueChange={(value) => setOrgId(value ?? "")}
+						<div className="flex items-center gap-2">
+							<Checkbox
+								id="inviteUserGrantRoot"
+								checked={grantRoot}
+								onCheckedChange={setGrantRoot}
 								disabled={invite.isLoading}
-							>
-								<SelectTrigger id="inviteUserOrg" className="w-full">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{organizations.map((org) => (
-										<SelectItem key={org.id} value={org.id}>
-											{org.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="flex flex-col gap-1.5 w-full">
-							<Label htmlFor="inviteUserRole">Role</Label>
-							<Select
-								value={role}
-								onValueChange={(value) => setRole((value as (typeof ROLES)[number]) ?? "member")}
-								disabled={invite.isLoading}
-							>
-								<SelectTrigger id="inviteUserRole" className="w-full">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{ROLES.map((r) => (
-										<SelectItem key={r} value={r}>
-											{r}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+							/>
+							<Label htmlFor="inviteUserGrantRoot" className="font-normal">
+								Grant instance administrator (root) access
+							</Label>
 						</div>
 						<FormError
 							message={
-								invite.error ? errorMessage(invite.error, "Could not send invitation") : null
+								invite.error ? errorMessage(invite.error, "Could not create invitation") : null
 							}
 						/>
-						{warning && <p className="text-sm text-muted-foreground">{warning}</p>}
 					</div>
 				)}
 				<DialogFooter>
-					{smtpConfigured && organizations.length > 0 && (
-						<InviteSubmitButton
-							loading={invite.isLoading}
-							disabled={!email || !orgId}
-							onClick={handleSubmit}
-						/>
+					{result ? (
+						<Button type="button" onClick={() => handleOpenChange(false)}>
+							Done
+						</Button>
+					) : (
+						<LoadingButton loading={invite.isLoading} disabled={!email} onClick={handleSubmit}>
+							Send invite
+						</LoadingButton>
 					)}
 				</DialogFooter>
 			</DialogContent>
@@ -335,27 +279,21 @@ function InviteUserDialog({
 	);
 }
 
-function InviteSubmitButton({
-	loading,
-	disabled,
-	onClick,
-}: {
-	loading: boolean;
-	disabled: boolean;
-	onClick: () => void;
-}) {
+function CopyableLink({ url }: { url: string }) {
+	const [copied, setCopied] = useState(false);
+
+	async function handleCopy() {
+		await navigator.clipboard.writeText(url);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
+	}
+
 	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					<span className="inline-block">
-						<LoadingButton loading={loading} disabled={disabled} onClick={onClick}>
-							Send invite
-						</LoadingButton>
-					</span>
-				}
-			/>
-			<TooltipContent>Sends an email invite with a link to join the organization.</TooltipContent>
-		</Tooltip>
+		<div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+			<span className="flex-1 truncate font-mono text-xs">{url}</span>
+			<Button type="button" variant="secondary" size="icon-sm" onClick={handleCopy}>
+				{copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+			</Button>
+		</div>
 	);
 }

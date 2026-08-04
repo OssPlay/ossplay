@@ -23,6 +23,7 @@ const TABLES = [
 	"user_recovery_codes",
 	"password_reset_tokens",
 	"invitations",
+	"instance_invitations",
 	"webauthn_credentials",
 	"webauthn_challenges",
 	// projects/assets/folder_closure are cascade-truncated via FKs to the

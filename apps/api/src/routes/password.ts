@@ -63,7 +63,7 @@ passwordRoute.post("/forgot-password", async (c) => {
 		const { token } = await createPasswordResetToken(user.id);
 		const resetUrl = `${getPublicUrl(c)}/reset-password?token=${token}`;
 		try {
-			await sendMail(user.email, passwordResetEmail({ resetUrl }));
+			await sendMail(user.email, await passwordResetEmail({ resetUrl }));
 		} catch {
 			// Swallowed deliberately — see comment above.
 		}

@@ -15,6 +15,12 @@ import { parse, stringify } from "yaml";
 export type CertProvider = "letsencrypt" | "zerossl" | "custom";
 
 export interface InstanceConfig {
+	// A display name for this instance — e.g. the operator's company name.
+	// Distinct from `domain.name` (a DNS hostname): this is what gets shown
+	// in instance-level invite emails ("You've been invited to join
+	// Acme Inc"), since a bare hostname is a poor greeting and a domain isn't
+	// always configured at all.
+	instanceName: string | null;
 	domain: {
 		name: string | null;
 		configuredAt: string | null; // ISO string — plain YAML has no native Date type
@@ -28,10 +34,12 @@ export interface InstanceConfig {
 // this over the current file per section, so a caller can patch a subset
 // without needing to know or re-send the rest.
 export interface InstanceConfigPatch {
+	instanceName?: string | null;
 	domain?: Partial<InstanceConfig["domain"]>;
 }
 
 const DEFAULTS: InstanceConfig = {
+	instanceName: null,
 	domain: {
 		name: null,
 		configuredAt: null,
@@ -58,6 +66,7 @@ export function readInstanceConfig(): InstanceConfig {
 		// {}, so every field below falls through to its default.
 	}
 	return {
+		instanceName: parsed.instanceName ?? DEFAULTS.instanceName,
 		domain: { ...DEFAULTS.domain, ...parsed.domain },
 	};
 }
@@ -68,6 +77,7 @@ export function readInstanceConfig(): InstanceConfig {
 export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig {
 	const current = readInstanceConfig();
 	const next: InstanceConfig = {
+		instanceName: patch.instanceName !== undefined ? patch.instanceName : current.instanceName,
 		domain: { ...current.domain, ...patch.domain },
 	};
 
@@ -102,5 +112,5 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 // README's `touch infra/ossplay.yaml` prerequisite), so reset means "back
 // to defaults," not "gone."
 export function resetInstanceConfig(): InstanceConfig {
-	return writeInstanceConfig({ domain: DEFAULTS.domain });
+	return writeInstanceConfig({ instanceName: DEFAULTS.instanceName, domain: DEFAULTS.domain });
 }

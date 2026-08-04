@@ -339,7 +339,7 @@ function OrgMembershipRow({
 					disabled={changeRole.isLoading}
 				>
 					<SelectTrigger size="sm">
-						<SelectValue />
+						<SelectValue items={ORG_ROLES.map((role) => ({ value: role, label: role }))} />
 					</SelectTrigger>
 					<SelectContent>
 						{ORG_ROLES.map((role) => (

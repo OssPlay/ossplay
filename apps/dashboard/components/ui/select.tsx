@@ -17,13 +17,35 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
 	);
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+// Base UI's <Select.Value> only resolves a label from the raw stored value
+// when the item labels were registered via an `items` prop on <Select.Root>
+// (see its own SelectValue.d.ts) — every call site in this app instead
+// declares <SelectItem> children directly inside <SelectContent>, so without
+// this it silently renders the raw value (e.g. a UUID) instead of the
+// item's label. `items` here is that same lookup, supplied per call site.
+function SelectValue({
+	className,
+	items,
+	...props
+}: SelectPrimitive.Value.Props & {
+	items?:
+		| Record<string, React.ReactNode>
+		| ReadonlyArray<{ value: string; label: React.ReactNode }>;
+}) {
 	return (
 		<SelectPrimitive.Value
 			data-slot="select-value"
 			className={cn("flex flex-1 text-left", className)}
 			{...props}
-		/>
+		>
+			{items &&
+				((value: unknown) => {
+					const label = Array.isArray(items)
+						? items.find((item) => item.value === value)?.label
+						: (items as Record<string, React.ReactNode>)[value as string];
+					return label ?? (typeof value === "string" ? value : "");
+				})}
+		</SelectPrimitive.Value>
 	);
 }
 

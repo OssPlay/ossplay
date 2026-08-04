@@ -1,16 +1,29 @@
-import { getDb, organizationMembers, organizations, users, webauthnCredentials } from "@ossplay/db";
+import {
+	getDb,
+	instanceInvitations,
+	organizationMembers,
+	organizations,
+	users,
+	webauthnCredentials,
+} from "@ossplay/db";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { clearUserSecondFactors, setUserPassword } from "../lib/auth/admin-reset";
 import { hashPassword } from "../lib/auth/password";
+import { getPublicUrl } from "../lib/auth/request-info";
 import { revokeAllSessionsForUser } from "../lib/auth/session";
-import { generateToken } from "../lib/auth/tokens";
+import { generateToken, hashToken } from "../lib/auth/tokens";
+import { readInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
+import { sendMail } from "../lib/mail/send";
+import { instanceInviteEmail } from "../lib/mail/templates";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";
+
+const INSTANCE_INVITATION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const instanceUsersRoute = new Hono<AppEnv>();
 
@@ -107,6 +120,86 @@ instanceUsersRoute.get("/", async (c) => {
 		page,
 		pageSize,
 	});
+});
+
+const inviteUserSchema = z.object({
+	email: z.email(),
+	grantRoot: z.boolean().optional().default(false),
+});
+
+// Org-less account provisioning — the counterpart to POST
+// /organizations/:orgId/invitations, but for a bare account (optionally
+// with root access) rather than membership in a specific org. Getting the
+// new user into an org afterward is a separate step via the normal
+// org-invite flow — see instanceInvitations in instance.schema.ts.
+instanceUsersRoute.post("/invite", async (c) => {
+	const inviter = c.get("user");
+	const parsed = inviteUserSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+	const db = getDb();
+	const email = parsed.data.email.trim().toLowerCase();
+
+	const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+	if (existingUser) {
+		return c.json({ error: "A user with this email already exists" }, 409);
+	}
+
+	const [existingPending] = await db
+		.select({ id: instanceInvitations.id })
+		.from(instanceInvitations)
+		.where(and(eq(instanceInvitations.email, email), eq(instanceInvitations.status, "pending")));
+	if (existingPending) {
+		return c.json({ error: "An invitation is already pending for this email" }, 409);
+	}
+
+	const token = generateToken();
+	const tokenHash = await hashToken(token);
+	const expiresAt = new Date(Date.now() + INSTANCE_INVITATION_DURATION_MS);
+
+	const [invitation] = await db
+		.insert(instanceInvitations)
+		.values({ email, grantRoot: parsed.data.grantRoot, invitedByUserId: inviter.id, tokenHash, expiresAt })
+		.returning();
+	if (!invitation) throw new Error("Insert did not return the expected row");
+
+	const inviteUrl = `${getPublicUrl(c)}/invite/instance/${token}`;
+	const config = readInstanceConfig();
+	const instanceName = config.instanceName ?? config.domain.name ?? "OSSPlay";
+
+	await logAudit(c, {
+		action: "user.invited",
+		targetType: "instance_invitation",
+		targetId: invitation.id,
+		metadata: { email, grantRoot: parsed.data.grantRoot },
+	});
+
+	try {
+		await sendMail(
+			email,
+			await instanceInviteEmail({
+				instanceName,
+				inviterName: inviter.name,
+				acceptUrl: inviteUrl,
+				grantRoot: parsed.data.grantRoot,
+			}),
+		);
+	} catch (err) {
+		// Same graceful degradation as the org-invite flow — the invitation
+		// still exists, so surface the link for root to share manually rather
+		// than pretending the email went out.
+		return c.json(
+			{
+				invitation,
+				inviteUrl,
+				warning: "Invitation created but the email could not be sent",
+				error: err instanceof Error ? err.message : String(err),
+			},
+			201,
+		);
+	}
+
+	return c.json({ invitation, inviteUrl }, 201);
 });
 
 instanceUsersRoute.get("/:id", async (c) => {

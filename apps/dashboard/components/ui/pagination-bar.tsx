@@ -45,7 +45,9 @@ export function PaginationBar({
 						onValueChange={(value) => onPageSizeChange(Number(value))}
 					>
 						<SelectTrigger size="sm" className="w-18">
-							<SelectValue />
+							<SelectValue
+								items={pageSizeOptions.map((size) => ({ value: String(size), label: size }))}
+							/>
 						</SelectTrigger>
 						<SelectContent>
 							{pageSizeOptions.map((size) => (

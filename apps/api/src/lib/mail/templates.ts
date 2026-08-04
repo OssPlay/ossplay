@@ -1,54 +1,56 @@
+/** @jsxImportSource react */
+import { render } from "@react-email/render";
+import { createElement } from "react";
+import { InstanceInviteEmail } from "./templates/instance-invite-email";
+import { InviteEmail } from "./templates/invite-email";
+import { PasswordResetEmail } from "./templates/password-reset-email";
+
 export type MailMessage = { subject: string; html: string; text: string };
 
-// orgName/inviterName are user-controlled (org name at creation, user's own
-// name at signup) — escape before interpolating into HTML.
-function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
-}
+// React Email's `render` produces both an HTML string (with Tailwind classes
+// compiled to inline styles) and a plain-text version automatically derived
+// from the component tree. This keeps the `MailMessage` contract identical
+// to what call sites already expect — subject, html, text — without any
+// change needed in `send.ts` or the route files that build the message.
+//
+// `render` is async in @react-email/render v2, so these functions are too.
+// Call sites already use `await sendMail(to, ...)`, just need to also
+// await the template call: `await sendMail(to, await inviteEmail({...}))`.
 
-export function inviteEmail(params: {
+export async function inviteEmail(params: {
 	orgName: string;
 	inviterName: string;
 	acceptUrl: string;
-}): MailMessage {
-	const orgName = escapeHtml(params.orgName);
-	const inviterName = escapeHtml(params.inviterName);
+}): Promise<MailMessage> {
+	const element = createElement(InviteEmail, params);
 	return {
 		subject: `${params.inviterName} invited you to join ${params.orgName} on OSSPlay`,
-		text: [
-			`${params.inviterName} has invited you to join ${params.orgName} on OSSPlay.`,
-			"",
-			`Accept the invitation: ${params.acceptUrl}`,
-			"",
-			"This link expires in 7 days.",
-		].join("\n"),
-		html: [
-			`<p>${inviterName} has invited you to join <strong>${orgName}</strong> on OSSPlay.</p>`,
-			`<p><a href="${params.acceptUrl}">Accept the invitation</a></p>`,
-			"<p>This link expires in 7 days.</p>",
-		].join("\n"),
+		html: await render(element),
+		text: await render(element, { plainText: true }),
 	};
 }
 
-export function passwordResetEmail(params: { resetUrl: string }): MailMessage {
+export async function instanceInviteEmail(params: {
+	instanceName: string;
+	inviterName: string;
+	acceptUrl: string;
+	grantRoot: boolean;
+}): Promise<MailMessage> {
+	const element = createElement(InstanceInviteEmail, params);
+	return {
+		subject: `${params.inviterName} invited you to join ${params.instanceName}`,
+		html: await render(element),
+		text: await render(element, { plainText: true }),
+	};
+}
+
+export async function passwordResetEmail(params: {
+	resetUrl: string;
+}): Promise<MailMessage> {
+	const element = createElement(PasswordResetEmail, params);
 	return {
 		subject: "Reset your OSSPlay password",
-		text: [
-			"We received a request to reset your OSSPlay password.",
-			"",
-			`Reset your password: ${params.resetUrl}`,
-			"",
-			"If you didn't request this, you can safely ignore this email. This link expires in 1 hour.",
-		].join("\n"),
-		html: [
-			"<p>We received a request to reset your OSSPlay password.</p>",
-			`<p><a href="${params.resetUrl}">Reset your password</a></p>`,
-			"<p>If you didn't request this, you can safely ignore this email. This link expires in 1 hour.</p>",
-		].join("\n"),
+		html: await render(element),
+		text: await render(element, { plainText: true }),
 	};
 }

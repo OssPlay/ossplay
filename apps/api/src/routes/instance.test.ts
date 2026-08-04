@@ -17,6 +17,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance domain settings", () => {
 		const res = await jsonRequest("/instance/domain", { cookie: rootCookie });
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({
+			instanceName: null,
 			domain: null,
 			domainConfiguredAt: null,
 			letsEncryptEmail: null,

@@ -9,6 +9,9 @@
 	"packageManager": "bun@1.3.14",
 	"scripts": {
 		"dev": "turbo run dev",
+		"dev:dashboard": "bun --filter @ossplay/dashboard dev",
+		"dev:api": "bun --filter @ossplay/api dev",
+		"dev:email": "bun --filter @ossplay/email-preview dev",
 		"build": "turbo run build",
 		"lint": "turbo run lint",
 		"typecheck": "turbo run typecheck",

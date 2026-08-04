@@ -11,6 +11,36 @@ export default function Home() {
 	const { user, organizations, handleLogout, isLoading } = useAuth();
 
 	const primaryOrg = organizations[0];
+	// Root has implicit access to every org regardless of membership rows
+	// (see ARCHITECTURE.md's Authorization Model section), so an empty
+	// `organizations` array means something different for them than for
+	// anyone else — root always has somewhere to go (/instance), a non-root
+	// account with no membership genuinely has nothing to do here yet.
+	const isStranded = organizations.length === 0 && user.instanceRole !== "root";
+
+	if (isStranded) {
+		return (
+			<Container>
+				<Card className="w-full max-w-md">
+					<CardHeader>
+						<CardTitle>No organization yet</CardTitle>
+						<CardDescription>
+							{user.name}, your account isn't part of any organization on this instance.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-4">
+						<p className="text-sm text-muted-foreground">
+							Ask an instance administrator to add you to one — there's nothing else to do here
+							until then.
+						</p>
+						<LoadingButton variant="outline" loading={isLoading} onClick={handleLogout}>
+							Log out
+						</LoadingButton>
+					</CardContent>
+				</Card>
+			</Container>
+		);
+	}
 
 	return (
 		<Container>

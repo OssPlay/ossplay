@@ -58,8 +58,9 @@ instanceRoute.post("/updates/check", (c) => {
 });
 
 instanceRoute.get("/domain", (c) => {
-	const { domain } = readInstanceConfig();
+	const { instanceName, domain } = readInstanceConfig();
 	return c.json({
+		instanceName,
 		domain: domain.name,
 		domainConfiguredAt: domain.configuredAt,
 		letsEncryptEmail: domain.letsEncryptEmail,
@@ -78,6 +79,7 @@ const CERT_PROVIDERS = ["letsencrypt", "zerossl", "custom"] as const;
 
 const domainSchema = z
 	.object({
+		instanceName: z.string().trim().min(1).max(200).nullable().optional(),
 		domain: z
 			.string()
 			.trim()
@@ -111,7 +113,7 @@ instanceRoute.put("/domain", async (c) => {
 			400,
 		);
 	}
-	const { domain, letsEncryptEmail, customAcmeUrl } = parsed.data;
+	const { domain, letsEncryptEmail, customAcmeUrl, instanceName } = parsed.data;
 	const certProvider = parsed.data.certProvider ?? "letsencrypt";
 
 	const result = domain
@@ -123,6 +125,7 @@ instanceRoute.put("/domain", async (c) => {
 		: { applied: false as const, reason: "No domain configured" };
 
 	writeInstanceConfig({
+		instanceName: instanceName ?? null,
 		domain: {
 			name: domain,
 			configuredAt: result.applied ? new Date().toISOString() : null,
@@ -136,11 +139,12 @@ instanceRoute.put("/domain", async (c) => {
 		action: "instance.domain.update",
 		targetType: "domain",
 		targetId: domain ?? undefined,
-		metadata: { domain, certProvider, caddyApplied: result.applied },
+		metadata: { domain, certProvider, caddyApplied: result.applied, instanceName },
 	});
 
 	return c.json({
 		domain,
+		instanceName: instanceName ?? null,
 		caddyApplied: result.applied,
 		message: result.applied
 			? "Domain saved and applied to the reverse proxy."

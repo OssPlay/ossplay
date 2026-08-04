@@ -172,12 +172,20 @@ organizationsRoute.post(
 				expiresAt,
 			})
 			.returning();
+		if (!invitation) throw new Error("Insert did not return the expected row");
+
+		await logAudit(c, {
+			action: "user.invited",
+			targetType: "invitation",
+			targetId: invitation.id,
+			metadata: { email, orgId, role: parsed.data.role },
+		});
 
 		const acceptUrl = `${getPublicUrl(c)}/invite/${token}`;
 		try {
 			await sendMail(
 				email,
-				inviteEmail({
+				await inviteEmail({
 					orgName: org.name,
 					inviterName: inviter.name,
 					acceptUrl,
@@ -185,11 +193,11 @@ organizationsRoute.post(
 			);
 		} catch (err) {
 			// The invitation record still exists — an admin can share the link
-			// manually if SMTP isn't configured. Surface that rather than
-			// pretending the email went out.
+			// manually if SMTP isn't configured.
 			return c.json(
 				{
 					invitation,
+					inviteUrl: acceptUrl,
 					warning: "Invitation created but the email could not be sent",
 					error: err instanceof Error ? err.message : String(err),
 				},

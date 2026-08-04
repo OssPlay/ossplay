@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { getDb, invitations } from "@ossplay/db";
+import { getDb, instanceInvitations, invitations } from "@ossplay/db";
 import { eq, sql } from "drizzle-orm";
 import { app } from "./app";
 import { resetAllRateLimitsForTests } from "./lib/auth/rate-limit";
@@ -31,7 +31,7 @@ export function extractCookie(res: Response, name: string): string {
 export async function truncateAllTables(): Promise<void> {
 	resetAllRateLimitsForTests();
 	await getDb().execute(
-		sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, password_reset_tokens, invitations, webauthn_credentials, webauthn_challenges, smtp_configs RESTART IDENTITY CASCADE`,
+		sql`TRUNCATE TABLE sessions, organization_members, organizations, users, two_factor_challenges, user_recovery_codes, password_reset_tokens, invitations, instance_invitations, webauthn_credentials, webauthn_challenges, smtp_configs, audit_logs RESTART IDENTITY CASCADE`,
 	);
 	rmSync(TEST_CONFIG_PATH, { force: true });
 }
@@ -76,5 +76,17 @@ export async function stampInvitationToken(invitationId: string): Promise<string
 	const token = generateToken();
 	const tokenHash = await hashToken(token);
 	await getDb().update(invitations).set({ tokenHash }).where(eq(invitations.id, invitationId));
+	return token;
+}
+
+// Same escape hatch as stampInvitationToken, for the org-less instance
+// invitation flow.
+export async function stampInstanceInvitationToken(invitationId: string): Promise<string> {
+	const token = generateToken();
+	const tokenHash = await hashToken(token);
+	await getDb()
+		.update(instanceInvitations)
+		.set({ tokenHash })
+		.where(eq(instanceInvitations.id, invitationId));
 	return token;
 }
