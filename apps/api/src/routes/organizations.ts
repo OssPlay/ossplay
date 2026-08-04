@@ -1,11 +1,19 @@
-import { getDb, invitations, organizationMembers, organizations, users } from "@ossplay/db";
+import {
+	getDb,
+	invitations,
+	organizationMembers,
+	organizations,
+	projects,
+	users,
+} from "@ossplay/db";
 import { inviteEmail, sendMail } from "@ossplay/mail";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { getPublicUrl } from "../lib/auth/request-info";
 import { generateToken, hashToken } from "../lib/auth/tokens";
+import { parseListQuery } from "../lib/http/list-query";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";
@@ -23,19 +31,81 @@ const createOrganizationSchema = z.object({
 // of — root has implicit access to all of them (see ARCHITECTURE.md's
 // Authorization Model section) but /auth/me's `organizations` field only
 // reflects real membership rows, which root often doesn't have one of for
-// most orgs. Exists for the instance Users page's "invite into org" picker.
+// most orgs. Backs the instance Access Control > Organizations list — same
+// list-query (search/page/pageSize) contract as every other root-only
+// instance list endpoint, so the FE can use DataTable/useServerTable
+// unmodified instead of a one-off table (see DESIGN.md's Dashboard list
+// pages section).
 organizationsRoute.get(
 	"/",
 	requireAuth,
 	requireInstancePermission("instance:manage_orgs"),
 	async (c) => {
-		const rows = await getDb()
-			.select({ id: organizations.id, name: organizations.name })
-			.from(organizations)
-			.orderBy(organizations.name);
-		return c.json({ organizations: rows });
+		const db = getDb();
+		const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+			searchable: [organizations.name],
+			defaultPageSize: 25,
+		});
+
+		const [rows, totalRows] = await Promise.all([
+			db
+				.select({
+					id: organizations.id,
+					name: organizations.name,
+					createdAt: organizations.createdAt,
+				})
+				.from(organizations)
+				.where(where)
+				.orderBy(organizations.name)
+				.limit(limit)
+				.offset(offset),
+			db.select({ total: count() }).from(organizations).where(where),
+		]);
+
+		const orgIds = rows.map((row) => row.id);
+		const [memberCounts, projectCounts] = orgIds.length
+			? await Promise.all([
+					db
+						.select({ orgId: organizationMembers.orgId, total: count() })
+						.from(organizationMembers)
+						.where(inArray(organizationMembers.orgId, orgIds))
+						.groupBy(organizationMembers.orgId),
+					db
+						.select({ orgId: projects.orgId, total: count() })
+						.from(projects)
+						.where(inArray(projects.orgId, orgIds))
+						.groupBy(projects.orgId),
+				])
+			: [[], []];
+		const memberCountByOrg = new Map(memberCounts.map((row) => [row.orgId, row.total]));
+		const projectCountByOrg = new Map(projectCounts.map((row) => [row.orgId, row.total]));
+
+		return c.json({
+			organizations: rows.map((row) => ({
+				...row,
+				memberCount: memberCountByOrg.get(row.id) ?? 0,
+				projectCount: projectCountByOrg.get(row.id) ?? 0,
+			})),
+			total: totalRows[0]?.total ?? 0,
+			page,
+			pageSize,
+		});
 	},
 );
+
+// Single-org detail, for the instance Access Control > Organizations detail
+// page. requireOrgMembership rather than requireInstancePermission, matching
+// GET /:orgId/members and GET /:orgId/projects below — root has implicit
+// access, and this stays the one permission model per-org data uses instead
+// of a second, instance-scoped one.
+organizationsRoute.get("/:orgId", requireAuth, requireOrgMembership, async (c) => {
+	const [org] = await getDb()
+		.select({ id: organizations.id, name: organizations.name, createdAt: organizations.createdAt })
+		.from(organizations)
+		.where(eq(organizations.id, c.req.param("orgId")));
+	if (!org) return c.json({ error: "Organization not found" }, 404);
+	return c.json({ organization: org });
+});
 
 // General-purpose org creation, root-only — used by the onboarding "org"
 // step and available for root to create further orgs afterward. There is no

@@ -3,6 +3,7 @@
 import {
 	ActivityIcon,
 	ArrowLeftIcon,
+	Building2Icon,
 	GlobeIcon,
 	HardDriveIcon,
 	KeyRoundIcon,
@@ -53,6 +54,11 @@ const sidepanel: Sidepanel = [
 		icon: ShieldKeyholeIcon,
 		items: [
 			{ title: "Users", href: "/instance/users", icon: UsersIcon },
+			{
+				title: "Organizations",
+				href: "/instance/organizations",
+				icon: Building2Icon,
+			},
 			{
 				title: "Audit Logs",
 				href: "/instance/audit-logs",

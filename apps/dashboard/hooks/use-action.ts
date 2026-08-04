@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { beginAction, endAction } from "@/lib/action-store";
+import { ApiError } from "@/lib/api";
 
 export interface UseActionOptions<T> {
 	/** Shown as a sonner loading toast for the duration of the call. */
@@ -10,9 +11,14 @@ export interface UseActionOptions<T> {
 	/** Shown as a sonner success toast — opt-in, most actions already show inline confirmation. */
 	success?: string | ((data: T) => string);
 	/**
-	 * Shown as a sonner error toast. Defaults to the thrown error's message.
-	 * Pass `null` to suppress the toast for an action whose caller already
-	 * renders its own error UI and doesn't want a duplicate.
+	 * Shown as a sonner error toast. A plain string is a *fallback label*,
+	 * used only when the failure has no specific reason to show (e.g. a
+	 * network error) — a backend-thrown ApiError's own message always wins,
+	 * so a caller's generic "Could not do X" never hides a specific reason
+	 * like "An invitation is already pending for this email". Pass a
+	 * function to fully override regardless of error type. Pass `null` to
+	 * suppress the toast for an action whose caller already renders its own
+	 * error UI and doesn't want a duplicate.
 	 */
 	error?: string | ((err: unknown) => string) | null;
 	/** Counts toward the global active-action lock (beforeunload guard, Logout button). Default true. */
@@ -27,8 +33,9 @@ export interface UseActionResult<Args extends unknown[], T> {
 	reset: () => void;
 }
 
-function defaultErrorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : "Something went wrong";
+function resolveErrorMessage(err: unknown, fallback: string | undefined): string {
+	if (err instanceof ApiError) return err.message;
+	return fallback ?? (err instanceof Error ? err.message : "Something went wrong");
 }
 
 // Fully functional async operator for one-off mutations (POST/PUT/DELETE
@@ -74,7 +81,7 @@ export function useAction<Args extends unknown[], T>(
 				const message =
 					typeof options.error === "function"
 						? options.error(err)
-						: (options.error ?? defaultErrorMessage(err));
+						: resolveErrorMessage(err, options.error);
 				toast.error(message, { id: toastId });
 			} else if (toastId !== undefined) {
 				toast.dismiss(toastId);

@@ -1,12 +1,11 @@
 "use client";
 
-import { CheckIcon, CopyIcon, UserPlusIcon, UsersIcon } from "lucide-react";
-import Link from "next/link";
-import { useState } from "react";
-import { toast } from "sonner";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
-import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import {
+	DataTable,
+	type DataTableColumn,
+} from "@/components/layout/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,6 +22,10 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
+import { CheckIcon, CopyIcon, UserPlusIcon, UsersIcon } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+import { toast } from "sonner";
 
 interface InstanceUser {
 	id: string;
@@ -54,19 +57,26 @@ export default function InstanceUsersPage() {
 		pageSize: 10,
 	});
 	const [inviteOpen, setInviteOpen] = useState(false);
-	const forbidden = table.error instanceof ApiError && table.error.status === 403;
+	const forbidden = table.error instanceof ApiError &&
+		table.error.status === 403;
 
 	// Reuses the same per-user PUT endpoint the detail page's SecurityActions
 	// calls — no bulk endpoint exists (or is needed) for this.
 	const bulkUpdateBlock = useAction(
 		(ids: string[], action: "block" | "unblock") =>
-			Promise.all(ids.map((id) => apiFetch(`/instance/users/${id}/${action}`, { method: "PUT" }))),
+			Promise.all(
+				ids.map((id) =>
+					apiFetch(`/instance/users/${id}/${action}`, { method: "PUT" })
+				),
+			),
 		{ error: "Could not update the selected users" },
 	);
 
 	if (forbidden) {
 		return (
-			<p className="text-sm text-muted-foreground">Only the instance root can view this page.</p>
+			<p className="text-sm text-muted-foreground">
+				Only the instance root can view this page.
+			</p>
 		);
 	}
 
@@ -91,23 +101,23 @@ export default function InstanceUsersPage() {
 			title: "2FA / Passkeys",
 			className: "text-muted-foreground",
 			cell: (row) =>
-				`${row.totpEnabled ? "2FA" : "No 2FA"} · ${row.passkeyCount} passkey${row.passkeyCount === 1 ? "" : "s"}`,
+				`${row.totpEnabled ? "2FA" : "No 2FA"} · ${row.passkeyCount} passkey${
+					row.passkeyCount === 1 ? "" : "s"
+				}`,
 		},
 		{
 			key: "disabledAt",
 			title: "Status",
 			cell: (row) =>
-				row.disabledAt ? (
-					<Badge variant="destructive">Blocked</Badge>
-				) : (
-					<Badge variant="secondary">Active</Badge>
-				),
+				row.disabledAt
+					? <Badge variant="destructive">Blocked</Badge>
+					: <Badge variant="secondary">Active</Badge>,
 		},
 		{
 			key: "lastSignInAt",
 			title: "Last sign-in",
 			className: "text-muted-foreground",
-			cell: (row) => (row.lastSignInAt ? new Date(row.lastSignInAt).toLocaleString() : "Never"),
+			formatter: "datetime",
 		},
 	];
 
@@ -184,14 +194,19 @@ function InviteUserDialog({
 }) {
 	const [email, setEmail] = useState("");
 	const [grantRoot, setGrantRoot] = useState(false);
-	const [result, setResult] = useState<{ warning?: string; inviteUrl?: string } | null>(null);
+	const [result, setResult] = useState<
+		{ warning?: string; inviteUrl?: string } | null
+	>(null);
 
 	const invite = useAction(
 		() =>
-			apiFetch<{ warning?: string; inviteUrl?: string }>("/instance/users/invite", {
-				method: "POST",
-				body: JSON.stringify({ email, grantRoot }),
-			}),
+			apiFetch<{ warning?: string; inviteUrl?: string }>(
+				"/instance/users/invite",
+				{
+					method: "POST",
+					body: JSON.stringify({ email, grantRoot }),
+				},
+			),
 		{ error: "Could not create invitation" },
 	);
 
@@ -228,51 +243,59 @@ function InviteUserDialog({
 				<DialogHeader>
 					<DialogTitle>Add user</DialogTitle>
 				</DialogHeader>
-				{result ? (
-					<div className="flex flex-col gap-3">
-						<p className="text-sm text-muted-foreground">{result.warning}</p>
-						{result.inviteUrl && <CopyableLink url={result.inviteUrl} />}
-					</div>
-				) : (
-					<div className="flex flex-col gap-4">
-						<FormField
-							id="inviteUserEmail"
-							label="Email"
-							type="email"
-							value={email}
-							onChange={setEmail}
-							autoComplete="off"
-							autoFocus
-							disabled={invite.isLoading}
-						/>
-						<div className="flex items-center gap-2">
-							<Checkbox
-								id="inviteUserGrantRoot"
-								checked={grantRoot}
-								onCheckedChange={setGrantRoot}
+				{result
+					? (
+						<div className="flex flex-col gap-3">
+							<p className="text-sm text-muted-foreground">{result.warning}</p>
+							{result.inviteUrl && <CopyableLink url={result.inviteUrl} />}
+						</div>
+					)
+					: (
+						<div className="flex flex-col gap-4">
+							<FormField
+								id="inviteUserEmail"
+								label="Email"
+								type="email"
+								value={email}
+								onChange={setEmail}
+								autoComplete="off"
+								autoFocus
 								disabled={invite.isLoading}
 							/>
-							<Label htmlFor="inviteUserGrantRoot" className="font-normal">
-								Grant instance administrator (root) access
-							</Label>
+							<div className="flex items-center gap-2">
+								<Checkbox
+									id="inviteUserGrantRoot"
+									checked={grantRoot}
+									onCheckedChange={setGrantRoot}
+									disabled={invite.isLoading}
+								/>
+								<Label htmlFor="inviteUserGrantRoot" className="font-normal">
+									Grant instance administrator (root) access
+								</Label>
+							</div>
+							<FormError
+								message={invite.error
+									? errorMessage(invite.error, "Could not create invitation")
+									: null}
+							/>
 						</div>
-						<FormError
-							message={
-								invite.error ? errorMessage(invite.error, "Could not create invitation") : null
-							}
-						/>
-					</div>
-				)}
-				<DialogFooter>
-					{result ? (
-						<Button type="button" onClick={() => handleOpenChange(false)}>
-							Done
-						</Button>
-					) : (
-						<LoadingButton loading={invite.isLoading} disabled={!email} onClick={handleSubmit}>
-							Send invite
-						</LoadingButton>
 					)}
+				<DialogFooter>
+					{result
+						? (
+							<Button type="button" onClick={() => handleOpenChange(false)}>
+								Done
+							</Button>
+						)
+						: (
+							<LoadingButton
+								loading={invite.isLoading}
+								disabled={!email}
+								onClick={handleSubmit}
+							>
+								Send invite
+							</LoadingButton>
+						)}
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
@@ -291,8 +314,15 @@ function CopyableLink({ url }: { url: string }) {
 	return (
 		<div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
 			<span className="flex-1 truncate font-mono text-xs">{url}</span>
-			<Button type="button" variant="secondary" size="icon-sm" onClick={handleCopy}>
-				{copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+			<Button
+				type="button"
+				variant="secondary"
+				size="icon-sm"
+				onClick={handleCopy}
+			>
+				{copied
+					? <CheckIcon className="size-3.5" />
+					: <CopyIcon className="size-3.5" />}
 			</Button>
 		</div>
 	);

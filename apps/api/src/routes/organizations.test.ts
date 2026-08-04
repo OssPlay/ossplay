@@ -45,6 +45,35 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 		expect(body.organizations.map((o) => o.name).sort()).toEqual(["Acme Inc", "Second Org"]);
 	});
 
+	it("GET /organizations includes member/project counts, GET /:orgId returns the single org", async () => {
+		await jsonRequest(`/organizations/${orgId}/projects`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ name: "Website Assets" }),
+		});
+
+		const listRes = await jsonRequest("/organizations", { cookie: ownerCookie });
+		const listBody = (await listRes.json()) as {
+			organizations: Array<{ id: string; memberCount: number; projectCount: number }>;
+		};
+		const acme = listBody.organizations.find((o) => o.id === orgId);
+		expect(acme).toMatchObject({ memberCount: 1, projectCount: 1 });
+		const second = listBody.organizations.find((o) => o.id === secondOrgId);
+		expect(second).toMatchObject({ memberCount: 1, projectCount: 0 });
+
+		const detailRes = await jsonRequest(`/organizations/${orgId}`, { cookie: ownerCookie });
+		expect(detailRes.status).toBe(200);
+		const detailBody = (await detailRes.json()) as { organization: { id: string; name: string } };
+		expect(detailBody.organization).toMatchObject({ id: orgId, name: "Acme Inc" });
+	});
+
+	it("GET /:orgId 404s for a non-existent org", async () => {
+		const res = await jsonRequest("/organizations/00000000-0000-0000-0000-000000000000", {
+			cookie: ownerCookie,
+		});
+		expect(res.status).toBe(404);
+	});
+
 	it("GET /organizations is forbidden for a non-root member", async () => {
 		// Invited into the second org specifically, not `orgId` — later tests
 		// in this file assert exact member/invitation counts on `orgId` and

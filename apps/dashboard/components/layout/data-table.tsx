@@ -1,16 +1,16 @@
 "use client";
 
-import type { VariantProps } from "class-variance-authority";
-import type { LucideIcon } from "lucide-react";
-import { SearchIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
 import { Button, type buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
 	DataTableFacetedFilter,
 	type DataTableFacetedFilterOption,
 } from "@/components/ui/data-table-faceted-filter";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import {
+	InputGroup,
+	InputGroupAddon,
+	InputGroupInput,
+} from "@/components/ui/input-group";
 import { PaginationBar } from "@/components/ui/pagination-bar";
 import {
 	Table,
@@ -22,9 +22,15 @@ import {
 } from "@/components/ui/table";
 import type { ServerTable } from "@/hooks/use-server-table";
 import { formatDatetime } from "@/lib/utils";
+import type { VariantProps } from "class-variance-authority";
+import type { LucideIcon } from "lucide-react";
+import { SearchIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 const formatters = {
-	datetime: (value: unknown) => <span>{formatDatetime(value as string | number | Date)}</span>,
+	datetime: (value: unknown) => (
+		<span>{formatDatetime(value as string | number | Date)}</span>
+	),
 	code: (value: unknown) => <code className="text-xs">{String(value)}</code>,
 } satisfies Record<string, (value: unknown) => React.ReactNode>;
 
@@ -58,6 +64,8 @@ export interface DataTableProps<TItem> {
 	columns: DataTableColumn<TItem>[];
 	/** Per-row trailing cell (e.g. a "Manage"/"Delete" button) — kept separate from `columns` rather than a magic `"action"` column id. */
 	rowActions?: (row: TItem) => React.ReactNode;
+	/** Makes rows clickable (e.g. opening a detail dialog) — the row itself, not a dedicated column. */
+	onRowClick?: (row: TItem) => void;
 	facets?: DataTableFacet[];
 	bulkActions?: DataTableBulkAction<TItem>[];
 	searchPlaceholder?: string;
@@ -74,6 +82,7 @@ export function DataTable<TItem>({
 	rowId,
 	columns,
 	rowActions,
+	onRowClick,
 	facets = [],
 	bulkActions = [],
 	searchPlaceholder = "Search…",
@@ -94,7 +103,8 @@ export function DataTable<TItem>({
 		setSelected(new Set());
 	}, [rowIdsKey]);
 
-	const allSelected = rowIds.length > 0 && rowIds.every((id) => selected.has(id));
+	const allSelected = rowIds.length > 0 &&
+		rowIds.every((id) => selected.has(id));
 	const someSelected = selected.size > 0 && !allSelected;
 
 	function toggleAll(checked: boolean) {
@@ -111,7 +121,9 @@ export function DataTable<TItem>({
 	}
 
 	async function runBulkAction(action: DataTableBulkAction<TItem>) {
-		const selectedItems = table.items.filter((item) => selected.has(rowId(item)));
+		const selectedItems = table.items.filter((item) =>
+			selected.has(rowId(item))
+		);
 		setBulkActionLoading(true);
 		try {
 			await action.onClick(selectedItems);
@@ -121,7 +133,8 @@ export function DataTable<TItem>({
 		}
 	}
 
-	const columnCount = columns.length + (bulkActions.length > 0 ? 1 : 0) + (rowActions ? 1 : 0);
+	const columnCount = columns.length + (bulkActions.length > 0 ? 1 : 0) +
+		(rowActions ? 1 : 0);
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -154,7 +167,9 @@ export function DataTable<TItem>({
 
 			{bulkActions.length > 0 && selected.size > 0 && (
 				<div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/50">
-					<span className="px-2 text-sm text-muted-foreground">{selected.size} selected</span>
+					<span className="px-2 text-sm text-muted-foreground">
+						{selected.size} selected
+					</span>
 					{bulkActions.map((action) => (
 						<Button
 							key={action.label}
@@ -194,52 +209,77 @@ export function DataTable<TItem>({
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{table.isLoading ? (
-							<TableRow>
-								<TableCell
-									colSpan={columnCount}
-									className="h-24 text-sm text-center text-muted-foreground"
-								>
-									Loading…
-								</TableCell>
-							</TableRow>
-						) : table.items.length === 0 ? (
-							<TableRow>
-								<TableCell colSpan={columnCount} className="h-24 text-center">
-									<p className="text-sm font-medium">{emptyTitle}</p>
-									{emptyDescription && (
-										<p className="text-sm text-muted-foreground">{emptyDescription}</p>
-									)}
-								</TableCell>
-							</TableRow>
-						) : (
-							table.items.map((row) => {
-								const id = rowId(row);
-								return (
-									<TableRow key={id} data-state={selected.has(id) ? "selected" : undefined}>
-										{bulkActions.length > 0 && (
-											<TableCell>
-												<Checkbox
-													checked={selected.has(id)}
-													onCheckedChange={(checked) => toggleRow(id, checked)}
-													aria-label="Select row"
-												/>
-											</TableCell>
+						{table.isLoading
+							? (
+								<TableRow>
+									<TableCell
+										colSpan={columnCount}
+										className="h-24 text-sm text-center text-muted-foreground"
+									>
+										Loading…
+									</TableCell>
+								</TableRow>
+							)
+							: table.items.length === 0
+							? (
+								<TableRow>
+									<TableCell colSpan={columnCount} className="h-24 text-center">
+										<p className="text-sm font-medium">{emptyTitle}</p>
+										{emptyDescription && (
+											<p className="text-sm text-muted-foreground">
+												{emptyDescription}
+											</p>
 										)}
-										{columns.map((column) => (
-											<TableCell key={column.key} className={column.className}>
-												{column.cell
-													? column.cell(row)
-													: column.formatter
+									</TableCell>
+								</TableRow>
+							)
+							: (
+								table.items.map((row) => {
+									const id = rowId(row);
+									return (
+										<TableRow
+											key={id}
+											id={id}
+											data-state={selected.has(id) ? "selected" : undefined}
+											className={onRowClick ? "cursor-pointer" : undefined}
+											onClick={onRowClick ? () => onRowClick(row) : undefined}
+										>
+											{bulkActions.length > 0 && (
+												<TableCell onClick={(e) => e.stopPropagation()}>
+													<Checkbox
+														checked={selected.has(id)}
+														onCheckedChange={(checked) =>
+															toggleRow(id, checked)}
+														aria-label="Select row"
+													/>
+												</TableCell>
+											)}
+											{columns.map((column) => (
+												<TableCell
+													key={column.key}
+													className={column.className}
+												>
+													{column.cell
+														? column.cell(row)
+														: column.formatter
 														? formatters[column.formatter](row[column.key])
 														: String(row[column.key] ?? "")}
-											</TableCell>
-										))}
-										{rowActions && <TableCell className="text-right">{rowActions(row)}</TableCell>}
-									</TableRow>
-								);
-							})
-						)}
+												</TableCell>
+											))}
+											{rowActions && (
+												<TableCell
+													className="text-right"
+													onClick={onRowClick
+														? (e) => e.stopPropagation()
+														: undefined}
+												>
+													{rowActions(row)}
+												</TableCell>
+											)}
+										</TableRow>
+									);
+								})
+							)}
 					</TableBody>
 				</Table>
 			</div>

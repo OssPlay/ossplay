@@ -1,5 +1,11 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { jsonRequest, truncateAllTables } from "../test-support";
+import type { InstanceInvitation } from "@ossplay/db";
+import {
+	extractCookie,
+	jsonRequest,
+	stampInstanceInvitationToken,
+	truncateAllTables,
+} from "../test-support";
 
 describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 	beforeAll(async () => {
@@ -91,5 +97,31 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 		};
 		expect(body.needsOnboarding).toBe(false);
 		expect(body.steps.org.completed).toBe(true);
+	});
+
+	// Regression test: a root invited via the org-less instance invite flow
+	// (instance-users.ts's POST /invite, grantRoot: true) has zero org
+	// memberships of their own — before this fixed, that made
+	// needsOnboarding derive per-user instead of per-instance, so a second
+	// root would be walked through DNS/SMTP/org setup all over again even
+	// though the instance was already fully onboarded by the first root.
+	it("a second root invited after onboarding does not need onboarding again", async () => {
+		const inviteRes = await jsonRequest("/instance/users/invite", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({ email: "second-root@example.com", grantRoot: true }),
+		});
+		const { invitation } = (await inviteRes.json()) as { invitation: InstanceInvitation };
+		const token = await stampInstanceInvitationToken(invitation.id);
+
+		const acceptRes = await jsonRequest(`/instance-invitations/token/${token}/accept`, {
+			method: "POST",
+			body: JSON.stringify({ name: "Second Root", password: "second-root-password-123" }),
+		});
+		const secondRootCookie = extractCookie(acceptRes, "ossplay_session");
+
+		const res = await jsonRequest("/onboarding/status", { cookie: secondRootCookie });
+		const body = (await res.json()) as { needsOnboarding: boolean };
+		expect(body.needsOnboarding).toBe(false);
 	});
 });
