@@ -12,7 +12,10 @@ function templateLabel(name: string): string {
 }
 
 function fixtureCount(name: string): number {
-	return (FIXTURES[name as FixtureName] as readonly unknown[] | undefined)?.length ?? 1;
+	return (
+		(FIXTURES[name as FixtureName] as readonly unknown[] | undefined)?.length ??
+		1
+	);
 }
 
 type ViewMode = "desktop" | "mobile" | "source";
@@ -55,7 +58,8 @@ function SidebarItem({
 			}}
 			onMouseLeave={(e) => {
 				if (!active)
-					(e.currentTarget as HTMLButtonElement).style.background = "transparent";
+					(e.currentTarget as HTMLButtonElement).style.background =
+						"transparent";
 			}}
 		>
 			{/* envelope icon */}
@@ -293,7 +297,13 @@ export default function App() {
 						Templates
 					</p>
 					{templates.length === 0 && (
-						<p style={{ fontSize: 12, color: "var(--fg-subtle)", padding: "8px 4px" }}>
+						<p
+							style={{
+								fontSize: 12,
+								color: "var(--fg-subtle)",
+								padding: "8px 4px",
+							}}
+						>
 							No templates found
 						</p>
 					)}
@@ -306,22 +316,17 @@ export default function App() {
 						/>
 					))}
 				</div>
-
-				{/* Footer */}
-				<div
-					style={{
-						padding: "10px 12px",
-						borderTop: "1px solid var(--border)",
-						fontSize: 11,
-						color: "var(--fg-subtle)",
-					}}
-				>
-					Port 3004 · Auto-reload on save
-				</div>
 			</aside>
 
 			{/* ── Main content ──────────────────────────────────────────────── */}
-			<div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+			<div
+				style={{
+					flex: 1,
+					display: "flex",
+					flexDirection: "column",
+					overflow: "hidden",
+				}}
+			>
 				{/* Toolbar */}
 				<header
 					style={{
@@ -349,7 +354,9 @@ export default function App() {
 					{/* Fixture picker */}
 					{numFixtures > 1 && (
 						<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-							<span style={{ fontSize: 11, color: "var(--fg-muted)" }}>Fixture</span>
+							<span style={{ fontSize: 11, color: "var(--fg-muted)" }}>
+								Fixture
+							</span>
 							{Array.from({ length: numFixtures }, (_, i) => (
 								<button
 									// biome-ignore lint/suspicious/noArrayIndexKey: fixed-length, order-stable index range (0..numFixtures), not a reorderable list.
@@ -364,8 +371,14 @@ export default function App() {
 										cursor: "pointer",
 										fontSize: 11,
 										fontWeight: 600,
-										color: fixtureIdx === i ? "var(--primary-fg)" : "var(--fg-muted)",
-										background: fixtureIdx === i ? "var(--primary)" : "var(--surface-raised)",
+										color:
+											fixtureIdx === i
+												? "var(--primary-fg)"
+												: "var(--fg-muted)",
+										background:
+											fixtureIdx === i
+												? "var(--primary)"
+												: "var(--surface-raised)",
 									}}
 								>
 									{i + 1}
@@ -445,8 +458,7 @@ export default function App() {
 									title="Email preview — desktop"
 									style={{
 										width: "100%",
-										maxWidth: 640,
-										minHeight: 500,
+										height: "100%",
 										border: "1px solid var(--border)",
 										borderRadius: "var(--radius-lg)",
 										background: "#fff",
@@ -463,6 +475,7 @@ export default function App() {
 										borderRadius: 28,
 										padding: 12,
 										boxShadow: "0 0 0 1px #3f3f46, 0 24px 48px rgba(0,0,0,.6)",
+										height: "100%",
 									}}
 								>
 									<iframe
@@ -470,7 +483,7 @@ export default function App() {
 										title="Email preview — mobile"
 										style={{
 											width: 375,
-											height: 667,
+											height: "100%",
 											border: "none",
 											borderRadius: 18,
 											background: "#fff",
@@ -485,7 +498,7 @@ export default function App() {
 								<div
 									style={{
 										width: "100%",
-										maxWidth: 900,
+										height: "100%",
 										background: "var(--surface)",
 										borderRadius: "var(--radius-lg)",
 										border: "1px solid var(--border)",
@@ -501,7 +514,13 @@ export default function App() {
 											gap: 8,
 										}}
 									>
-										<span style={{ fontSize: 11, color: "var(--fg-muted)", fontFamily: "var(--font-mono)" }}>
+										<span
+											style={{
+												fontSize: 11,
+												color: "var(--fg-muted)",
+												fontFamily: "var(--font-mono)",
+											}}
+										>
 											{selected}.html
 										</span>
 										<button
@@ -529,7 +548,7 @@ export default function App() {
 											fontFamily: "var(--font-mono)",
 											color: "#a1a1aa",
 											overflowX: "auto",
-											maxHeight: "calc(100vh - 200px)",
+											height: "100%",
 											overflowY: "auto",
 											margin: 0,
 										}}
