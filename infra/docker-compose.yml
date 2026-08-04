@@ -30,7 +30,7 @@ services:
       retries: 10
 
   api:
-    image: ghcr.io/ossplay/ossplay:${OSSPLAY_VERSION:-latest}
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
     environment:
       OSSPLAY_ROLE: api
       DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
@@ -48,6 +48,9 @@ services:
       # apps/api/src/routes/instance.ts).
       OSSPLAY_UPDATER_URL: http://updater:8787
       OSSPLAY_UPDATER_TOKEN: ${OSSPLAY_UPDATER_TOKEN:?OSSPLAY_UPDATER_TOKEN must be set — install.sh generates one into .env}
+      # Which GitHub repo apps/api/src/lib/updates/check.ts checks for
+      # releases/recalls — only needs overriding on a fork.
+      OSSPLAY_GITHUB_REPO: ${OSSPLAY_GITHUB_REPO:-OssPlay/ossplay}
       # Instance-wide SMTP/domain settings live in this file, not the DB —
       # see packages/db/src/schema.ts and apps/api/src/lib/config/
       # instance-config.ts. Bind-mounted (below) so it survives container
@@ -69,7 +72,7 @@ services:
     restart: unless-stopped
 
   dashboard:
-    image: ghcr.io/ossplay/ossplay:${OSSPLAY_VERSION:-latest}
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
     environment:
       OSSPLAY_ROLE: dashboard
       PORT: 3000
@@ -118,7 +121,7 @@ services:
   # was invoked from) is what makes those paths line up on both sides — the
   # standard DooD pattern.
   updater:
-    image: ghcr.io/ossplay/ossplay:${OSSPLAY_VERSION:-latest}
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
     environment:
       OSSPLAY_ROLE: updater
       OSSPLAY_UPDATER_TOKEN: ${OSSPLAY_UPDATER_TOKEN:?OSSPLAY_UPDATER_TOKEN must be set — install.sh generates one into .env}

@@ -40,7 +40,9 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/ossplay/ossplay
+          # Set a repo variable named GHCR_IMAGE to override (e.g. for a
+          # fork) — falls back to the real org image otherwise.
+          images: ${{ vars.GHCR_IMAGE || 'ghcr.io/ossplay/ossplay' }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

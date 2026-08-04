@@ -10,8 +10,11 @@ import { readVersion } from "../server-info";
 //      same-day recall needs no new release) — the version-redaction/forced-
 //      update signal. If the *currently running* version is a key in
 //      `recalled`, the update is forced, not optional.
-const GITHUB_RELEASES_URL = "https://api.github.com/repos/OssPlay/ossplay/releases/latest";
-const RECALL_MANIFEST_URL = "https://raw.githubusercontent.com/OssPlay/ossplay/main/RELEASES.json";
+// Overridable so a fork (different org/repo) still gets working update
+// checks against its own releases, rather than checking upstream's.
+const GITHUB_REPO = process.env.OSSPLAY_GITHUB_REPO ?? "OssPlay/ossplay";
+const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const RECALL_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/RELEASES.json`;
 const REQUEST_TIMEOUT_MS = 5000;
 
 export interface UpdateCheckResult {
