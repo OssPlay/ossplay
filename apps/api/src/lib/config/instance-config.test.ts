@@ -24,6 +24,11 @@ describe("instance-config", () => {
 				certProvider: "letsencrypt",
 				customAcmeUrl: null,
 			},
+			updates: {
+				autoCheck: false,
+				lastCheckedAt: null,
+				lastCheckResult: null,
+			},
 		});
 	});
 

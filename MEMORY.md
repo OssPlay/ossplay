@@ -6,6 +6,77 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-04 — Release prep: single `ossplay` image, tag-derived versioning, real OTA updater, version recall
+
+**Status:** Decided
+
+Turned the release pipeline's *shape* (already scaffolded: `docker-images.yml`, a "Check for updates" button, an updater stub) into something that actually works end to end, and unified the build around one image per explicit request rather than the four-image matrix that existed before.
+
+- **One published image, `ghcr.io/ossplay/ossplay`, not four.** `docker-images.yml` no longer matrix-builds `dashboard`/`api`/`worker`/`updater` separately — a single `infra/ossplay/Dockerfile` bundles all four apps, and a new role-dispatch entrypoint (`infra/ossplay/entrypoint.ts`, reads `OSSPLAY_ROLE`) decides which process actually runs. `infra/docker-compose.yml`'s `api`/`dashboard`/`updater` services all reference this same image with a different `OSSPLAY_ROLE`/mounts per service — this is also what makes the self-host stack pull-based instead of building from source (the actual previous blocker to any install script meaning something). The four old per-app `Dockerfile`s were deleted.
+- **Versioning is tag-derived, never hand-bumped in `package.json`.** Pushing `v0.0.1` (or a prerelease `v0.0.1-rc.1`) is the only release step — `docker/metadata-action`'s `type=semver` output strips the `v` and is baked into the image as `OSSPLAY_VERSION` (`apps/api/src/lib/server-info.ts`'s `readVersion()` reads it, falling back to the root `package.json`'s untouched placeholder, then `"dev"`, for local runs).
+- **Real updater sidecar.** `infra/updater/index.ts` was a `console.log` + infinite sleep; it's now a small `Bun.serve` (auth-gated via `OSSPLAY_UPDATER_TOKEN`, root-equivalent since it has `docker.sock`) that pulls, runs `packages/db` migrations via a one-off container, and does a rolling restart of just `api`/`dashboard` — deliberately not itself in the same step, since that command would kill the process running it; it catches itself up via a fire-and-forget follow-up instead. Rejects a downgrade outright (this repo's migrations are forward-only).
+- **Update-check has two independent GitHub-hosted signals**, merged by `apps/api/src/lib/updates/check.ts`: the GitHub Releases API for "what's latest," and a new `RELEASES.json` at the repo root (fetched from `main` via raw.githubusercontent.com, so a recall needs no new tag) for **version recall** — if the running version is a key under `recalled`, every dashboard session sees a non-dismissible "update required" dialog (`apps/dashboard/components/providers/update-recall-guard.tsx`, mounted in `AuthProvider`) via a new, deliberately-outside-`/instance` `GET /updates/recall-check` endpoint any authenticated user (not just root) can hit.
+- **Auto-*check*, not auto-*apply*.** The dashboard's "Check for updates automatically" checkbox (`InstanceConfig.updates.autoCheck` in `ossplay.yaml`) only gates a background `setInterval` (in `apps/api/src/index.ts`) that surfaces an availability badge — it never pulls/restarts unattended. Full auto-apply, if ever wanted, is separate, higher-risk future scope.
+- **`install.sh` lives in a newly-scaffolded, minimal `website` repo** (just enough to serve the script — the real marketing site isn't built). It resolves the latest release (or a pinned `--version`) via the same GitHub Releases API, downloads that release's `docker-compose.yml`/`Caddyfile` (uploaded as GitHub Release assets by `docker-images.yml`), generates `.env`, and runs `docker compose pull && up -d` — no git clone needed on the target box. `--version` is fresh-install pinning, not a safe downgrade path for an existing instance, for the same forward-only-migrations reason the updater itself enforces.
+- **Docs**: new `docs/content/docs/guides/vps-setup.mdx` — a general VPS install walkthrough (not AWS-specific) with an EC2-specific callout, since that's what's being used to validate this pass.
+
+**Artifacts updated:** `ARCHITECTURE.md` §2/§4/§6 (unified image, versioning, updater), `DESIGN.md` (n/a this pass), new `RELEASES.json` at the repo root (recall manifest, currently empty).
+
+---
+
+## 2026-08-04 — New instance list pages must use DataTable, not a hand-rolled table
+
+**Status:** Decided
+
+Caught (by the user, a second time — "again") after building the instance Access Control > Organizations
+list page with a plain `<Table>` + `useSWR`, right after this repo had already done the work of unifying
+every other root-only instance list page (Users, SMTP, Remote Servers, SSH Keys, Audit Logs) onto the
+`DataTable`/`useServerTable`/list-query abstraction (see the "instance pages unification" entry below).
+There was no reason for Organizations to be the exception — its own reasoning at the time ("GET
+/organizations returns everything in one shot, fine at self-hosted scale") mirrored exactly the
+reasoning every other endpoint had *before* being migrated onto list-query, and missed that the point of
+the abstraction is consistency across the whole "instance list page" category, not per-page scale
+analysis.
+
+- **Fixed**: `GET /organizations` now takes the shared list-query contract (search by name, page/pageSize)
+  like every sibling endpoint; the list page now uses `DataTable` + `useServerTable`.
+- **Rule going forward, recorded in [DESIGN.md §4](./DESIGN.md#4-dashboard-specific-ux-principles)**: any
+  new top-level "manage all X on the instance" page uses DataTable, full stop — never mind whether the
+  current row count feels like it "needs" pagination/search yet. The one real exception is a small table
+  **embedded inside another entity's own detail page** (a user's org memberships, an org's member/project
+  list on that org's detail page) — those correctly stay plain `Table`, since DataTable's search bar and
+  pagination footer are the wrong UI for a bounded 2–5 row contextual list. Org detail's Members/Projects
+  tables (built in the same pass as the list-page mistake above) were reviewed against this test and kept
+  as plain Table — they're the embedded case, not the list-page case.
+
+---
+
+## 2026-08-04 — Extracted `packages/mail`, added `apps/templates` dev tool
+
+**Status:** Decided
+
+Email sending (SMTP transport, `nodemailer`) and the React Email templates it renders lived directly in
+`apps/api/src/lib/mail/`. Split into a new `packages/mail` workspace package so the send+template flow is
+a real, independently-typed unit rather than API-route-local code — `apps/api`'s routes now just call
+`sendMail`/`inviteEmail`/etc. from `@ossplay/mail`.
+
+- **`decryptSecret`/`encryptSecret` moved from `apps/api/src/lib/crypto/secret-box.ts` to
+  `packages/core/src/crypto/secret-box.ts`.** `packages/mail`'s `send.ts` needs it to decrypt a stored
+  SMTP password, but it's also used by three other `apps/api` routes (SSH keys, remote servers, SMTP
+  config) that have nothing to do with mail — it's generic instance-secret-at-rest encryption, not a mail
+  concern, so it belongs in the shared `core` package rather than duplicated or awkwardly imported across
+  a package boundary.
+- **New `apps/templates`** (renamed from an in-progress, previously-uncommitted `apps/email-preview`): a
+  Vite dev tool that live-previews `packages/mail`'s templates in a browser and renders them to HTML on
+  every save, so email markup can be iterated on without a real SMTP server. It's a genuine workspace
+  member (typechecked/linted/tested normally) but is **deliberately excluded from the production build**
+  — the root `build` script is `turbo run build --filter=!@ossplay/templates`, and (as of the unified-
+  image release-prep pass above) `infra/ossplay/Dockerfile` never copies its source in either.
+
+**Artifacts updated:** `ARCHITECTURE.md` §2 (monorepo layout tree + new `apps/templates` note).
+
+---
+
 ## 2026-08-02 — Instance overhaul phases 4–7: domain cert provider, SSH control plane, overview, audit logs
 
 **Status:** Decided (Supersedes: [PRD.md §2.3](./PRD.md#23-admin-bootstrap--permission-model)'s "no audit-log subsystem exists anywhere yet" line — reversed below)

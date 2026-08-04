@@ -34,12 +34,19 @@ bun run dev
 
 ## Self-host
 
+The easiest path is `install.sh` (see the `website` repo) — it downloads a pinned `docker-compose.yml` and generates `.env` for you. To do it by hand from a checkout of this repo instead:
+
 ```sh
-touch infra/ossplay.yaml  # one-time: instance config (SMTP, domain) bind-mounts here
-docker compose -f infra/docker-compose.yml up -d
+touch infra/ossplay.yaml  # one-time: instance config (domain) bind-mounts here
+echo "OSSPLAY_UPDATER_TOKEN=$(openssl rand -hex 32)" >> infra/.env
+cd infra
+docker compose pull
+docker compose up -d
 ```
 
-`infra/ossplay.yaml` holds instance-wide SMTP/domain settings, filled in by the onboarding wizard or Settings > Instance — not a DB row, so it survives container recreation as long as the file does. Override where the `api` container looks for it with `OSSPLAY_CONFIG_PATH` (defaults to `/ossplay.yaml`, the bind-mount target above); this is also the knob a SaaS-style deployment would use to mount a per-tenant file/ConfigMap instead.
+`api`/`dashboard`/`updater` all run the same published `ghcr.io/ossplay/ossplay` image (see `infra/ossplay/entrypoint.ts` — each container just sets a different `OSSPLAY_ROLE`), so updating is `docker compose pull && docker compose up -d` — no rebuild, no repo checkout needed on the box itself. Pin a specific release with `OSSPLAY_VERSION=v0.0.1` in `.env`; unset (or `latest`) tracks the newest tag.
+
+`infra/ossplay.yaml` holds instance-wide domain settings, filled in by the onboarding wizard or Settings > Instance — not a DB row, so it survives container recreation as long as the file does. Override where the `api` container looks for it with `OSSPLAY_CONFIG_PATH` (defaults to `/ossplay.yaml`, the bind-mount target above); this is also the knob a SaaS-style deployment would use to mount a per-tenant file/ConfigMap instead.
 
 See [PRD.md §2.1](./PRD.md#21-initial-boot--automated-domainssl-setup) for the domain/SSL setup flow. Workers are provisioned separately on your own VPS via SSH — they are not part of this compose stack (see [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-data--service-flow)).
 

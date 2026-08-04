@@ -28,6 +28,14 @@ export interface InstanceConfig {
 		certProvider: CertProvider;
 		customAcmeUrl: string | null; // only meaningful when certProvider is 'custom'
 	};
+	updates: {
+		// The checkbox controls automatic *checking* only — it surfaces a
+		// dashboard badge, it never pulls/restarts unattended. Unattended
+		// auto-*apply* is a materially bigger risk and isn't built here.
+		autoCheck: boolean;
+		lastCheckedAt: string | null;
+		lastCheckResult: { available: boolean; latestVersion: string | null; forced: boolean } | null;
+	};
 }
 
 // Only the fields a caller is actually setting — writeInstanceConfig merges
@@ -36,6 +44,7 @@ export interface InstanceConfig {
 export interface InstanceConfigPatch {
 	instanceName?: string | null;
 	domain?: Partial<InstanceConfig["domain"]>;
+	updates?: Partial<InstanceConfig["updates"]>;
 }
 
 const DEFAULTS: InstanceConfig = {
@@ -46,6 +55,11 @@ const DEFAULTS: InstanceConfig = {
 		letsEncryptEmail: null,
 		certProvider: "letsencrypt",
 		customAcmeUrl: null,
+	},
+	updates: {
+		autoCheck: false,
+		lastCheckedAt: null,
+		lastCheckResult: null,
 	},
 };
 
@@ -68,6 +82,7 @@ export function readInstanceConfig(): InstanceConfig {
 	return {
 		instanceName: parsed.instanceName ?? DEFAULTS.instanceName,
 		domain: { ...DEFAULTS.domain, ...parsed.domain },
+		updates: { ...DEFAULTS.updates, ...parsed.updates },
 	};
 }
 
@@ -79,6 +94,7 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 	const next: InstanceConfig = {
 		instanceName: patch.instanceName !== undefined ? patch.instanceName : current.instanceName,
 		domain: { ...current.domain, ...patch.domain },
+		updates: { ...current.updates, ...patch.updates },
 	};
 
 	const path = configPath();
@@ -112,5 +128,9 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 // README's `touch infra/ossplay.yaml` prerequisite), so reset means "back
 // to defaults," not "gone."
 export function resetInstanceConfig(): InstanceConfig {
-	return writeInstanceConfig({ instanceName: DEFAULTS.instanceName, domain: DEFAULTS.domain });
+	return writeInstanceConfig({
+		instanceName: DEFAULTS.instanceName,
+		domain: DEFAULTS.domain,
+		updates: DEFAULTS.updates,
+	});
 }

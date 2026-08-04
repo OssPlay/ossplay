@@ -1,13 +1,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Every service's Dockerfile COPYs the whole workspace's package.json
-// manifests (bun install --frozen-lockfile needs them all, even though
-// only one app's full source ends up in any given image) — so this file
-// is reachable from apps/api's own container at runtime, not just in dev.
-function readPackageVersion(relativePath: string): string | null {
+// The unified `ghcr.io/ossplay/ossplay` image runs api/dashboard/worker/
+// updater as roles of the same build, so there's exactly one version for
+// the whole running instance now — not one per app. Releases are tagged,
+// not hand-bumped in package.json (see docker-images.yml): the pushed git
+// tag (e.g. `v0.0.1`) is stripped of its `v` and baked into the image as
+// OSSPLAY_VERSION at build time, which always wins here. Local dev (no
+// Docker, no env) falls back to the root package.json's placeholder
+// version, then to "dev" if even that can't be read.
+function readRootPackageVersion(): string | null {
 	try {
-		const raw = readFileSync(join(import.meta.dir, relativePath), "utf8");
+		const raw = readFileSync(join(import.meta.dir, "../../../../package.json"), "utf8");
 		const pkg = JSON.parse(raw) as { version?: string };
 		return pkg.version ?? null;
 	} catch {
@@ -15,18 +19,8 @@ function readPackageVersion(relativePath: string): string | null {
 	}
 }
 
-export interface ServiceVersions {
-	api: string | null;
-	dashboard: string | null;
-	worker: string | null;
-}
-
-export function readServiceVersions(): ServiceVersions {
-	return {
-		api: readPackageVersion("../../package.json"),
-		dashboard: readPackageVersion("../../../dashboard/package.json"),
-		worker: readPackageVersion("../../../worker/package.json"),
-	};
+export function readVersion(): string {
+	return process.env.OSSPLAY_VERSION || readRootPackageVersion() || "dev";
 }
 
 const IP_LOOKUP_URL = "https://api.ipify.org?format=json";

@@ -1,0 +1,4 @@
+{
+	"$comment": "Fetched by apps/api/src/lib/updates/check.ts via raw.githubusercontent.com/OssPlay/ossplay/main/RELEASES.json — always reflects `main`, independent of tags, so a same-day recall needs no new release. `recalled` keys are exact version strings (the same shape readVersion()/GET /instance/overview report, e.g. \"0.0.1\") that a running instance was flagged unsafe on; presence of the running version as a key forces the dashboard's non-dismissible update dialog for every user, not just root.",
+	"recalled": {}
+}

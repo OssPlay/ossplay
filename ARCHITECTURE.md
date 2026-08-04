@@ -34,16 +34,24 @@ ossplay/
 ├── apps/
 │   ├── dashboard/     # Next.js 15 + React 19 + Shadcn UI — org/project/asset/worker-fleet admin
 │   ├── api/           # Hono on Bun — uploads, RBAC, SSH orchestration, presigned URLs
-│   └── worker/        # Bun + FFmpeg/Sharp — BullMQ consumer; built into the `ossplay-worker` Docker image
+│   ├── worker/        # Bun + FFmpeg/Sharp — BullMQ consumer
+│   └── templates/     # Vite dev tool — live preview + HTML compile for packages/mail's email templates;
+│                       # not part of the production build (excluded from the root `build` script,
+│                       # referenced by no Dockerfile)
 ├── packages/
 │   ├── db/            # Drizzle schema (users, sessions, organizations, organizationMembers, projects, folderClosure, assets) + migrations
-│   ├── core/           # Shared domain logic: rule validation, BullMQ job payload types, S3 client wrapper
+│   ├── core/           # Shared domain logic: rule validation, BullMQ job payload types, S3 client wrapper,
+│   │                    # instance-secret encryption (crypto/secret-box.ts)
+│   ├── mail/            # Email sending + React Email templates — SMTP transport, template rendering
 │   └── config/         # Shared tsconfig, lint config
 ├── infra/
-│   ├── docker-compose.yml       # Full self-host stack: api, dashboard, postgres, redis, caddy, updater sidecar
+│   ├── docker-compose.yml       # Full self-host stack: api, dashboard, postgres, redis, caddy, updater — the
+│   │                             # first four all run the same published image under a different role
 │   ├── docker-compose.dev.yml   # Local dev overrides
 │   ├── caddy/                   # Caddyfile template for the auto-SSL reverse proxy
-│   └── updater/                 # docker.sock-mounted auto-updater sidecar (PRD §2.2)
+│   ├── updater/                 # docker.sock-mounted auto-updater sidecar (PRD §2.2, see §6)
+│   └── ossplay/                 # The single Dockerfile + role-dispatch entrypoint.ts published as
+│                                 # ghcr.io/ossplay/ossplay — see §6
 ├── .github/workflows/  # ci.yml, docker-images.yml, migrate-check.yml
 ├── package.json         # Bun workspaces root
 ├── turbo.json
@@ -81,7 +89,7 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 ## 4. Deployment Topology
 
-- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. The updater sidecar mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
+- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. Every service (`api`, `dashboard`, `updater`, and `worker` if run locally) pulls the single published `ghcr.io/ossplay/ossplay` image and picks its role via `OSSPLAY_ROLE` (see §6) — nothing builds from source on the box itself, which is what makes `install.sh` possible. The updater container mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
 - **Instance-wide config (SMTP, custom domain) is a bind-mounted YAML file, not a DB row** — `apps/api/src/lib/config/instance-config.ts` reads/writes `OSSPLAY_CONFIG_PATH` (`/ossplay.yaml` in the compose stack, bind-mounted to `infra/ossplay.yaml` on the host so it survives container recreation). Still live-editable through the same onboarding wizard / `/settings/instance` UI as before — only the storage mechanism changed. The same file/env-var mechanism is what a future SaaS-style deployment would use to mount a per-tenant config instead of a shared one.
 - **`website`** and **`docs`**: centrally hosted by the OSSPlay project (host TBD — e.g. Vercel or Cloudflare Pages; this is a deployment detail, not an architecture decision, and doesn't affect repo structure). Deploy on push to `main`.
 - **`sdk-js`**: no runtime deployment — published as a package on version tags.
@@ -94,19 +102,28 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 ---
 
-## 6. CI/CD
+## 6. CI/CD, the unified image, and OTA updates
 
 | Repo | Workflows |
 | --- | --- |
-| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (build+push `dashboard`/`api`/`worker` images to GHCR on version tags) · `migrate-check.yml` (drizzle-kit schema drift check) |
+| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (single build+push job for `ghcr.io/ossplay/ossplay` — one image, not a per-app matrix — on version tags, plus a GitHub Release with `docker-compose.yml`/`Caddyfile` attached as assets) · `migrate-check.yml` (drizzle-kit schema drift check) |
 | `sdk-js` | `ci.yml` (typecheck/test/build) · `publish.yml` (GitHub Packages publish on version tags) |
 | `website` / `docs` | `ci.yml` (typecheck/lint/build) · deploy on push to `main` |
 | `.github` | none — template files only |
 
+**One image, role-selected at runtime.** `infra/ossplay/Dockerfile` bundles `apps/api`, `apps/dashboard` (built, standalone output), `apps/worker`, and `infra/updater`'s logic into a single multi-stage build; `infra/ossplay/entrypoint.ts` reads `OSSPLAY_ROLE` (`api`/`dashboard`/`worker`/`updater`) and `Bun.spawn`s the matching process. `docker-compose.yml` runs this same image as several containers, each with a different role — one build/publish pipeline, but the containers still restart/scale/health-check independently, and only the `updater` container gets `/var/run/docker.sock` mounted. This replaced an earlier four-image matrix (`dashboard`/`api`/`worker`/`updater`, each its own Dockerfile) — see `MEMORY.md`'s "Release prep" entry for why.
+
 ### Versioning
 
-- `ossplay` uses a single SemVer tag per release covering dashboard + API + worker + their Docker images together — they must stay in lockstep since they share schema and job-contract types.
+- **Tag-derived, never hand-bumped in `package.json`.** Pushing `v0.0.1` (or a prerelease `v0.0.1-rc.1`) is the entire release step — `docker/metadata-action`'s `type=semver` output strips the leading `v` and is passed as a Docker build `ARG`, baked into the image as `OSSPLAY_VERSION`. `apps/api/src/lib/server-info.ts`'s `readVersion()` reads that env var first, falling back to the root `package.json`'s (permanently unbumped) version, then `"dev"` for local runs with neither.
+- `ossplay` uses a single SemVer tag per release covering dashboard + API + worker + their Docker image together — they must stay in lockstep since they share schema and job-contract types.
 - `sdk-js` (and future `sdk-<lang>` repos) version independently via their own SemVer tags.
+
+### OTA updates and version recall
+
+`infra/updater/index.ts` (the `updater` role) is a small `Bun.serve` HTTP server, authenticated via a shared `OSSPLAY_UPDATER_TOKEN` (root-equivalent — it has `docker.sock`, so an unauthenticated request here is an unauthenticated request to the host's Docker daemon). `POST /update` rejects a downgrade outright (this repo's migrations are forward-only), then pulls, runs `packages/db` migrations via a one-off container, and rolls just the `api`/`dashboard` containers — deliberately not itself in that step, since that command would kill the process running it; it catches itself up via an unawaited follow-up instead.
+
+`apps/api/src/lib/updates/check.ts` merges two independent GitHub-hosted signals into one check: the GitHub Releases API (what's latest) and a `RELEASES.json` at the repo root, fetched from `main` via raw.githubusercontent.com so a recall needs no new tag (which versions have been flagged unsafe, and why). If the currently-running version is recalled, every dashboard session — not just root's — sees a non-dismissible notice (`apps/dashboard/components/providers/update-recall-guard.tsx`) via `GET /updates/recall-check`, a route deliberately outside the root-only `/instance` tree. A dashboard checkbox persists `InstanceConfig.updates.autoCheck` (`ossplay.yaml`) to gate a periodic background check (`apps/api/src/index.ts`) — it only ever surfaces an availability badge, never applies anything unattended.
 
 ---
 

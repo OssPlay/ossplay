@@ -4,18 +4,21 @@ import { CopyIcon, RefreshCcwIcon, RefreshCwIcon, ServerIcon } from "lucide-reac
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import Container from "@/components/ui/container";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Tippy } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch } from "@/lib/api";
+import { formatDatetime } from "@/lib/utils";
 
 type OverviewResponse = {
 	serverIp: string | null;
-	versions: {
-		api: string | null;
-		dashboard: string | null;
-		worker: string | null;
+	version: string;
+	updates: {
+		autoCheck: boolean;
+		lastCheckedAt: string | null;
+		lastCheckResult: { available: boolean; latestVersion: string | null; forced: boolean } | null;
 	};
 	os: {
 		name: string;
@@ -74,11 +77,29 @@ export default function InstanceOverviewPage() {
 
 	const checkUpdates = useAction(
 		() =>
-			apiFetch<{ available: boolean; reason: string }>("/instance/updates/check", {
-				method: "POST",
-			}),
+			apiFetch<{
+				currentVersion: string;
+				latestVersion: string | null;
+				available: boolean;
+				forced: boolean;
+				reason?: string;
+			}>("/instance/updates/check", { method: "POST" }),
 		{ error: "Could not check for updates" },
 	);
+
+	const toggleAutoCheck = useAction(
+		(autoCheck: boolean) =>
+			apiFetch<{ updates: OverviewResponse["updates"] }>("/instance/updates", {
+				method: "PUT",
+				body: JSON.stringify({ autoCheck }),
+			}),
+		{ error: "Could not save the setting" },
+	);
+
+	async function handleAutoCheckChange(autoCheck: boolean) {
+		await toggleAutoCheck.trigger(autoCheck).catch(() => {});
+		mutate();
+	}
 
 	return (
 		<Container
@@ -116,10 +137,8 @@ export default function InstanceOverviewPage() {
 					value={`${bytesToMB(data?.os?.freeMem)} / ${bytesToMB(data?.os?.totalMem)} MB`}
 				/>
 				<InfoRow label="Uptime" value={formatUptime(data?.os?.uptime)} />
-				<p className="mt-8">Versions</p>
-				<InfoRow label="Dashboard" value={data?.versions.dashboard ?? "—"} />
-				<InfoRow label="API" value={data?.versions.api ?? "—"} />
-				<InfoRow label="Worker" value={data?.versions.worker ?? "—"} />
+				<p className="mt-8">Version</p>
+				<InfoRow label="OSSPlay" value={data?.version ?? "—"} />
 			</div>
 
 			<Card className="mt-4">
@@ -136,7 +155,35 @@ export default function InstanceOverviewPage() {
 						<RefreshCwIcon /> Check for updates
 					</LoadingButton>
 					{checkUpdates.data && (
-						<p className="text-sm text-muted-foreground">{checkUpdates.data.reason}</p>
+						<p className="text-sm text-muted-foreground">
+							{checkUpdates.data.reason
+								? checkUpdates.data.reason
+								: checkUpdates.data.available
+									? `Update available: ${checkUpdates.data.latestVersion} (currently running ${checkUpdates.data.currentVersion}).`
+									: `Up to date (${checkUpdates.data.currentVersion}).`}
+						</p>
+					)}
+
+					<div className="flex items-center gap-2">
+						<Checkbox
+							id="auto-check-updates"
+							checked={data?.updates.autoCheck ?? false}
+							disabled={!data || toggleAutoCheck.isLoading}
+							onCheckedChange={(checked) => handleAutoCheckChange(checked === true)}
+						/>
+						<label htmlFor="auto-check-updates" className="text-sm">
+							Check for updates automatically
+						</label>
+					</div>
+					{data?.updates.lastCheckedAt && (
+						<p className="text-xs text-muted-foreground">
+							Last automatic check: {formatDatetime(data.updates.lastCheckedAt)}
+							{data.updates.lastCheckResult?.forced
+								? " — flagged unsafe, update required."
+								: data.updates.lastCheckResult?.available
+									? ` — update available: ${data.updates.lastCheckResult.latestVersion}.`
+									: " — up to date."}
+						</p>
 					)}
 				</CardContent>
 			</Card>

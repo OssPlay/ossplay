@@ -1,22 +1,31 @@
-name: Docker Images
+name: Docker Image
 
 # Publishes to GHCR, not Docker Hub — see ARCHITECTURE.md §8. Zero-config:
 # uses the repo's built-in GITHUB_TOKEN, no separate registry account needed.
+#
+# One unified image (api/dashboard/worker/updater run as roles of the same
+# build — see infra/ossplay/entrypoint.ts) instead of a per-app matrix, so
+# this is a single build/push job rather than four.
+#
+# Versioning is tag-derived, never hand-bumped in package.json: pushing
+# `v0.0.1` (or a prerelease like `v0.0.1-rc.1`) is the only release step.
+# docker/metadata-action's `type=semver` tags strip the leading `v` and
+# derive the major/minor/latest tags for free — it correctly skips
+# major/minor/latest for prerelease tags. `steps.meta.outputs.version` (the
+# bare `0.0.1` string) is baked into the image as OSSPLAY_VERSION, which
+# apps/api/src/lib/server-info.ts's readVersion() reads at runtime.
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        app: [dashboard, api, worker]
     steps:
       - uses: actions/checkout@v4
 
@@ -31,12 +40,32 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/ossplay/${{ matrix.app }}
+          images: ghcr.io/ossplay/ossplay
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/${{ matrix.app }}/Dockerfile
+          file: infra/ossplay/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            OSSPLAY_VERSION=${{ steps.meta.outputs.version }}
+
+      # What install.sh downloads on a fresh box — a pinned self-host stack
+      # that pulls the image above instead of building from source. Auto-
+      # creates/updates the GitHub Release for this tag if softprops/
+      # action-gh-release doesn't find one yet (this is also the "GitHub
+      # Releases" half of the update-check source of truth — see
+      # apps/api/src/routes/instance.ts).
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            infra/docker-compose.yml
+            infra/caddy/Caddyfile

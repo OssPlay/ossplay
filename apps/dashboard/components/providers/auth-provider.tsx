@@ -11,6 +11,7 @@ import { useActiveActionCount } from "@/lib/action-store";
 import { apiFetch } from "@/lib/api";
 import type { Auth, Me } from "@/types/auth";
 import ErrorBoundary from "../layout/error-boundary";
+import { UpdateRecallGuard } from "./update-recall-guard";
 
 const defaultUser = {
 	id: "",
@@ -101,6 +102,7 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 				mutate,
 			}}
 		>
+			<UpdateRecallGuard />
 			{children}
 		</AuthContext>
 	);

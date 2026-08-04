@@ -4,7 +4,9 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { applyDomainConfig } from "../lib/caddy/admin";
 import { readInstanceConfig, writeInstanceConfig } from "../lib/config/instance-config";
-import { detectServerIp, readServiceVersions } from "../lib/server-info";
+import { detectServerIp, readVersion } from "../lib/server-info";
+import { checkForUpdates } from "../lib/updates/check";
+import { applyUpdate, getUpdateJobStatus } from "../lib/updates/updater-client";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";
@@ -14,13 +16,12 @@ export const instanceRoute = new Hono<AppEnv>();
 instanceRoute.use("*", requireAuth, requireInstancePermission("instance:manage_settings"));
 
 instanceRoute.get("/overview", async (c) => {
-	const [serverIp, versions] = await Promise.all([
-		detectServerIp(),
-		Promise.resolve(readServiceVersions()),
-	]);
+	const [serverIp, version] = await Promise.all([detectServerIp(), Promise.resolve(readVersion())]);
+	const { updates } = readInstanceConfig();
 	return c.json({
 		serverIp,
-		versions,
+		version,
+		updates,
 		os: {
 			arch: os.arch(),
 			availableParallelism: os.availableParallelism(),
@@ -43,18 +44,53 @@ instanceRoute.get("/overview", async (c) => {
 	});
 });
 
-// The updater sidecar (infra/updater) is currently a stub with no HTTP
-// endpoint of its own (see its own file header) — there's nothing to check
-// against yet, so this always degrades gracefully rather than pretending a
-// real check happened. Kept as its own endpoint (not folded into GET
-// /overview) since a real implementation will be a genuine outbound call,
-// not something to run on every page load.
-instanceRoute.post("/updates/check", (c) => {
-	return c.json({
-		available: false,
-		reason:
-			"Automatic update checks are not available on this deployment yet — the update sidecar has no update-check endpoint implemented.",
+// Kept as its own endpoint (not folded into GET /overview) since it makes
+// real outbound calls (GitHub Releases API + RELEASES.json) — not something
+// to run on every page load. See apps/api/src/lib/updates/check.ts.
+instanceRoute.post("/updates/check", async (c) => {
+	const result = await checkForUpdates();
+	return c.json(result);
+});
+
+instanceRoute.post("/updates/apply", async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as { version?: string };
+	const result = await applyUpdate(body.version);
+
+	await logAudit(c, {
+		action: "instance.updates.apply",
+		metadata: { version: body.version ?? "latest", started: result.started },
 	});
+
+	if (!result.started) {
+		return c.json({ started: false, reason: result.reason }, 503);
+	}
+	return c.json({ started: true, jobId: result.jobId });
+});
+
+instanceRoute.get("/updates/apply/:jobId", async (c) => {
+	const status = await getUpdateJobStatus(c.req.param("jobId"));
+	if (!status) return c.json({ error: "Not found" }, 404);
+	return c.json(status);
+});
+
+const updatesConfigSchema = z.object({ autoCheck: z.boolean() });
+
+// Persists the dashboard's "Check for updates automatically" checkbox — see
+// apps/api/src/index.ts for the background timer this gates.
+instanceRoute.put("/updates", async (c) => {
+	const parsed = updatesConfigSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) {
+		return c.json({ error: "Invalid input", details: z.treeifyError(parsed.error) }, 400);
+	}
+
+	const next = writeInstanceConfig({ updates: { autoCheck: parsed.data.autoCheck } });
+
+	await logAudit(c, {
+		action: "instance.updates.settings_update",
+		metadata: { autoCheck: parsed.data.autoCheck },
+	});
+
+	return c.json({ updates: next.updates });
 });
 
 instanceRoute.get("/domain", (c) => {
