@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 
 // Hand-rolled RFC 6238 TOTP (HMAC-SHA1, 6 digits, 30s step) and RFC 4648
-// base32. Unlike SMTP (see lib/mail/), this is a small, well-specified,
+// base32. Unlike SMTP (see @ossplay/mail), this is a small, well-specified,
 // easily-auditable algorithm — a fine hand-roll, same reasoning as the
 // session-token scheme.
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

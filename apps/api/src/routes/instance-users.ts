@@ -6,6 +6,7 @@ import {
 	users,
 	webauthnCredentials,
 } from "@ossplay/db";
+import { instanceInviteEmail, sendMail } from "@ossplay/mail";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -17,8 +18,6 @@ import { revokeAllSessionsForUser } from "../lib/auth/session";
 import { generateToken, hashToken } from "../lib/auth/tokens";
 import { readInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
-import { sendMail } from "../lib/mail/send";
-import { instanceInviteEmail } from "../lib/mail/templates";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";
@@ -140,7 +139,10 @@ instanceUsersRoute.post("/invite", async (c) => {
 	const db = getDb();
 	const email = parsed.data.email.trim().toLowerCase();
 
-	const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+	const [existingUser] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, email));
 	if (existingUser) {
 		return c.json({ error: "A user with this email already exists" }, 409);
 	}
@@ -159,7 +161,13 @@ instanceUsersRoute.post("/invite", async (c) => {
 
 	const [invitation] = await db
 		.insert(instanceInvitations)
-		.values({ email, grantRoot: parsed.data.grantRoot, invitedByUserId: inviter.id, tokenHash, expiresAt })
+		.values({
+			email,
+			grantRoot: parsed.data.grantRoot,
+			invitedByUserId: inviter.id,
+			tokenHash,
+			expiresAt,
+		})
 		.returning();
 	if (!invitation) throw new Error("Insert did not return the expected row");
 

@@ -1,4 +1,5 @@
 import { getDb, users } from "@ossplay/db";
+import { isSmtpConfigured } from "@ossplay/mail";
 import { isNotNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -8,7 +9,6 @@ import { hashPassword } from "../lib/auth/password";
 import { checkRateLimit } from "../lib/auth/rate-limit";
 import { getClientIp, getUserAgent } from "../lib/auth/request-info";
 import { completeSignIn } from "../lib/auth/session";
-import { isSmtpConfigured } from "../lib/mail/send";
 import type { AppEnv } from "../types";
 
 // Org creation moved to `POST /organizations` (see routes/onboarding.ts +

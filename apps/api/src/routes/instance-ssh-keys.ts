@@ -1,9 +1,9 @@
+import { encryptSecret } from "@ossplay/core";
 import { getDb, remoteServers, type SshKey, sshKeys } from "@ossplay/db";
 import { count, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
-import { encryptSecret } from "../lib/crypto/secret-box";
 import { parseListQuery } from "../lib/http/list-query";
 import { generateEd25519KeyPair, generateRSAKeyPair, parsePrivateKey } from "../lib/ssh/keys";
 import { requireAuth } from "../middleware/require-auth";

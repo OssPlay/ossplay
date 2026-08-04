@@ -1,0 +1,30 @@
+{
+	"name": "@ossplay/templates",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite --port 3004",
+		"build": "tsc -b && vite build",
+		"preview": "vite preview",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome lint ."
+	},
+	"dependencies": {
+		"@react-email/components": "^1.0.12",
+		"@react-email/render": "^2.1.0",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8"
+	},
+	"devDependencies": {
+		"@ossplay/config": "workspace:*",
+		"@tailwindcss/vite": "^4",
+		"@types/node": "^24.13.3",
+		"@types/react": "^19.2.17",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.4",
+		"tailwindcss": "^4",
+		"typescript": "~5.9.3",
+		"vite": "^8.2.0"
+	}
+}

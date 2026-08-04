@@ -12,11 +12,13 @@ COPY apps/dashboard/package.json apps/dashboard/
 COPY packages/config/package.json packages/config/
 COPY packages/db/package.json packages/db/
 COPY packages/core/package.json packages/core/
+COPY packages/mail/package.json packages/mail/
 RUN bun install --frozen-lockfile
 
 COPY packages/config packages/config
 COPY packages/db packages/db
 COPY packages/core packages/core
+COPY packages/mail packages/mail
 COPY apps/api apps/api
 
 ENV NODE_ENV=production

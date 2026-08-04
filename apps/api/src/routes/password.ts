@@ -1,4 +1,5 @@
 import { getDb, users } from "@ossplay/db";
+import { passwordResetEmail, sendMail } from "@ossplay/mail";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -9,8 +10,6 @@ import { consumePasswordResetToken, createPasswordResetToken } from "../lib/auth
 import { checkRateLimit } from "../lib/auth/rate-limit";
 import { getClientIp, getPublicUrl, getUserAgent } from "../lib/auth/request-info";
 import { completeSignIn, revokeAllSessionsForUser } from "../lib/auth/session";
-import { sendMail } from "../lib/mail/send";
-import { passwordResetEmail } from "../lib/mail/templates";
 import { requireAuth } from "../middleware/require-auth";
 import type { AppEnv } from "../types";
 

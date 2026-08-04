@@ -1,9 +1,9 @@
+import { decryptSecret } from "@ossplay/core";
 import { getDb, type RemoteServer, remoteServers, sshKeys } from "@ossplay/db";
 import { count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
-import { decryptSecret } from "../lib/crypto/secret-box";
 import { parseListQuery } from "../lib/http/list-query";
 import { testSshConnection } from "../lib/ssh/test-connection";
 import { requireAuth } from "../middleware/require-auth";

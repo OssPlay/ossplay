@@ -2,9 +2,17 @@
 import { Button, Section, Text } from "@react-email/components";
 import { EmailLayout } from "./layout";
 
-export function PasswordResetEmail({ resetUrl }: { resetUrl: string }) {
+export function InviteEmail({
+	orgName,
+	inviterName,
+	acceptUrl,
+}: {
+	orgName: string;
+	inviterName: string;
+	acceptUrl: string;
+}) {
 	return (
-		<EmailLayout preview="Reset your OSSPlay password">
+		<EmailLayout preview={`${inviterName} invited you to join ${orgName} on OSSPlay`}>
 			{/* Heading */}
 			<Text
 				style={{
@@ -15,7 +23,7 @@ export function PasswordResetEmail({ resetUrl }: { resetUrl: string }) {
 					letterSpacing: "-0.01em",
 				}}
 			>
-				Reset your password
+				You've been invited
 			</Text>
 
 			{/* Body */}
@@ -27,14 +35,14 @@ export function PasswordResetEmail({ resetUrl }: { resetUrl: string }) {
 					color: "#3f3f46",
 				}}
 			>
-				We received a request to reset the password for your OSSPlay account.
-				Click the button below to set a new password.
+				<strong style={{ color: "#0f0e17" }}>{inviterName}</strong> has invited you to join the{" "}
+				<strong style={{ color: "#0f0e17" }}>{orgName}</strong> organization on OSSPlay.
 			</Text>
 
 			{/* CTA */}
 			<Section className="text-center mb-6">
 				<Button
-					href={resetUrl}
+					href={acceptUrl}
 					style={{
 						backgroundColor: "#7c3aed",
 						borderRadius: "4px",
@@ -47,11 +55,11 @@ export function PasswordResetEmail({ resetUrl }: { resetUrl: string }) {
 						letterSpacing: "0.01em",
 					}}
 				>
-					Reset password
+					Accept invitation
 				</Button>
 			</Section>
 
-			{/* Security notice */}
+			{/* Expiry notice */}
 			<Text
 				style={{
 					margin: "0",
@@ -60,9 +68,8 @@ export function PasswordResetEmail({ resetUrl }: { resetUrl: string }) {
 					lineHeight: "1.5",
 				}}
 			>
-				This link expires in <strong>1 hour</strong>. If you didn't request a
-				password reset, you can safely ignore this email — your password won't
-				change.
+				This link expires in <strong>7 days</strong>. If you weren't expecting this invite, you can
+				safely ignore this email.
 			</Text>
 		</EmailLayout>
 	);

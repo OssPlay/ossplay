@@ -1,11 +1,11 @@
+import { encryptSecret } from "@ossplay/core";
 import { getDb, type SmtpConfig, smtpConfigs } from "@ossplay/db";
+import { sendMailWithConfig } from "@ossplay/mail";
 import { count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
-import { encryptSecret } from "../lib/crypto/secret-box";
 import { parseListQuery } from "../lib/http/list-query";
-import { sendMailWithConfig } from "../lib/mail/send";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";

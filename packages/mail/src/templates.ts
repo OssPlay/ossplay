@@ -44,9 +44,7 @@ export async function instanceInviteEmail(params: {
 	};
 }
 
-export async function passwordResetEmail(params: {
-	resetUrl: string;
-}): Promise<MailMessage> {
+export async function passwordResetEmail(params: { resetUrl: string }): Promise<MailMessage> {
 	const element = createElement(PasswordResetEmail, params);
 	return {
 		subject: "Reset your OSSPlay password",

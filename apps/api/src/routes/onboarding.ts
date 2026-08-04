@@ -1,8 +1,8 @@
 import { getDb, organizationMembers } from "@ossplay/db";
+import { isSmtpConfigured } from "@ossplay/mail";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { readInstanceConfig } from "../lib/config/instance-config";
-import { isSmtpConfigured } from "../lib/mail/send";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";

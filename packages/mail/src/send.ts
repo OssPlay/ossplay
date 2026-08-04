@@ -1,7 +1,7 @@
+import { decryptSecret } from "@ossplay/core";
 import { getDb, type SmtpConfig, smtpConfigs } from "@ossplay/db";
 import { eq } from "drizzle-orm";
 import nodemailer from "nodemailer";
-import { decryptSecret } from "../crypto/secret-box";
 import type { MailMessage } from "./templates";
 
 // Instance-wide, DB-backed (not the file-based instance-config.ts) — SMTP

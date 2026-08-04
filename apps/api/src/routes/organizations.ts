@@ -1,12 +1,11 @@
 import { getDb, invitations, organizationMembers, organizations, users } from "@ossplay/db";
+import { inviteEmail, sendMail } from "@ossplay/mail";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { getPublicUrl } from "../lib/auth/request-info";
 import { generateToken, hashToken } from "../lib/auth/tokens";
-import { sendMail } from "../lib/mail/send";
-import { inviteEmail } from "../lib/mail/templates";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";

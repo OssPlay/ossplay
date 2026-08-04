@@ -9,7 +9,7 @@ import { parse, stringify } from "yaml";
 //
 // SMTP used to live here too (a singleton `smtp` section) but moved to the
 // smtpConfigs DB table once multiple named configs with a default flag
-// became a real requirement — see lib/mail/send.ts. This file now only
+// became a real requirement — see @ossplay/mail's send.ts. This file now only
 // holds domain/TLS settings, which stay genuinely singleton and benefit
 // from being readable/hand-editable on disk.
 export type CertProvider = "letsencrypt" | "zerossl" | "custom";

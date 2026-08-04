@@ -2,19 +2,21 @@
 import { Button, Section, Text } from "@react-email/components";
 import { EmailLayout } from "./layout";
 
-export function InviteEmail({
-	orgName,
+export function InstanceInviteEmail({
+	instanceName,
 	inviterName,
 	acceptUrl,
+	grantRoot,
 }: {
-	orgName: string;
+	instanceName: string;
 	inviterName: string;
 	acceptUrl: string;
+	grantRoot: boolean;
 }) {
+	const roleLabel = grantRoot ? "instance administrator" : "member";
+
 	return (
-		<EmailLayout
-			preview={`${inviterName} invited you to join ${orgName} on OSSPlay`}
-		>
+		<EmailLayout preview={`${inviterName} invited you to join ${instanceName}`}>
 			{/* Heading */}
 			<Text
 				style={{
@@ -37,11 +39,32 @@ export function InviteEmail({
 					color: "#3f3f46",
 				}}
 			>
-				<strong style={{ color: "#0f0e17" }}>{inviterName}</strong> has invited
-				you to join the{" "}
-				<strong style={{ color: "#0f0e17" }}>{orgName}</strong> organization on
-				OSSPlay.
+				<strong style={{ color: "#0f0e17" }}>{inviterName}</strong> has invited you to join{" "}
+				<strong style={{ color: "#0f0e17" }}>{instanceName}</strong> as an{" "}
+				<strong style={{ color: "#0f0e17" }}>{roleLabel}</strong>.
 			</Text>
+
+			{/* Role badge for admins */}
+			{grantRoot && (
+				<Section className="mb-6">
+					<Text
+						style={{
+							margin: "0",
+							display: "inline-block",
+							backgroundColor: "#ede9fe",
+							color: "#6d28d9",
+							fontSize: "12px",
+							fontWeight: "600",
+							padding: "4px 10px",
+							borderRadius: "4px",
+							letterSpacing: "0.03em",
+							textTransform: "uppercase",
+						}}
+					>
+						Instance Administrator
+					</Text>
+				</Section>
+			)}
 
 			{/* CTA */}
 			<Section className="text-center mb-6">
@@ -72,8 +95,8 @@ export function InviteEmail({
 					lineHeight: "1.5",
 				}}
 			>
-				This link expires in <strong>7 days</strong>. If you weren't expecting
-				this invite, you can safely ignore this email.
+				This link expires in <strong>7 days</strong>. If you weren't expecting this invite, you can
+				safely ignore this email.
 			</Text>
 		</EmailLayout>
 	);

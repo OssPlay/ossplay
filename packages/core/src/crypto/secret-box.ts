@@ -1,10 +1,12 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-// Used for instance-level secrets at rest (currently: the SMTP password in
-// the instance config YAML file, lib/config/instance-config.ts). Flagging,
-// not fixing here: organizations.s3Config's secretAccessKey is stored in
-// plaintext today and would benefit from the same treatment — out of scope
-// for this pass, see MEMORY.md.
+// Used for instance-level secrets at rest: SMTP passwords (smtpConfigs),
+// SSH private keys (sshKeys), by both apps/api's instance-* routes and
+// @ossplay/mail's send.ts — lives here rather than in apps/api since it's
+// shared across a package boundary. Flagging, not fixing here:
+// organizations.s3Config's secretAccessKey is stored in plaintext today and
+// would benefit from the same treatment — out of scope for this pass, see
+// MEMORY.md.
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const KEY_LENGTH = 32;

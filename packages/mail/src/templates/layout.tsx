@@ -64,13 +64,7 @@ const tailwindConfig = {
 	},
 } as const;
 
-export function EmailLayout({
-	preview,
-	children,
-}: {
-	preview: string;
-	children: ReactNode;
-}) {
+export function EmailLayout({ preview, children }: { preview: string; children: ReactNode }) {
 	return (
 		<Tailwind config={tailwindConfig}>
 			<Html lang="en" dir="ltr">
