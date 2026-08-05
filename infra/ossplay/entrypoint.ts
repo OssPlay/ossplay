@@ -19,6 +19,30 @@ if (!role || !(role in ROLE_COMMANDS)) {
 	process.exit(1);
 }
 
+// A fresh install's Postgres volume has no schema at all until this runs
+// once — nothing else in the fresh-install path does it. infra/updater/
+// index.ts's applyUpdate() also runs `drizzle-kit migrate` explicitly, but
+// only as part of an OTA update job a root user triggers from the
+// dashboard; a brand new `docker compose up -d` never goes through that
+// flow, so a first boot previously started apps/api against an empty
+// database (every query, including apps/api/src/cli/reset-root.ts, failed
+// until someone ran `bun run migrate` by hand). Running it here instead —
+// unconditionally, before the api role starts serving — covers both cases
+// with one idempotent step (a no-op when there's nothing pending), and
+// only api ever needs it: dashboard/worker/updater don't touch the schema
+// directly, and worker isn't even part of this compose stack (PRD.md §4).
+if (role === "api") {
+	const migrate = Bun.spawnSync(["bun", "run", "migrate"], {
+		cwd: `${import.meta.dir}/packages/db`,
+		stdio: ["inherit", "inherit", "inherit"],
+		env: process.env,
+	});
+	if (!migrate.success) {
+		console.error("[entrypoint] database migration failed — refusing to start api");
+		process.exit(migrate.exitCode ?? 1);
+	}
+}
+
 const { cwd, cmd } = ROLE_COMMANDS[role as string];
 const proc = Bun.spawn(cmd, {
 	cwd: `${import.meta.dir}/${cwd}`,
