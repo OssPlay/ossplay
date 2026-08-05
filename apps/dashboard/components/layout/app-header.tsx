@@ -24,7 +24,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import useURL from "@/hooks/use-url";
+import { usePathname } from "next/navigation";
 import { setCurrentOrgId, useCurrentOrgId } from "@/lib/current-org";
 import { useBreadcrumbs } from "@/lib/nav-store";
 import { cn } from "@/lib/utils";
@@ -127,7 +127,8 @@ function ThemeToggle() {
 export function AppHeader() {
 	const { user, organizations } = useAuth();
 	const isRoot = user.instanceRole === "root";
-	const url = useURL();
+	const pathname = usePathname();
+	const isInstanceSection = pathname === "/instance" || pathname.startsWith("/instance/");
 
 	return (
 		<header
@@ -149,7 +150,7 @@ export function AppHeader() {
 					<Link
 						href="/instance"
 						className={buttonVariants({
-							variant: url.matches("/instance") ? "default" : "ghost",
+							variant: isInstanceSection ? "default" : "ghost",
 							size: "sm",
 						})}
 					>

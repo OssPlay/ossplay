@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { type SyntheticEvent, useState } from "react";
+import { type SyntheticEvent, Suspense, useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { getSafeContinuePath } from "@/lib/safe-redirect";
 // yet. An unrecognized method still renders the same TOTP/recovery-code
 // form rather than a dead end, since that's the only challenge the backend
 // actually knows how to verify right now.
-export default function TwoFactorMethodPage() {
+function TwoFactorForm() {
 	const { method } = useParams<{ method: string }>();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -40,38 +40,48 @@ export default function TwoFactorMethodPage() {
 	}
 
 	return (
+		<form onSubmit={handleVerify} className="flex flex-col gap-4">
+			<CardDescription>
+				{method === "totp"
+					? "Enter the code from your authenticator app, or a recovery code."
+					: "Enter your verification code."}
+			</CardDescription>
+			<FormField
+				id="code"
+				label="Code"
+				value={code}
+				onChange={setCode}
+				required
+				autoFocus
+				disabled={verify.isLoading}
+			/>
+			<FormError message={verify.error ? errorMessage(verify.error, "Invalid code") : null} />
+			<LoadingButton
+				type="submit"
+				loading={verify.isLoading}
+				loadingText="Verifying…"
+				onClick={handleVerify}
+				disabled={!code}
+			>
+				Verify
+			</LoadingButton>
+		</form>
+	);
+}
+
+export default function TwoFactorMethodPage() {
+	return (
 		<div className="flex flex-1 items-center justify-center bg-card">
 			<Card className="w-full max-w-md bg-transparent ring-0">
 				<CardHeader>
 					<CardTitle>Enter your code</CardTitle>
-					<CardDescription>
-						{method === "totp"
-							? "Enter the code from your authenticator app, or a recovery code."
-							: "Enter your verification code."}
-					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<form onSubmit={handleVerify} className="flex flex-col gap-4">
-						<FormField
-							id="code"
-							label="Code"
-							value={code}
-							onChange={setCode}
-							required
-							autoFocus
-							disabled={verify.isLoading}
-						/>
-						<FormError message={verify.error ? errorMessage(verify.error, "Invalid code") : null} />
-						<LoadingButton
-							type="submit"
-							loading={verify.isLoading}
-							loadingText="Verifying…"
-							onClick={handleVerify}
-							disabled={!code}
-						>
-							Verify
-						</LoadingButton>
-					</form>
+					{/* Suspense boundary required: TwoFactorForm calls useSearchParams(),
+					    which throws during static prerendering without it. */}
+					<Suspense>
+						<TwoFactorForm />
+					</Suspense>
 				</CardContent>
 			</Card>
 		</div>

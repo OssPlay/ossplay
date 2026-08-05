@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type SyntheticEvent, useEffect, useState } from "react";
+import { type SyntheticEvent, Suspense, useEffect, useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ type LoginResponse =
 	| { requiresTwoFactor: true }
 	| { user: { id: string; email: string; name: string } };
 
-export default function LoginPage() {
+function LoginForm() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const continuePath = getSafeContinuePath(searchParams.get("continue"));
@@ -82,6 +82,62 @@ export default function LoginPage() {
 	const busy = login.isLoading || passkeyLogin.isLoading;
 
 	return (
+		<form onSubmit={handleLogin} className="flex flex-col gap-4">
+			<FormField
+				id="email"
+				label="Email"
+				type="email"
+				value={email}
+				onChange={setEmail}
+				required
+				autoComplete="email"
+				autoFocus
+				disabled={busy}
+			/>
+			<FormField
+				id="password"
+				label="Password"
+				type="password"
+				value={password}
+				onChange={setPassword}
+				required
+				autoComplete="current-password"
+				disabled={busy}
+			/>
+			<FormError message={error ? errorMessage(error, errorFallback) : null} />
+			<LoadingButton
+				type="submit"
+				loading={login.isLoading}
+				loadingText="Logging in…"
+				onClick={handleLogin}
+				disabled={passkeyLogin.isLoading}
+			>
+				Log in
+			</LoadingButton>
+			{passkeySupported && (
+				<LoadingButton
+					type="button"
+					variant="outline"
+					loading={passkeyLogin.isLoading}
+					loadingText="Waiting for passkey…"
+					onClick={handlePasskeyLogin}
+					disabled={login.isLoading}
+				>
+					Continue with a passkey
+				</LoadingButton>
+			)}
+			<Link
+				href="/forgot-password"
+				className="text-center text-sm text-muted-foreground underline"
+			>
+				Forgot password?
+			</Link>
+		</form>
+	);
+}
+
+export default function LoginPage() {
+	return (
 		<div className="flex flex-1 items-center justify-center bg-card">
 			<Card className="w-full max-w-md bg-transparent ring-0">
 				<CardHeader>
@@ -89,57 +145,11 @@ export default function LoginPage() {
 					<CardDescription>Enter your admin credentials.</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<form onSubmit={handleLogin} className="flex flex-col gap-4">
-						<FormField
-							id="email"
-							label="Email"
-							type="email"
-							value={email}
-							onChange={setEmail}
-							required
-							autoComplete="email"
-							autoFocus
-							disabled={busy}
-						/>
-						<FormField
-							id="password"
-							label="Password"
-							type="password"
-							value={password}
-							onChange={setPassword}
-							required
-							autoComplete="current-password"
-							disabled={busy}
-						/>
-						<FormError message={error ? errorMessage(error, errorFallback) : null} />
-						<LoadingButton
-							type="submit"
-							loading={login.isLoading}
-							loadingText="Logging in…"
-							onClick={handleLogin}
-							disabled={passkeyLogin.isLoading}
-						>
-							Log in
-						</LoadingButton>
-						{passkeySupported && (
-							<LoadingButton
-								type="button"
-								variant="outline"
-								loading={passkeyLogin.isLoading}
-								loadingText="Waiting for passkey…"
-								onClick={handlePasskeyLogin}
-								disabled={login.isLoading}
-							>
-								Continue with a passkey
-							</LoadingButton>
-						)}
-						<Link
-							href="/forgot-password"
-							className="text-center text-sm text-muted-foreground underline"
-						>
-							Forgot password?
-						</Link>
-					</form>
+					{/* Suspense boundary required: LoginForm calls useSearchParams(),
+					    which throws during static prerendering without it. */}
+					<Suspense>
+						<LoginForm />
+					</Suspense>
 				</CardContent>
 			</Card>
 		</div>

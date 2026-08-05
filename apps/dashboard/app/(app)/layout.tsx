@@ -1,10 +1,5 @@
 "use client";
 
-// All (app) routes depend on live API data and useSearchParams (via
-// useServerTable → useURL). Mark the entire group dynamic so Next.js never
-// tries to statically prerender any page under this layout.
-export const dynamic = "force-dynamic";
-
 import { HomeIcon, SettingsIcon, UsersIcon } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";

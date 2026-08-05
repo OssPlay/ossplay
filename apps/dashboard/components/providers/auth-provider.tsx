@@ -1,12 +1,11 @@
 "use client";
 
 import { LoaderCircleIcon, LogOutIcon, RefreshCwIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 import { toast } from "sonner";
 import useSWR, { type KeyedMutator } from "swr";
 import { useAction } from "@/hooks/use-action";
-import useURL from "@/hooks/use-url";
 import { useActiveActionCount } from "@/lib/action-store";
 import { apiFetch } from "@/lib/api";
 import type { Auth, Me } from "@/types/auth";
@@ -37,7 +36,7 @@ export function useAuth() {
 export default function AuthProvider({ children }: React.PropsWithChildren) {
 	const router = useRouter();
 	const activeActionCount = useActiveActionCount();
-	const url = useURL();
+	const pathname = usePathname();
 	const { data: me, isLoading, error, mutate } = useSWR<Me>("/auth/me");
 
 	const logout = useAction(() => apiFetch("/auth/logout", { method: "POST" }), { error: null });
@@ -54,7 +53,7 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 		} finally {
 			// Always navigate away, even if the server-side logout call failed —
 			// clearing local state matters more than a clean server round-trip.
-			router.replace(`/login?continue=${encodeURIComponent(url.route)}`);
+			router.replace(`/login?continue=${encodeURIComponent(pathname + (typeof window !== "undefined" ? window.location.search : ""))}`);
 			router.refresh();
 		}
 	}

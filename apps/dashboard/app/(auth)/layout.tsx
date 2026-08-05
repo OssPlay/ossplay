@@ -1,7 +1,3 @@
-// Auth pages (login, 2FA, reset-password) all call useSearchParams() — mark
-// the group dynamic so Next.js does not attempt static prerendering.
-export const dynamic = "force-dynamic";
-
 import Image from "next/image";
 import type React from "react";
 import UiBgBlob from "@/components/bg/blob";

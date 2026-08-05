@@ -1,5 +1,9 @@
 "use client";
 
+// This page reads search params at runtime (useServerTable / useSearchParams) —
+// opt out of static prerendering so Next.js does not attempt it at build time.
+export const dynamic = "force-dynamic";
+
 import { MailIcon, PlusIcon, SendIcon } from "lucide-react";
 import { useState } from "react";
 import { FormField } from "@/components/auth/form-field";

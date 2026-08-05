@@ -1,5 +1,9 @@
 "use client";
 
+// This page reads search params at runtime (useServerTable / useSearchParams) —
+// opt out of static prerendering so Next.js does not attempt it at build time.
+export const dynamic = "force-dynamic";
+
 import { Building2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
