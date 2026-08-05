@@ -64,7 +64,6 @@ COPY --from=builder /repo/apps/dashboard/.next/standalone ./
 COPY --from=builder /repo/apps/dashboard/public apps/dashboard/public
 COPY --from=builder /repo/apps/dashboard/.next/static apps/dashboard/.next/static
 
-COPY --from=deps /repo/node_modules /repo/node_modules
 COPY packages/config packages/config
 COPY packages/db packages/db
 COPY packages/core packages/core
@@ -74,5 +73,27 @@ COPY apps/worker apps/worker
 COPY infra/updater infra/updater
 COPY infra/ossplay/entrypoint.ts entrypoint.ts
 
+# Bun's workspace install gives each member its OWN node_modules for that
+# member's specific deps (e.g. apps/api/node_modules/hono) — it does NOT
+# hoist everything to the root. Copying only /repo/node_modules (root-level
+# devDependencies like turbo/typescript) silently omitted hono, yaml, and
+# every other app/package-local dependency, which only surfaced at runtime
+# as "Cannot find package 'hono'" (api never crashes at build time, since
+# nothing here typechecks/bundles it). packages/config has no deps of its
+# own, hence no COPY line for it. Deliberately listed after the source
+# COPY lines above (not before) so this always wins over anything a local
+# build's context might otherwise carry in — same ordering convention the
+# dashboard standalone-vs-full-node_modules copy below already uses.
+COPY --from=deps /repo/node_modules /repo/node_modules
+COPY --from=deps /repo/apps/api/node_modules apps/api/node_modules
+COPY --from=deps /repo/apps/worker/node_modules apps/worker/node_modules
+COPY --from=deps /repo/packages/db/node_modules packages/db/node_modules
+COPY --from=deps /repo/packages/core/node_modules packages/core/node_modules
+COPY --from=deps /repo/packages/mail/node_modules packages/mail/node_modules
+
 EXPOSE 3000 3001 8787
-ENTRYPOINT ["bun", "run", "entrypoint.ts"]
+# Absolute path — the updater role's docker-compose.yml overrides
+# `working_dir` (to `${PWD}`, for the DooD pattern — see that file's
+# comment), which would otherwise make this relative path resolve against
+# the wrong directory and fail with "Module not found entrypoint.ts".
+ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]

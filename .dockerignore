@@ -1,0 +1,12 @@
+# infra/ossplay/Dockerfile's runner stage does plain `COPY apps/api apps/api`-
+# style copies straight from the build context, then layers each workspace
+# member's node_modules on top from the `deps` stage. Without this file, a
+# local build run from a checkout that already has `bun install` run (dev
+# node_modules present, possibly a different platform/arch than the image
+# target) would leak that local node_modules in ahead of/alongside the
+# deps-stage one. GH Actions' checkout is always clean so this never bit CI,
+# only local builds — excluded here so it can't happen either way.
+node_modules
+.git
+.next
+.turbo
