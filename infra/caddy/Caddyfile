@@ -5,10 +5,26 @@
 	# service push a new domain into Caddy's live config at runtime (see
 	# apps/api/src/lib/caddy/admin.ts) without an SSH+restart round trip.
 	admin 0.0.0.0:2019
-	email {$OSSPLAY_ACME_EMAIL:internal@ossplay.local}
 }
 
-{$OSSPLAY_DOMAIN:localhost} {
+# Deliberately domain-agnostic, plain HTTP, no automatic-HTTPS attempt —
+# this is ONLY what a fresh install ever boots with. There is no working
+# domain (or even a known public IP) at first boot, and DNS may not point
+# here yet either — the whole point of this block is "be reachable enough
+# that the setup wizard can run," nothing more. `:80` matches any Host
+# header on port 80 instead of a specific hostname, which is also what
+# keeps this block from ever triggering Caddy's automatic-HTTPS logic (that
+# only activates for a site address that names an actual hostname).
+#
+# Once the operator sets a real domain via the onboarding/Instance Settings
+# domain form, apps/api/src/lib/caddy/admin.ts POSTs a brand new Caddyfile
+# (with that domain, real `email`/`acme_ca` directives, and automatic HTTPS)
+# to Caddy's admin API — replacing this config live, no restart needed.
+# `docker-compose.yml` runs Caddy with `--resume`, so that live-pushed
+# config survives every future container restart; this file only matters
+# again if the `caddy_config` volume is ever wiped (a genuinely fresh
+# install) — it is NOT re-read on every normal restart.
+:80 {
 	handle /api/* {
 		uri strip_prefix /api
 		reverse_proxy api:3001

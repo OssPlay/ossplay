@@ -5,6 +5,16 @@ import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { useAuth } from "@/components/providers/auth-provider";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
@@ -58,6 +68,7 @@ export function DomainForm({
 	const [certProvider, setCertProvider] = useState<CertProvider>("letsencrypt");
 	const [customAcmeUrl, setCustomAcmeUrl] = useState("");
 	const [message, setMessage] = useState<string | null>(null);
+	const [confirmOpen, setConfirmOpen] = useState(false);
 	// Seeds the editable fields from the fetched value exactly once — a
 	// background SWR revalidation must not stomp on what the user is
 	// currently typing.
@@ -92,7 +103,7 @@ export function DomainForm({
 		{ error: "Could not save domain" },
 	);
 
-	async function handleSubmit() {
+	async function performSave() {
 		setMessage(null);
 		await save
 			.trigger()
@@ -102,6 +113,21 @@ export function DomainForm({
 				onSaved?.();
 			})
 			.catch(() => {});
+	}
+
+	// Caddy's live config push (apps/api/src/lib/caddy/admin.ts) is a full
+	// replace, not additive — the bootstrap :80 catch-all block that made
+	// http://<server-ip> reachable in the first place stops existing the
+	// moment a real domain is set. That's only a surprise the FIRST time a
+	// domain is configured (data.domain was null): confirm before it
+	// happens rather than silently locking someone out of the IP they were
+	// just using, especially if their DNS hasn't actually propagated yet.
+	function handleSubmit() {
+		if (!data?.domain && domain.trim()) {
+			setConfirmOpen(true);
+			return;
+		}
+		void performSave();
 	}
 
 	return (
@@ -175,6 +201,30 @@ export function DomainForm({
 			{data?.domain && (
 				<p className="text-xs text-muted-foreground">Currently configured: {data.domain}</p>
 			)}
+			<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Switch to domain-only access?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Right now this dashboard is reachable at this server's bare IP address over HTTP. Once{" "}
+							{domain} is saved, Caddy serves this instance only at that domain — the bare-IP
+							address stops working. Make sure {domain} already points at this server (DNS can take
+							a while to propagate) before continuing, or you could be locked out until it does.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								setConfirmOpen(false);
+								void performSave();
+							}}
+						>
+							Set domain
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

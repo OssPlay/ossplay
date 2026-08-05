@@ -103,17 +103,21 @@ services:
     # compose network (the `api` service, via OSSPLAY_CADDY_ADMIN_URL above).
     expose:
       - "2019"
+    # --resume: on every start, prefer Caddy's own autosaved config (in the
+    # persisted caddy_config volume below) over re-reading the static
+    # Caddyfile — that autosave only exists once a real domain has been
+    # pushed via the admin API (see infra/caddy/Caddyfile's comment and
+    # apps/api/src/lib/caddy/admin.ts). Without --resume, EVERY container
+    # restart (an update, a host reboot, a crash) would silently revert a
+    # configured instance back to the bootstrap :80 block, undoing
+    # onboarding's domain setup and dropping HTTPS. Verified locally:
+    # push a config, recreate the container with the same volumes, confirm
+    # the pushed config (not the static file) is what comes back up.
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --resume
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    environment:
-      OSSPLAY_DOMAIN: ${OSSPLAY_DOMAIN:-localhost}
-      # Compose's own ${VAR:-default} always defines the var (even as empty)
-      # if unset on the host, which defeats the Caddyfile's own {$VAR:default}
-      # fallback — so this default must be non-empty and kept in sync with
-      # infra/caddy/Caddyfile's.
-      OSSPLAY_ACME_EMAIL: ${OSSPLAY_ACME_EMAIL:-internal@ossplay.local}
     depends_on:
       - api
       - dashboard
