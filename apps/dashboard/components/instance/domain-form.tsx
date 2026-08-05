@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
@@ -15,6 +16,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
@@ -26,6 +28,14 @@ import {
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
+
+// How long (and how often) to poll a newly-configured domain before giving
+// up and just showing a manual link — DNS propagation and Let's Encrypt
+// issuance are both outside our control, but 2 minutes covers the
+// overwhelming majority of real cases (docs/vps-setup.mdx says "up to a
+// minute" for the certificate alone).
+const REDIRECT_POLL_INTERVAL_MS = 3000;
+const REDIRECT_MAX_ATTEMPTS = 40;
 
 type CertProvider = "letsencrypt" | "zerossl" | "custom";
 
@@ -69,6 +79,12 @@ export function DomainForm({
 	const [customAcmeUrl, setCustomAcmeUrl] = useState("");
 	const [message, setMessage] = useState<string | null>(null);
 	const [confirmOpen, setConfirmOpen] = useState(false);
+	// Set once a save actually swaps Caddy over to a new domain (see
+	// performSave below) — while this is set, the form is replaced by a
+	// "waiting to redirect" panel instead of staying interactive, since the
+	// current origin is on borrowed time regardless of what the inputs say.
+	const [pendingOrigin, setPendingOrigin] = useState<string | null>(null);
+	const [pendingTimedOut, setPendingTimedOut] = useState(false);
 	// Seeds the editable fields from the fetched value exactly once — a
 	// background SWR revalidation must not stomp on what the user is
 	// currently typing.
@@ -84,6 +100,44 @@ export function DomainForm({
 			seeded.current = true;
 		}
 	}, [data, user.email]);
+
+	// Polls the new domain over HTTPS until it actually answers, then does a
+	// hard (cross-origin) navigation there — a same-origin router.push can't
+	// cross to a different domain, and jumping immediately would frequently
+	// land on a connection error: DNS may not have propagated the instant
+	// this resolves, and Let's Encrypt issuance for a brand new domain isn't
+	// instant either. A resolved fetch (even the opaque response `no-cors`
+	// gives us for a cross-origin request) is enough signal the origin is up
+	// and TLS is working — we don't need to read the response.
+	useEffect(() => {
+		if (!pendingOrigin) return;
+		let cancelled = false;
+		const targetUrl = `https://${pendingOrigin}/`;
+
+		async function poll() {
+			for (let attempt = 0; attempt < REDIRECT_MAX_ATTEMPTS; attempt++) {
+				if (cancelled) return;
+				try {
+					const controller = new AbortController();
+					const timeout = setTimeout(() => controller.abort(), REDIRECT_POLL_INTERVAL_MS - 200);
+					await fetch(targetUrl, { mode: "no-cors", cache: "no-store", signal: controller.signal });
+					clearTimeout(timeout);
+					if (!cancelled) window.location.href = targetUrl;
+					return;
+				} catch {
+					// Not ready yet — DNS not propagated, cert not issued, connection
+					// refused, etc. Keep polling until REDIRECT_MAX_ATTEMPTS.
+				}
+				await new Promise((resolve) => setTimeout(resolve, REDIRECT_POLL_INTERVAL_MS));
+			}
+			if (!cancelled) setPendingTimedOut(true);
+		}
+
+		void poll();
+		return () => {
+			cancelled = true;
+		};
+	}, [pendingOrigin]);
 
 	const save = useAction(
 		() =>
@@ -110,24 +164,69 @@ export function DomainForm({
 			.then((res) => {
 				setMessage(res.message);
 				mutate();
-				onSaved?.();
+				// A save only actually swaps Caddy's live config to a new domain
+				// (apps/api/src/lib/caddy/admin.ts POSTs a full replace) when
+				// caddyApplied is true — local dev and any deployment without
+				// OSSPLAY_CADDY_ADMIN_URL always no-op there, and this origin
+				// keeps working fine. If the saved domain is also the one we're
+				// already browsing (re-saving ACME/cert-provider settings without
+				// actually changing the hostname), Caddy's reload doesn't disrupt
+				// the current connection either — only a genuine hostname change
+				// needs the wait-then-redirect treatment.
+				if (res.domain && res.caddyApplied && res.domain !== window.location.hostname) {
+					setPendingTimedOut(false);
+					setPendingOrigin(res.domain);
+				} else {
+					onSaved?.();
+				}
 			})
 			.catch(() => {});
 	}
 
 	// Caddy's live config push (apps/api/src/lib/caddy/admin.ts) is a full
-	// replace, not additive — the bootstrap :80 catch-all block that made
-	// http://<server-ip> reachable in the first place stops existing the
-	// moment a real domain is set. That's only a surprise the FIRST time a
-	// domain is configured (data.domain was null): confirm before it
-	// happens rather than silently locking someone out of the IP they were
-	// just using, especially if their DNS hasn't actually propagated yet.
+	// replace, not additive — whatever origin is currently reachable (the
+	// bootstrap :80 bare-IP config, or a previously-configured domain) stops
+	// answering the moment a *different* hostname is saved. Confirm before
+	// that happens rather than silently locking someone out of the origin
+	// they're currently using, especially if DNS for the new one hasn't
+	// actually propagated yet. Comparing against window.location.hostname
+	// (not just "was a domain configured before") also catches changing an
+	// already-configured domain to a different one, not just the first-ever
+	// set — that's the same kind of disruption.
 	function handleSubmit() {
-		if (!data?.domain && domain.trim()) {
+		const trimmed = domain.trim();
+		if (trimmed && trimmed !== window.location.hostname) {
 			setConfirmOpen(true);
 			return;
 		}
 		void performSave();
+	}
+
+	// This origin is on borrowed time (or already gone, if Caddy's reload
+	// already happened) — swap to a dedicated waiting panel instead of
+	// leaving the form interactive with a stale target.
+	if (pendingOrigin) {
+		return (
+			<div className="flex flex-col gap-3">
+				<p className="text-sm text-muted-foreground">
+					{pendingTimedOut
+						? `Still waiting on https://${pendingOrigin} — DNS may not have propagated yet, or the certificate is taking longer than usual to issue. Keep waiting, or open it directly once you're ready.`
+						: `Your instance is now configured at https://${pendingOrigin} — redirecting you there once it answers. Certificate issuance can take up to a minute.`}
+				</p>
+				{!pendingTimedOut && (
+					<div className="flex items-center gap-2 text-sm text-muted-foreground">
+						<Loader2Icon className="size-4 animate-spin" /> Waiting for https://{pendingOrigin}…
+					</div>
+				)}
+				<Button
+					type="button"
+					variant={pendingTimedOut ? "default" : "outline"}
+					render={<a href={`https://${pendingOrigin}`} />}
+				>
+					Open https://{pendingOrigin} now
+				</Button>
+			</div>
+		);
 	}
 
 	return (
@@ -204,12 +303,14 @@ export function DomainForm({
 			<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Switch to domain-only access?</AlertDialogTitle>
+						<AlertDialogTitle>Switch to {domain}?</AlertDialogTitle>
 						<AlertDialogDescription>
-							Right now this dashboard is reachable at this server's bare IP address over HTTP. Once{" "}
-							{domain} is saved, Caddy serves this instance only at that domain — the bare-IP
-							address stops working. Make sure {domain} already points at this server (DNS can take
-							a while to propagate) before continuing, or you could be locked out until it does.
+							You're currently on{" "}
+							{typeof window !== "undefined" ? window.location.hostname : "this address"}. Once{" "}
+							{domain} is saved, Caddy serves this instance only at that domain — this address stops
+							working, and you'll be redirected there automatically. Make sure {domain} already
+							points at this server (DNS can take a while to propagate) before continuing, or you
+							could be locked out until it does.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
