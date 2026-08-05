@@ -48,6 +48,11 @@ services:
       # apps/api/src/routes/instance.ts).
       OSSPLAY_UPDATER_URL: http://updater:8787
       OSSPLAY_UPDATER_TOKEN: ${OSSPLAY_UPDATER_TOKEN:?OSSPLAY_UPDATER_TOKEN must be set — install.sh generates one into .env}
+      # Encrypts SSH keys/SMTP creds/etc at rest (packages/core/src/crypto/
+      # secret-box.ts) — same install.sh-generates-it-into-.env pattern as
+      # OSSPLAY_UPDATER_TOKEN above, required with no fallback since a
+      # default would defeat the point of encrypting secrets at all.
+      OSSPLAY_ENCRYPTION_KEY: ${OSSPLAY_ENCRYPTION_KEY:?OSSPLAY_ENCRYPTION_KEY must be set — install.sh generates one into .env}
       # Which GitHub repo apps/api/src/lib/updates/check.ts checks for
       # releases/recalls — only needs overriding on a fork.
       OSSPLAY_GITHUB_REPO: ${OSSPLAY_GITHUB_REPO:-OssPlay/ossplay}
