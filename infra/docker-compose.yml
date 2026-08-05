@@ -52,9 +52,13 @@ services:
       # releases/recalls — only needs overriding on a fork.
       OSSPLAY_GITHUB_REPO: ${OSSPLAY_GITHUB_REPO:-OssPlay/ossplay}
       # Org-wide brand links baked into every email footer (packages/mail's
-      # EmailLayout) — same fork-override pattern as OSSPLAY_GITHUB_REPO above.
-      OSSPLAY_WEBSITE_URL: ${OSSPLAY_WEBSITE_URL:-https://ossplay.com}
-      OSSPLAY_DOCS_URL: ${OSSPLAY_DOCS_URL:-https://docs.ossplay.com}
+      # EmailLayout). No baked-in default (the org's real domain isn't
+      # settled yet — don't guess one here again); a bare key with no `:-`
+      # fallback passes the host's value through if set and is otherwise
+      # genuinely absent in the container, which is what lets packages/mail's
+      # own `undefined` handling (omit the link) actually kick in.
+      OSSPLAY_WEBSITE_URL: ${OSSPLAY_WEBSITE_URL:-}
+      OSSPLAY_DOCS_URL: ${OSSPLAY_DOCS_URL:-}
       # Instance-wide SMTP/domain settings live in this file, not the DB —
       # see packages/db/src/schema.ts and apps/api/src/lib/config/
       # instance-config.ts. Bind-mounted (below) so it survives container

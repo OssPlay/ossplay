@@ -17,8 +17,14 @@ import type { ReactNode } from "react";
 // (different domain/org) doesn't ship links back to the upstream project.
 // Same override pattern as apps/api/src/lib/updates/check.ts's
 // OSSPLAY_GITHUB_REPO (see infra/docker-compose.yml's api environment block).
-const WEBSITE_URL = process.env.OSSPLAY_WEBSITE_URL ?? "https://ossplay.com";
-const DOCS_URL = process.env.OSSPLAY_DOCS_URL ?? "https://docs.ossplay.com";
+//
+// Deliberately NO fallback here — the org's real website/docs domain isn't
+// settled yet (already guessed wrong twice: ossplay.io, then ossplay.com).
+// Undefined is handled by rendering plain text instead of a link below,
+// same as apps/dashboard's existing (undefined-tolerant) NEXT_PUBLIC_DOCS_URL
+// usage in account-dropdown.tsx — never guess a domain here again.
+const WEBSITE_URL = process.env.OSSPLAY_WEBSITE_URL;
+const DOCS_URL = process.env.OSSPLAY_DOCS_URL;
 
 // Design tokens translated from globals.css (oklch → hex) to match the
 // violet shadcn/ui theme used in apps/dashboard. Email clients can't parse
@@ -103,13 +109,21 @@ export function EmailLayout({ preview, children }: { preview: string; children: 
 							<Hr style={{ borderColor: "#e4e4e7", margin: "0 0 16px" }} />
 							<Text className="m-0 text-xs text-muted-fg leading-5">
 								Sent by{" "}
-								<Link href={WEBSITE_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
-									OSSPlay
-								</Link>
-								{" · "}
-								<Link href={DOCS_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
-									Docs
-								</Link>
+								{WEBSITE_URL ? (
+									<Link href={WEBSITE_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
+										OSSPlay
+									</Link>
+								) : (
+									"OSSPlay"
+								)}
+								{DOCS_URL && (
+									<>
+										{" · "}
+										<Link href={DOCS_URL} style={{ color: "#7c3aed", textDecoration: "none" }}>
+											Docs
+										</Link>
+									</>
+								)}
 							</Text>
 							<Text className="mt-1 text-xs text-muted-fg leading-5">
 								If you didn't expect this email, you can safely ignore it.
