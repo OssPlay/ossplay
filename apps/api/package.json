@@ -4,7 +4,7 @@
 	"version": "0.0.0",
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
-		"build": "bun build src/index.ts --outdir dist --target bun",
+		"build": "tsc --noEmit",
 		"start": "bun run src/index.ts",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome lint .",
