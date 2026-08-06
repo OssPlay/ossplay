@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
-import { useCurrentOrgId } from "@/lib/current-org";
+import { setCurrentOrgId, useCurrentOrgId } from "@/lib/current-org";
 
 type Project = { id: string; name: string; orgId: string };
 
@@ -20,9 +20,24 @@ export default function ProjectGeneralPage() {
 	const { projectId } = useParams<{ projectId: string }>();
 	const { organizations } = useAuth();
 	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
-	const org = organizations.find((o) => o.id === orgId);
+	// Same fix as the layout one level up: resolve this project's real owning
+	// org from the already-loaded organizations (each carries its own
+	// projects, from /auth/me) rather than trusting the sessionStorage-scoped
+	// "current org" — otherwise a rename/delete fired in the one render
+	// before that org-switch effect settles would hit the wrong org's
+	// endpoint. The layout already guarantees `access` only reaches here once
+	// an owning org exists, so falling back to `orgId` below is just for the
+	// render before the switch effect (if any) has run.
+	const owningOrg = organizations.find((o) => o.projects.some((p) => p.id === projectId));
+	const org = owningOrg ?? organizations.find((o) => o.id === orgId);
+	const effectiveOrgId = owningOrg?.id ?? orgId;
+
+	useEffect(() => {
+		if (owningOrg && owningOrg.id !== orgId) setCurrentOrgId(owningOrg.id);
+	}, [owningOrg, orgId]);
+
 	const { data: projectsData, mutate } = useSWR<{ projects: Project[] }>(
-		orgId ? `/organizations/${orgId}/projects` : null,
+		effectiveOrgId ? `/organizations/${effectiveOrgId}/projects` : null,
 	);
 	const projectList = projectsData?.projects ?? [];
 	const project = projectList.find((p) => p.id === projectId);
@@ -47,7 +62,7 @@ export default function ProjectGeneralPage() {
 
 	const rename = useAction(
 		() =>
-			apiFetch<{ project: Project }>(`/organizations/${orgId}/projects/${projectId}`, {
+			apiFetch<{ project: Project }>(`/organizations/${effectiveOrgId}/projects/${projectId}`, {
 				method: "PUT",
 				body: JSON.stringify({ name }),
 			}),
@@ -55,7 +70,7 @@ export default function ProjectGeneralPage() {
 	);
 
 	const remove = useAction(
-		() => apiFetch(`/organizations/${orgId}/projects/${projectId}`, { method: "DELETE" }),
+		() => apiFetch(`/organizations/${effectiveOrgId}/projects/${projectId}`, { method: "DELETE" }),
 		{ success: `"${project?.name}" deleted`, error: "Could not delete project" },
 	);
 
