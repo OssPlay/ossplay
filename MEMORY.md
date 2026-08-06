@@ -6,6 +6,25 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-06 — Profile settings, org-picker-in-sidebar, URL-based project nav, `org_creator` role
+
+**Status:** Decided (Supersedes, in part: PRD.md §2.3's "root promotion has no UI" — narrowed below, not reversed)
+
+Built out `/settings/profile` (previously a read-only stub) and, as prerequisite infrastructure the user asked for alongside it, upgraded the instance role model and the dashboard's org/project navigation shell. Org and project **settings page content** were explicitly left alone this pass — only how you navigate to them changed.
+
+- **New instance role, `org_creator`**: `users.instanceRole` widened to `"root" | "org_creator"` — a `text` column with a TS-only enum hint (no Postgres CHECK constraint, confirmed against `migrations/0000_hot_the_hand.sql`), so this needed no data migration, just a schema/authz update. `org_creator` grants exactly `instance:manage_orgs` (create + list every org on the instance) and nothing else instance-wide — see `apps/api/src/lib/authz/permissions.ts`.
+- **Root promotion/demotion still has no UI — deliberately preserved, not reopened.** The new `PUT /instance/users/:id/role` (for changing an *existing* user's role, previously only settable at invite time) explicitly rejects `"root"` as a value; it can only set/clear `org_creator`. PRD.md §2.3's blanket "granting root to more than the bootstrap admin is out of scope" line was already partly stale (`instanceInvitations.grantRoot` already does this at invite time), but post-hoc root promotion/demotion via the instance Users UI was never built and stays that way on purpose — see the "sole root" guard in `instance-users.ts`'s `DELETE /:id`.
+- **`instanceInvitations.grantRoot` (boolean) renamed to `instanceRole`** (same nullable enum as `users.instanceRole`), matching how org invitations (`invitations.role`) already model this instead of one boolean per possible role. Real migration (`0003`/`0004`), split into an ADD-with-backfill then a DROP specifically to dodge `drizzle-kit generate`'s interactive rename prompt (which can't be answered non-interactively) — each step alone is unambiguous to the differ.
+- **Org project permissions split three ways**: `org:manage_projects` used to gate create/rename/delete together (admin+ only). Now `org:create_projects` (owner/admin) and `org:delete_projects` (owner/admin) stay restricted, while `org:manage_projects` (rename/configure an *existing* project) is member-inclusive. Members can now work within and edit projects without being able to create or delete them.
+- **Org picker moved from the header into the sidebar** (`OrgPicker`, new file) — "current org" itself is unchanged, still per-tab `sessionStorage` (`lib/current-org.ts`), only the picker's UI location moved.
+- **Projects are real URL routes now, not a sessionStorage-backed dropdown.** `ProjectSwitcher` → `ProjectList`: a sidebar group listing the current org's projects as `Link`s to `/project/{id}/settings`. The project settings route moved from the static `/project/settings` to a dynamic `/project/[projectId]/settings` segment, resolving via `useParams()` instead of `lib/current-project.ts` (deleted). The org context for that page is still resolved via `useCurrentOrgId()` — a bookmarked project link under a different active org degrades the same way a stale sessionStorage id already did (`Section`'s existing `access`/`redirectTo` gate), not a new failure mode.
+- **Profile settings**: editable name (new `PUT /auth/me`), read-only email (no email-verification flow exists anywhere in this app, so changing the account's own identifier stays out of scope), and a read-only table of the user's organizations/roles (reuses `/auth/me` data already on the client, no new endpoint).
+- **Hono route-registration-order footgun, encountered again while auditing this area**: in a sub-router, `.use("*", middleware)` only covers routes registered *after* it — see the 2026-08-06 commit right before this one (`db38bca`) that fixed exactly this in `routes/instance/index.ts`. Nothing new broken this pass, just re-confirmed as a standing hazard worth checking whenever a new permission-gated route is added.
+
+**Artifacts updated:** `ARCHITECTURE.md` §8 (role table, org permission list).
+
+---
+
 ## 2026-08-04 — Release prep: single `ossplay` image, tag-derived versioning, real OTA updater, version recall
 
 **Status:** Decided
