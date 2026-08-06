@@ -34,7 +34,7 @@ export async function instanceInviteEmail(params: {
 	instanceName: string;
 	inviterName: string;
 	acceptUrl: string;
-	grantRoot: boolean;
+	instanceRole: "root" | "org_creator" | null;
 }): Promise<MailMessage> {
 	const element = createElement(InstanceInviteEmail, params);
 	return {

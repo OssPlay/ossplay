@@ -6,6 +6,18 @@
 			"runtimeExecutable": "bun",
 			"runtimeArgs": ["run", "dev:templates"],
 			"port": 3004
+		},
+		{
+			"name": "dashboard",
+			"runtimeExecutable": "bun",
+			"runtimeArgs": ["run", "dev:dashboard"],
+			"port": 3000
+		},
+		{
+			"name": "api",
+			"runtimeExecutable": "bun",
+			"runtimeArgs": ["run", "dev:api"],
+			"port": 3001
 		}
 	]
 }

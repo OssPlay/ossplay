@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AccountDropdown } from "@/components/layout/account-dropdown";
-import { ProjectSwitcher } from "@/components/layout/project-switcher";
+import { OrgPicker } from "@/components/layout/org-picker";
+import { ProjectList } from "@/components/layout/project-list";
 import {
 	Sidebar,
 	SidebarContent,
@@ -89,8 +90,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
 	return (
 		<Sidebar variant="floating" {...props}>
-			<ProjectSwitcher />
+			<OrgPicker />
 			<SidebarContent>
+				<ProjectList />
 				{toChunks(sidepanel ?? []).map((chunk, index) =>
 					chunk.kind === "group" ? (
 						<SidebarGroup key={`group-${chunk.group.title}`}>

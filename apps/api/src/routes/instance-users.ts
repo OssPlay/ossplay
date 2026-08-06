@@ -123,13 +123,13 @@ instanceUsersRoute.get("/", async (c) => {
 
 const inviteUserSchema = z.object({
 	email: z.email(),
-	grantRoot: z.boolean().optional().default(false),
+	instanceRole: z.enum(["root", "org_creator"]).nullable().optional().default(null),
 });
 
 // Org-less account provisioning — the counterpart to POST
 // /organizations/:orgId/invitations, but for a bare account (optionally
-// with root access) rather than membership in a specific org. Getting the
-// new user into an org afterward is a separate step via the normal
+// with an instance role) rather than membership in a specific org. Getting
+// the new user into an org afterward is a separate step via the normal
 // org-invite flow — see instanceInvitations in instance.schema.ts.
 instanceUsersRoute.post("/invite", async (c) => {
 	const inviter = c.get("user");
@@ -163,7 +163,7 @@ instanceUsersRoute.post("/invite", async (c) => {
 		.insert(instanceInvitations)
 		.values({
 			email,
-			grantRoot: parsed.data.grantRoot,
+			instanceRole: parsed.data.instanceRole,
 			invitedByUserId: inviter.id,
 			tokenHash,
 			expiresAt,
@@ -179,7 +179,7 @@ instanceUsersRoute.post("/invite", async (c) => {
 		action: "user.invited",
 		targetType: "instance_invitation",
 		targetId: invitation.id,
-		metadata: { email, grantRoot: parsed.data.grantRoot },
+		metadata: { email, instanceRole: parsed.data.instanceRole },
 	});
 
 	try {
@@ -189,7 +189,7 @@ instanceUsersRoute.post("/invite", async (c) => {
 				instanceName,
 				inviterName: inviter.name,
 				acceptUrl: inviteUrl,
-				grantRoot: parsed.data.grantRoot,
+				instanceRole: parsed.data.instanceRole,
 			}),
 		);
 	} catch (err) {
@@ -245,6 +245,38 @@ instanceUsersRoute.get("/:id", async (c) => {
 			role: membership.role,
 		})),
 	});
+});
+
+const changeRoleSchema = z.object({ role: z.enum(["org_creator"]).nullable() });
+
+// Deliberately can only set/clear `org_creator` — root promotion/demotion
+// has no UI anywhere in this codebase, by design (see PRD.md §2.3 and this
+// file's own "sole root" guard on DELETE below); a request naming "root"
+// here is rejected outright rather than silently accepted, so that boundary
+// can't be reopened through this endpoint by accident later.
+instanceUsersRoute.put("/:id/role", async (c) => {
+	const targetId = c.req.param("id");
+	const parsed = changeRoleSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) {
+		return c.json({ error: "Invalid input", details: z.treeifyError(parsed.error) }, 400);
+	}
+
+	const db = getDb();
+	const [target] = await db.select().from(users).where(eq(users.id, targetId));
+	if (!target) return c.json({ error: "User not found" }, 404);
+	if (target.instanceRole === "root") {
+		return c.json({ error: "Root's role cannot be changed here" }, 400);
+	}
+
+	await db.update(users).set({ instanceRole: parsed.data.role }).where(eq(users.id, targetId));
+	await logAudit(c, {
+		action: "instance.user.role_change",
+		targetType: "user",
+		targetId,
+		metadata: { role: parsed.data.role },
+	});
+
+	return c.json({ instanceRole: parsed.data.role });
 });
 
 const setPasswordSchema = z

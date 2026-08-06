@@ -106,7 +106,11 @@ export default function InstanceUserDetailPage() {
 					</Link>
 
 					<div className="flex flex-wrap items-center gap-2">
-						{user.instanceRole === "root" && <Badge variant="default">root</Badge>}
+						{user.instanceRole && (
+							<Badge variant="default">
+								{user.instanceRole === "root" ? "root" : "org creator"}
+							</Badge>
+						)}
 						{user.disabledAt ? (
 							<Badge variant="destructive">Blocked</Badge>
 						) : (
@@ -179,12 +183,48 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
 			.catch(() => {});
 	}
 
+	const changeRole = useAction(
+		(role: "none" | "org_creator") =>
+			apiFetch(`/instance/users/${user.id}/role`, {
+				method: "PUT",
+				body: JSON.stringify({ role: role === "none" ? null : role }),
+			}),
+		{ success: "Instance role updated", error: "Could not change instance role" },
+	);
+
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>Security</CardTitle>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
+				{/* Root's own role has no UI to change, by design — see
+				instance-users.ts's PUT /:id/role. */}
+				{user.instanceRole !== "root" && (
+					<div className="flex flex-col gap-1.5 w-fit min-w-48">
+						<span className="text-sm font-medium">Instance role</span>
+						<Select
+							value={user.instanceRole ?? "none"}
+							onValueChange={(role) =>
+								changeRole
+									.trigger(role as "none" | "org_creator")
+									.then(onChange)
+									.catch(() => {})
+							}
+							disabled={changeRole.isLoading}
+						>
+							<SelectTrigger size="sm">
+								<SelectValue
+									items={{ none: "No instance role", org_creator: "Organization creator" }}
+								/>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="none">No instance role</SelectItem>
+								<SelectItem value="org_creator">Organization creator</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				)}
 				{resetPassword.data ? (
 					<p className="text-sm">
 						Temporary password (copy now, it won&apos;t be shown again):{" "}

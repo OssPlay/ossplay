@@ -1,6 +1,6 @@
 "use client";
 
-import { BellIcon, ChevronsUpDownIcon, MoonIcon, ServerIcon, SunIcon } from "lucide-react";
+import { BellIcon, MoonIcon, ServerIcon, SunIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -14,21 +14,11 @@ import {
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button, buttonVariants } from "@/components/ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { setCurrentOrgId, useCurrentOrgId } from "@/lib/current-org";
 import { useBreadcrumbs } from "@/lib/nav-store";
 import { cn } from "@/lib/utils";
-import type { MeOrganization } from "@/types/auth";
 import { useAuth } from "../providers/auth-provider";
 
 function AppBreadcrumbs() {
@@ -57,31 +47,6 @@ function AppBreadcrumbs() {
 				})}
 			</BreadcrumbList>
 		</Breadcrumb>
-	);
-}
-
-function OrgSwitcher({ organizations }: { organizations: Array<MeOrganization> }) {
-	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
-	const org = organizations.find((o) => o.id === orgId);
-	if (!org) return null;
-
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
-				{org.name}
-				<ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end">
-				<DropdownMenuGroup>
-					<DropdownMenuLabel>Organizations</DropdownMenuLabel>
-					{organizations.map((o) => (
-						<DropdownMenuItem key={o.id} onClick={() => setCurrentOrgId(o.id)}>
-							{o.name}
-						</DropdownMenuItem>
-					))}
-				</DropdownMenuGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
 	);
 }
 
@@ -125,7 +90,7 @@ function ThemeToggle() {
 }
 
 export function AppHeader() {
-	const { user, organizations } = useAuth();
+	const { user } = useAuth();
 	const isRoot = user.instanceRole === "root";
 	const pathname = usePathname();
 	const isInstanceSection = pathname === "/instance" || pathname.startsWith("/instance/");
@@ -143,7 +108,6 @@ export function AppHeader() {
 			/>
 			<AppBreadcrumbs />
 			<div className="flex items-center gap-1 ml-auto">
-				{organizations.length > 0 && <OrgSwitcher organizations={organizations} />}
 				<NotificationsButton />
 				<ThemeToggle />
 				{isRoot && (

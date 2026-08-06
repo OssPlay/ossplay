@@ -149,6 +149,30 @@ authRoute.get("/me", requireAuth, async (c) => {
 	});
 });
 
+const updateMeSchema = z.object({
+	name: z.string().trim().min(1).max(200),
+});
+
+// Profile settings' only editable field for now — email changes aren't
+// built (this app has no email-verification flow anywhere to gate a change
+// of the account's own identifier).
+authRoute.put("/me", requireAuth, async (c) => {
+	const user = c.get("user");
+	const parsed = updateMeSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) {
+		return c.json({ error: "Invalid input", details: z.treeifyError(parsed.error) }, 400);
+	}
+
+	const [updated] = await getDb()
+		.update(users)
+		.set({ name: parsed.data.name })
+		.where(eq(users.id, user.id))
+		.returning();
+	if (!updated) throw new Error("Update did not return the expected row");
+
+	return c.json({ name: updated.name });
+});
+
 authRoute.get("/sessions", requireAuth, async (c) => {
 	const user = c.get("user");
 	const currentSession = c.get("session");

@@ -43,7 +43,7 @@ instanceInvitationsRoute.get("/token/:token", async (c) => {
 
 	return c.json({
 		email: invitation.email,
-		grantRoot: invitation.grantRoot,
+		instanceRole: invitation.instanceRole,
 		inviterName: inviter?.name ?? null,
 		instanceName: config.instanceName ?? config.domain.name ?? "OSSPlay",
 	});
@@ -83,7 +83,7 @@ instanceInvitationsRoute.post("/token/:token/accept", async (c) => {
 			email: invitation.email,
 			passwordHash,
 			name: parsed.data.name,
-			instanceRole: invitation.grantRoot ? "root" : null,
+			instanceRole: invitation.instanceRole,
 		})
 		.returning();
 	if (!createdUser) throw new Error("Insert did not return the expected row");
@@ -98,7 +98,7 @@ instanceInvitationsRoute.post("/token/:token/accept", async (c) => {
 		action: "user.joined",
 		targetType: "user",
 		targetId: createdUser.id,
-		metadata: { via: "instance_invitation", grantRoot: invitation.grantRoot },
+		metadata: { via: "instance_invitation", instanceRole: invitation.instanceRole },
 	});
 
 	const { token, expiresAt } = await completeSignIn(createdUser.id, {

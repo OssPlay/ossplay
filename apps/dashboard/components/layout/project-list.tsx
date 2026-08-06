@@ -1,6 +1,8 @@
 "use client";
 
-import { ChevronsUpDownIcon, FolderIcon, PlusIcon } from "lucide-react";
+import { FolderIcon, PlusIcon } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
@@ -11,38 +13,33 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
-	SidebarHeader,
+	SidebarGroup,
+	SidebarGroupAction,
+	SidebarGroupLabel,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { Tippy } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { useCurrentOrgId } from "@/lib/current-org";
-import { setCurrentProjectId, useCurrentProjectId } from "@/lib/current-project";
 import { useAuth } from "../providers/auth-provider";
 
 type Project = { id: string; name: string; orgId: string };
 
-export function ProjectSwitcher() {
+// Projects are real URL-based routes now (/project/{id}/settings), not a
+// sessionStorage-backed dropdown switcher — clicking one navigates there
+// directly, so browser back/forward and bookmarks all work. The org itself
+// stays sessionStorage-scoped (see OrgPicker) — this list just reflects
+// whichever org is currently active.
+export function ProjectList() {
 	const { organizations, mutate } = useAuth();
 	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
 	const org = organizations.find((o) => o.id === orgId);
-
-	const projectList = org?.projects ?? [];
-	const projectId = useCurrentProjectId(projectList.map((p) => p.id));
-	const currentProject = projectList.find((p) => p.id === projectId);
+	const pathname = usePathname();
 
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [name, setName] = useState("");
@@ -59,8 +56,7 @@ export function ProjectSwitcher() {
 	async function handleCreate() {
 		await createProject
 			.trigger()
-			.then((res) => {
-				setCurrentProjectId(res.project.id);
+			.then(() => {
 				setName("");
 				setDialogOpen(false);
 				mutate();
@@ -70,42 +66,41 @@ export function ProjectSwitcher() {
 
 	if (!org) return null;
 
+	const projectList = org.projects;
+	// Owner/admin only, per org:create_projects — see permissions.ts. No
+	// client-side permission engine exists in this app; every check like
+	// this is a direct role comparison, matching e.g. app-header.tsx's
+	// `user.instanceRole === "root"`.
+	const canCreate = org.role !== "member";
+
 	return (
-		<SidebarHeader>
+		<SidebarGroup>
+			<SidebarGroupLabel>Projects</SidebarGroupLabel>
+			{canCreate && (
+				<Tippy content="Create project">
+					<SidebarGroupAction onClick={() => setDialogOpen(true)}>
+						<PlusIcon />
+					</SidebarGroupAction>
+				</Tippy>
+			)}
 			<SidebarMenu>
-				<SidebarMenuItem>
-					<DropdownMenu>
-						<DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-							<div className="flex items-center justify-center rounded-lg aspect-square size-8 bg-sidebar-primary text-sidebar-primary-foreground">
-								<FolderIcon className="size-4" />
-							</div>
-							<div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
-								<span className="font-medium truncate">{currentProject?.name ?? "No project"}</span>
-								<span className="text-xs truncate text-muted-foreground">{org.name}</span>
-							</div>
-							<ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start">
-							<DropdownMenuGroup>
-								<DropdownMenuLabel>Projects</DropdownMenuLabel>
-								{projectList.length === 0 && (
-									<p className="px-3 py-2 text-sm text-muted-foreground">
-										No projects yet — create one below.
-									</p>
-								)}
-								{projectList.map((p) => (
-									<DropdownMenuItem key={p.id} onClick={() => setCurrentProjectId(p.id)}>
-										{p.name}
-									</DropdownMenuItem>
-								))}
-							</DropdownMenuGroup>
-							<DropdownMenuSeparator />
-							<DropdownMenuItem onClick={() => setDialogOpen(true)}>
-								<PlusIcon /> Create project
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</SidebarMenuItem>
+				{projectList.length === 0 && (
+					<p className="px-2 py-1.5 text-xs text-muted-foreground">No projects yet.</p>
+				)}
+				{projectList.map((project) => {
+					const href = `/project/${project.id}/settings`;
+					return (
+						<SidebarMenuItem key={project.id}>
+							<SidebarMenuButton
+								isActive={pathname === href || pathname.startsWith(`${href}/`)}
+								render={<Link href={href} />}
+							>
+								<FolderIcon />
+								<span>{project.name}</span>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					);
+				})}
 			</SidebarMenu>
 
 			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -139,6 +134,6 @@ export function ProjectSwitcher() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-		</SidebarHeader>
+		</SidebarGroup>
 	);
 }

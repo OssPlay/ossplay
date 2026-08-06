@@ -100,7 +100,7 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 	});
 
 	// Regression test: a root invited via the org-less instance invite flow
-	// (instance-users.ts's POST /invite, grantRoot: true) has zero org
+	// (instance-users.ts's POST /invite, instanceRole: "root") has zero org
 	// memberships of their own — before this fixed, that made
 	// needsOnboarding derive per-user instead of per-instance, so a second
 	// root would be walked through DNS/SMTP/org setup all over again even
@@ -109,7 +109,7 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 		const inviteRes = await jsonRequest("/instance/users/invite", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ email: "second-root@example.com", grantRoot: true }),
+			body: JSON.stringify({ email: "second-root@example.com", instanceRole: "root" }),
 		});
 		const { invitation } = (await inviteRes.json()) as { invitation: InstanceInvitation };
 		const token = await stampInstanceInvitationToken(invitation.id);

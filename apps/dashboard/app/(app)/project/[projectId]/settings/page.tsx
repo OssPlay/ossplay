@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
@@ -12,20 +12,24 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { useCurrentOrgId } from "@/lib/current-org";
-import { useCurrentProjectId } from "@/lib/current-project";
 
 type Project = { id: string; name: string; orgId: string };
 
 export default function ProjectGeneralPage() {
 	const router = useRouter();
+	const { projectId } = useParams<{ projectId: string }>();
 	const { organizations } = useAuth();
 	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
+	const org = organizations.find((o) => o.id === orgId);
 	const { data: projectsData, mutate } = useSWR<{ projects: Project[] }>(
 		orgId ? `/organizations/${orgId}/projects` : null,
 	);
 	const projectList = projectsData?.projects ?? [];
-	const projectId = useCurrentProjectId(projectsData ? projectList.map((p) => p.id) : undefined);
 	const project = projectList.find((p) => p.id === projectId);
+	// org:delete_projects is owner/admin-only — see permissions.ts. No
+	// client-side permission engine exists, this is a direct role check like
+	// every other one in this app.
+	const canDelete = org?.role !== "member";
 
 	const [name, setName] = useState("");
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -101,38 +105,40 @@ export default function ProjectGeneralPage() {
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Delete project</CardTitle>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-4">
-					<FormError
-						message={remove.error ? errorMessage(remove.error, "Could not delete project") : null}
-					/>
-					{confirmingDelete ? (
-						<div className="flex gap-2">
-							<LoadingButton
-								variant="destructive"
-								loading={remove.isLoading}
-								onClick={handleDelete}
-							>
-								Confirm delete
-							</LoadingButton>
-							<Button
-								variant="ghost"
-								onClick={() => setConfirmingDelete(false)}
-								disabled={remove.isLoading}
-							>
-								Cancel
+			{canDelete && (
+				<Card>
+					<CardHeader>
+						<CardTitle>Delete project</CardTitle>
+					</CardHeader>
+					<CardContent className="flex flex-col gap-4">
+						<FormError
+							message={remove.error ? errorMessage(remove.error, "Could not delete project") : null}
+						/>
+						{confirmingDelete ? (
+							<div className="flex gap-2">
+								<LoadingButton
+									variant="destructive"
+									loading={remove.isLoading}
+									onClick={handleDelete}
+								>
+									Confirm delete
+								</LoadingButton>
+								<Button
+									variant="ghost"
+									onClick={() => setConfirmingDelete(false)}
+									disabled={remove.isLoading}
+								>
+									Cancel
+								</Button>
+							</div>
+						) : (
+							<Button variant="outline" onClick={() => setConfirmingDelete(true)}>
+								Delete project
 							</Button>
-						</div>
-					) : (
-						<Button variant="outline" onClick={() => setConfirmingDelete(true)}>
-							Delete project
-						</Button>
-					)}
-				</CardContent>
-			</Card>
+						)}
+					</CardContent>
+				</Card>
+			)}
 		</div>
 	);
 }

@@ -198,6 +198,50 @@ describe.skipIf(!process.env.DATABASE_URL)("instance user management", () => {
 		expect(body.organizations).toEqual([{ id: orgId, name: "Acme Inc", role: "member" }]);
 	});
 
+	it("PUT /instance/users/:id/role grants and revokes org_creator", async () => {
+		const grantRes = await jsonRequest(`/instance/users/${memberId}/role`, {
+			method: "PUT",
+			cookie: rootCookie,
+			body: JSON.stringify({ role: "org_creator" }),
+		});
+		expect(grantRes.status).toBe(200);
+		expect(await grantRes.json()).toEqual({ instanceRole: "org_creator" });
+
+		const detailRes = await jsonRequest(`/instance/users/${memberId}`, { cookie: rootCookie });
+		const detailBody = (await detailRes.json()) as { user: { instanceRole: string | null } };
+		expect(detailBody.user.instanceRole).toBe("org_creator");
+
+		const revokeRes = await jsonRequest(`/instance/users/${memberId}/role`, {
+			method: "PUT",
+			cookie: rootCookie,
+			body: JSON.stringify({ role: null }),
+		});
+		expect(revokeRes.status).toBe(200);
+		expect(await revokeRes.json()).toEqual({ instanceRole: null });
+	});
+
+	it("PUT /instance/users/:id/role rejects setting root through this endpoint", async () => {
+		const res = await jsonRequest(`/instance/users/${memberId}/role`, {
+			method: "PUT",
+			cookie: rootCookie,
+			body: JSON.stringify({ role: "root" }),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("PUT /instance/users/:id/role rejects changing root's own role", async () => {
+		const db = getDb();
+		const [rootUser] = await db.select().from(users).where(eq(users.instanceRole, "root"));
+		if (!rootUser) throw new Error("Expected a root user to exist");
+
+		const res = await jsonRequest(`/instance/users/${rootUser.id}/role`, {
+			method: "PUT",
+			cookie: rootCookie,
+			body: JSON.stringify({ role: null }),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	it("PUT .../block prevents login and revokes the session; unblock restores it", async () => {
 		// Password was rotated by an earlier test to an unknown temporary
 		// value — reset it to something known first.

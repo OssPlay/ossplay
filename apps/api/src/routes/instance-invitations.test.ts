@@ -35,7 +35,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 		const res = await jsonRequest("/instance/users/invite", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ email: "newbie@example.com", grantRoot: false }),
+			body: JSON.stringify({ email: "newbie@example.com", instanceRole: null }),
 		});
 		// 201 either way — with a `warning` + `inviteUrl` since this test
 		// environment has no default SMTP config, rather than losing the
@@ -47,7 +47,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 			warning?: string;
 		};
 		expect(body.invitation.email).toBe("newbie@example.com");
-		expect(body.invitation.grantRoot).toBe(false);
+		expect(body.invitation.instanceRole).toBeNull();
 		expect(body.warning).toBeTruthy();
 		expect(body.inviteUrl).toContain("/invite/instance/");
 		invitation = body.invitation;
@@ -88,9 +88,13 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 
 		const res = await jsonRequest(`/instance-invitations/token/${inviteToken}`);
 		expect(res.status).toBe(200);
-		const body = (await res.json()) as { email: string; grantRoot: boolean; instanceName: string };
+		const body = (await res.json()) as {
+			email: string;
+			instanceRole: string | null;
+			instanceName: string;
+		};
 		expect(body.email).toBe("newbie@example.com");
-		expect(body.grantRoot).toBe(false);
+		expect(body.instanceRole).toBeNull();
 		expect(body.instanceName).toBe("OSSPlay");
 	});
 
@@ -122,7 +126,7 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 			.where(eq(auditLogs.action, "user.joined"))
 			.orderBy(desc(auditLogs.createdAt))
 			.limit(1);
-		expect(entry?.metadata).toEqual({ via: "instance_invitation", grantRoot: false });
+		expect(entry?.metadata).toEqual({ via: "instance_invitation", instanceRole: null });
 	});
 
 	it("the token can't be reused once accepted", async () => {
@@ -133,11 +137,11 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 		expect(res.status).toBe(404);
 	});
 
-	it("grantRoot: true creates a root account", async () => {
+	it("instanceRole: root creates a root account", async () => {
 		const inviteRes = await jsonRequest("/instance/users/invite", {
 			method: "POST",
 			cookie: rootCookie,
-			body: JSON.stringify({ email: "second-root@example.com", grantRoot: true }),
+			body: JSON.stringify({ email: "second-root@example.com", instanceRole: "root" }),
 		});
 		const { invitation: rootInvitation } = (await inviteRes.json()) as {
 			invitation: InstanceInvitation;
@@ -154,5 +158,39 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 		const meRes = await jsonRequest("/auth/me", { cookie: sessionCookie });
 		const { user } = (await meRes.json()) as { user: { instanceRole: string | null } };
 		expect(user.instanceRole).toBe("root");
+	});
+
+	it("instanceRole: org_creator creates an org_creator account", async () => {
+		const inviteRes = await jsonRequest("/instance/users/invite", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({ email: "org-creator@example.com", instanceRole: "org_creator" }),
+		});
+		const { invitation: orgCreatorInvitation } = (await inviteRes.json()) as {
+			invitation: InstanceInvitation;
+		};
+		const token = await stampInstanceInvitationToken(orgCreatorInvitation.id);
+
+		const acceptRes = await jsonRequest(`/instance-invitations/token/${token}/accept`, {
+			method: "POST",
+			body: JSON.stringify({ name: "Org Creator", password: "org-creator-password-123" }),
+		});
+		expect(acceptRes.status).toBe(200);
+		const sessionCookie = extractCookie(acceptRes, "ossplay_session");
+
+		const meRes = await jsonRequest("/auth/me", { cookie: sessionCookie });
+		const { user } = (await meRes.json()) as { user: { instanceRole: string | null } };
+		expect(user.instanceRole).toBe("org_creator");
+
+		// Can create an organization, but nothing else instance-wide.
+		const createOrgRes = await jsonRequest("/organizations", {
+			method: "POST",
+			cookie: sessionCookie,
+			body: JSON.stringify({ name: "Org Creator's Org" }),
+		});
+		expect(createOrgRes.status).toBe(201);
+
+		const usersListRes = await jsonRequest("/instance/users", { cookie: sessionCookie });
+		expect(usersListRes.status).toBe(403);
 	});
 });

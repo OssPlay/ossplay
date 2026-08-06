@@ -18,14 +18,17 @@ export type OrgPermission =
 	| "org:manage_settings"
 	| "org:manage_members"
 	| "org:delete"
+	| "org:create_projects"
 	| "org:manage_projects"
+	| "org:delete_projects"
 	| "org:manage_assets";
 
 type OrgRole = OrganizationMember["role"];
 type UserLike = Pick<User, "instanceRole">;
 type MembershipLike = Pick<OrganizationMember, "role">;
+type InstanceRole = NonNullable<User["instanceRole"]>;
 
-const INSTANCE_ROLE_PERMISSIONS: Record<"root", readonly InstancePermission[]> = {
+const INSTANCE_ROLE_PERMISSIONS: Record<InstanceRole, readonly InstancePermission[]> = {
 	root: [
 		"instance:manage_workers",
 		"instance:manage_settings",
@@ -33,6 +36,9 @@ const INSTANCE_ROLE_PERMISSIONS: Record<"root", readonly InstancePermission[]> =
 		"instance:manage_users",
 		"instance:view_audit_log",
 	],
+	// Can create and list every organization on the instance, nothing else
+	// instance-wide — see the users.instanceRole column comment.
+	org_creator: ["instance:manage_orgs"],
 };
 
 const ORG_ROLE_PERMISSIONS: Record<OrgRole, readonly OrgPermission[]> = {
@@ -40,11 +46,15 @@ const ORG_ROLE_PERMISSIONS: Record<OrgRole, readonly OrgPermission[]> = {
 		"org:manage_settings",
 		"org:manage_members",
 		"org:delete",
+		"org:create_projects",
 		"org:manage_projects",
+		"org:delete_projects",
 		"org:manage_assets",
 	],
-	admin: ["org:manage_projects", "org:manage_assets"],
-	member: ["org:manage_assets"],
+	admin: ["org:create_projects", "org:manage_projects", "org:delete_projects", "org:manage_assets"],
+	// Members can work within existing projects (edit rules/config) but not
+	// create or delete them — that stays owner/admin only.
+	member: ["org:manage_projects", "org:manage_assets"],
 };
 
 export function hasInstancePermission(user: UserLike, permission: InstancePermission): boolean {

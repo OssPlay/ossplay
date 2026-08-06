@@ -12,9 +12,14 @@ import { apiFetch, errorMessage } from "@/lib/api";
 
 type InstanceInviteDetails = {
 	email: string;
-	grantRoot: boolean;
+	instanceRole: "root" | "org_creator" | null;
 	inviterName: string | null;
 	instanceName: string;
+};
+
+const ROLE_LABELS: Record<"root" | "org_creator", string> = {
+	root: "instance administrator",
+	org_creator: "organization creator",
 };
 
 // Org-less counterpart to (auth)/invite/[token]/page.tsx — always creates a
@@ -66,7 +71,7 @@ export default function InstanceInvitePage() {
 					<CardTitle>Join {details.instanceName}</CardTitle>
 					<CardDescription>
 						{details.inviterName ?? "An instance administrator"} invited {details.email} to join
-						{details.grantRoot ? " as an instance administrator" : ""}.
+						{details.instanceRole ? ` as an ${ROLE_LABELS[details.instanceRole]}` : ""}.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

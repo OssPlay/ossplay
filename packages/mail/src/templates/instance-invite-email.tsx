@@ -6,14 +6,19 @@ export function InstanceInviteEmail({
 	instanceName,
 	inviterName,
 	acceptUrl,
-	grantRoot,
+	instanceRole,
 }: {
 	instanceName: string;
 	inviterName: string;
 	acceptUrl: string;
-	grantRoot: boolean;
+	instanceRole: "root" | "org_creator" | null;
 }) {
-	const roleLabel = grantRoot ? "instance administrator" : "member";
+	const roleLabel =
+		instanceRole === "root"
+			? "instance administrator"
+			: instanceRole === "org_creator"
+				? "organization creator"
+				: "member";
 
 	return (
 		<EmailLayout preview={`${inviterName} invited you to join ${instanceName}`}>
@@ -44,8 +49,8 @@ export function InstanceInviteEmail({
 				<strong style={{ color: "#0f0e17" }}>{roleLabel}</strong>.
 			</Text>
 
-			{/* Role badge for admins */}
-			{grantRoot && (
+			{/* Role badge for elevated instance roles */}
+			{instanceRole && (
 				<Section className="mb-6">
 					<Text
 						style={{
@@ -61,7 +66,7 @@ export function InstanceInviteEmail({
 							textTransform: "uppercase",
 						}}
 					>
-						Instance Administrator
+						{instanceRole === "root" ? "Instance Administrator" : "Organization Creator"}
 					</Text>
 				</Section>
 			)}

@@ -101,6 +101,27 @@ describe.skipIf(!process.env.DATABASE_URL)("projects", () => {
 		expect(res.status).toBe(401);
 	});
 
+	// org:manage_projects (edit) is member-inclusive; org:create_projects and
+	// org:delete_projects stay owner/admin-only — see permissions.ts.
+	it("a member can edit an existing project", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/projects/${project.id}`, {
+			method: "PUT",
+			cookie: memberCookie,
+			body: JSON.stringify({ name: "Renamed by member" }),
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { project: Project };
+		expect(body.project.name).toBe("Renamed by member");
+	});
+
+	it("a member cannot delete a project", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/projects/${project.id}`, {
+			method: "DELETE",
+			cookie: memberCookie,
+		});
+		expect(res.status).toBe(403);
+	});
+
 	it("DELETE /:orgId/projects/:projectId removes the project", async () => {
 		const res = await jsonRequest(`/organizations/${orgId}/projects/${project.id}`, {
 			method: "DELETE",

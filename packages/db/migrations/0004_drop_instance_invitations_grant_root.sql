@@ -1,0 +1,1 @@
+ALTER TABLE "instance_invitations" DROP COLUMN "grant_root";

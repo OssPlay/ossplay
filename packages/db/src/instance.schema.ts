@@ -116,14 +116,17 @@ export const auditLogs = pgTable(
 
 // Org-less invitations — the instance Users page's "Add user" action.
 // Unlike `invitations` (org.schema.ts), there's no orgId: this just
-// provisions a bare account (optionally with root access), the same way
+// provisions a bare account (optionally with an instance role), the same way
 // `/setup` provisions the very first one. Getting the new user into an org
 // afterward is a separate step via the normal org-invite flow. Same
-// hashed-at-rest token pattern as `invitations`/`sessions`.
+// hashed-at-rest token pattern as `invitations`/`sessions`. `instanceRole`
+// mirrors `users.instanceRole` exactly (nullable, same enum) rather than a
+// boolean per possible role — matches how `invitations.role` (org.schema.ts)
+// already models this instead of one flag per org role.
 export const instanceInvitations = pgTable("instance_invitations", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	email: text("email").notNull(),
-	grantRoot: boolean("grant_root").default(false).notNull(),
+	instanceRole: text("instance_role", { enum: ["root", "org_creator"] }),
 	invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
 		onDelete: "set null",
 	}),

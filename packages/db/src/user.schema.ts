@@ -6,7 +6,9 @@ import { sessions } from "./session.schema";
 
 // Instance scope: a user is either a `root` (implicit full access to
 // everything in this deployment, including every organization, with no
-// per-org membership row required) or has no instance-level role at all and
+// per-org membership row required), an `org_creator` (may create/list every
+// organization on the instance — instance:manage_orgs only, none of root's
+// other instance-wide permissions), or has no instance-level role at all and
 // relies entirely on organizationMembers. See ARCHITECTURE.md's
 // Authorization Model section.
 export const users = pgTable("users", {
@@ -14,7 +16,7 @@ export const users = pgTable("users", {
 	email: text("email").notNull().unique(),
 	passwordHash: text("password_hash").notNull(),
 	name: text("name").notNull(),
-	instanceRole: text("instance_role", { enum: ["root"] }),
+	instanceRole: text("instance_role", { enum: ["root", "org_creator"] }),
 	// Quick "who signed in when" visibility (per-session detail lives on
 	// `sessions` below). Set on every successful login, setup, and 2FA verify.
 	lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),

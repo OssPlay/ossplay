@@ -13,7 +13,6 @@ import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import Container from "@/components/ui/container";
 import {
 	Dialog,
@@ -24,6 +23,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
@@ -81,9 +87,9 @@ export default function InstanceUsersPage() {
 			cell: (row) => (
 				<span>
 					{row.name}
-					{row.instanceRole === "root" && (
+					{row.instanceRole && (
 						<Badge variant="default" className="ml-2">
-							root
+							{row.instanceRole === "root" ? "root" : "org creator"}
 						</Badge>
 					)}
 				</span>
@@ -179,9 +185,15 @@ export default function InstanceUsersPage() {
 	);
 }
 
-// Org-less: this only provisions a bare account (optionally with root
-// access) — getting the new user into an org afterward is a separate step
-// via that org's own Members page. See instance-users.ts's POST /invite.
+const INVITE_ROLE_LABELS: Record<"none" | "org_creator" | "root", string> = {
+	none: "No instance role",
+	org_creator: "Organization creator — can create organizations",
+	root: "Instance administrator (root) — full access",
+};
+
+// Org-less: this only provisions a bare account (optionally with an
+// instance role) — getting the new user into an org afterward is a separate
+// step via that org's own Members page. See instance-users.ts's POST /invite.
 function InviteUserDialog({
 	open,
 	onOpenChange,
@@ -192,14 +204,14 @@ function InviteUserDialog({
 	onInvited: () => void;
 }) {
 	const [email, setEmail] = useState("");
-	const [grantRoot, setGrantRoot] = useState(false);
+	const [role, setRole] = useState<"none" | "org_creator" | "root">("none");
 	const [result, setResult] = useState<{ warning?: string; inviteUrl?: string } | null>(null);
 
 	const invite = useAction(
 		() =>
 			apiFetch<{ warning?: string; inviteUrl?: string }>("/instance/users/invite", {
 				method: "POST",
-				body: JSON.stringify({ email, grantRoot }),
+				body: JSON.stringify({ email, instanceRole: role === "none" ? null : role }),
 			}),
 		{ error: null },
 	);
@@ -207,7 +219,7 @@ function InviteUserDialog({
 	function handleOpenChange(next: boolean) {
 		if (next) {
 			setEmail("");
-			setGrantRoot(false);
+			setRole("none");
 			setResult(null);
 			invite.reset();
 		}
@@ -254,16 +266,26 @@ function InviteUserDialog({
 							autoFocus
 							disabled={invite.isLoading}
 						/>
-						<div className="flex items-center gap-2">
-							<Checkbox
-								id="inviteUserGrantRoot"
-								checked={grantRoot}
-								onCheckedChange={setGrantRoot}
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="inviteUserRole">Instance role</Label>
+							<Select
+								value={role}
+								onValueChange={(value) => setRole(value as "none" | "org_creator" | "root")}
 								disabled={invite.isLoading}
-							/>
-							<Label htmlFor="inviteUserGrantRoot" className="font-normal">
-								Grant instance administrator (root) access
-							</Label>
+							>
+								<SelectTrigger id="inviteUserRole" className="w-full">
+									<SelectValue items={INVITE_ROLE_LABELS} />
+								</SelectTrigger>
+								<SelectContent>
+									{(Object.keys(INVITE_ROLE_LABELS) as Array<keyof typeof INVITE_ROLE_LABELS>).map(
+										(value) => (
+											<SelectItem key={value} value={value}>
+												{INVITE_ROLE_LABELS[value]}
+											</SelectItem>
+										),
+									)}
+								</SelectContent>
+							</Select>
 						</div>
 						<FormError
 							message={

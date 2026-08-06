@@ -37,7 +37,7 @@ const createProjectSchema = z.object({
 projectsRoute.post(
 	"/:orgId/projects",
 	requireAuth,
-	requireOrgPermission("org:manage_projects"),
+	requireOrgPermission("org:create_projects"),
 	async (c) => {
 		const parsed = createProjectSchema.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
@@ -90,7 +90,7 @@ projectsRoute.put(
 projectsRoute.delete(
 	"/:orgId/projects/:projectId",
 	requireAuth,
-	requireOrgPermission("org:manage_projects"),
+	requireOrgPermission("org:delete_projects"),
 	async (c) => {
 		const db = getDb();
 		const [existing] = await db

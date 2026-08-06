@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { can } from "./permissions";
 
 const root = { instanceRole: "root" as const };
+const orgCreator = { instanceRole: "org_creator" as const };
 const regular = { instanceRole: null };
 
 describe("instance permissions", () => {
@@ -20,6 +21,14 @@ describe("instance permissions", () => {
 	it("a user with no instance role cannot manage users", () => {
 		expect(can(regular, "instance:manage_users")).toBe(false);
 	});
+
+	it("org_creator can manage orgs but nothing else instance-wide", () => {
+		expect(can(orgCreator, "instance:manage_orgs")).toBe(true);
+		expect(can(orgCreator, "instance:manage_workers")).toBe(false);
+		expect(can(orgCreator, "instance:manage_settings")).toBe(false);
+		expect(can(orgCreator, "instance:manage_users")).toBe(false);
+		expect(can(orgCreator, "instance:view_audit_log")).toBe(false);
+	});
 });
 
 describe("org permissions", () => {
@@ -32,23 +41,29 @@ describe("org permissions", () => {
 		expect(can(regular, "org:manage_settings", membership)).toBe(true);
 		expect(can(regular, "org:manage_members", membership)).toBe(true);
 		expect(can(regular, "org:delete", membership)).toBe(true);
+		expect(can(regular, "org:create_projects", membership)).toBe(true);
 		expect(can(regular, "org:manage_projects", membership)).toBe(true);
+		expect(can(regular, "org:delete_projects", membership)).toBe(true);
 		expect(can(regular, "org:manage_assets", membership)).toBe(true);
 	});
 
-	it("admin can manage projects/assets but not settings/members/delete", () => {
+	it("admin can create/manage/delete projects and assets but not settings/members/delete", () => {
 		const membership = { role: "admin" as const };
+		expect(can(regular, "org:create_projects", membership)).toBe(true);
 		expect(can(regular, "org:manage_projects", membership)).toBe(true);
+		expect(can(regular, "org:delete_projects", membership)).toBe(true);
 		expect(can(regular, "org:manage_assets", membership)).toBe(true);
 		expect(can(regular, "org:manage_settings", membership)).toBe(false);
 		expect(can(regular, "org:manage_members", membership)).toBe(false);
 		expect(can(regular, "org:delete", membership)).toBe(false);
 	});
 
-	it("member can only manage assets", () => {
+	it("member can edit existing projects and manage assets, but not create or delete projects", () => {
 		const membership = { role: "member" as const };
 		expect(can(regular, "org:manage_assets", membership)).toBe(true);
-		expect(can(regular, "org:manage_projects", membership)).toBe(false);
+		expect(can(regular, "org:manage_projects", membership)).toBe(true);
+		expect(can(regular, "org:create_projects", membership)).toBe(false);
+		expect(can(regular, "org:delete_projects", membership)).toBe(false);
 		expect(can(regular, "org:manage_settings", membership)).toBe(false);
 	});
 
