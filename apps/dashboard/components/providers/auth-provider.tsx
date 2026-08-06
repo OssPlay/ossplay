@@ -8,11 +8,12 @@ import useSWR, { type KeyedMutator } from "swr";
 import { useAction } from "@/hooks/use-action";
 import { useActiveActionCount } from "@/lib/action-store";
 import { apiFetch } from "@/lib/api";
-import type { Auth, Me } from "@/types/auth";
+import type { Auth, Me, MeUser } from "@/types/auth";
+import type { InstanceRepo } from "@/types/instance";
 import ErrorBoundary from "../layout/error-boundary";
 import { UpdateRecallGuard } from "./update-recall-guard";
 
-const defaultUser = {
+const defaultUser: MeUser = {
 	id: "",
 	email: "",
 	name: "",
@@ -21,12 +22,15 @@ const defaultUser = {
 	recoveryCodesRemaining: 0,
 };
 
-export const AuthContext = React.createContext<Auth>({
+export const AuthContext = React.createContext<
+	Auth & { instance?: InstanceRepo; mutateInstance: KeyedMutator<InstanceRepo> }
+>({
 	isLoading: true,
 	user: defaultUser,
 	organizations: [],
 	handleLogout: async () => {},
 	mutate: (() => Promise.resolve()) as unknown as KeyedMutator<Me>,
+	mutateInstance: (() => Promise.resolve()) as unknown as KeyedMutator<InstanceRepo>,
 });
 
 export function useAuth() {
@@ -37,9 +41,23 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 	const router = useRouter();
 	const activeActionCount = useActiveActionCount();
 	const pathname = usePathname();
-	const { data: me, isLoading, error, mutate } = useSWR<Me>("/auth/me");
+	const { data: me, isLoading: aML, error: aME, mutate: aMM } = useSWR<Me>("/auth/me");
+	const {
+		data: instanceData,
+		isLoading: iDL,
+		error: iDE,
+		mutate: iDM,
+	} = useSWR<InstanceRepo>("/instance", {
+		revalidateOnFocus: false,
+		revalidateIfStale: false,
+	});
 
-	const logout = useAction(() => apiFetch("/auth/logout", { method: "POST" }), { error: null });
+	const logout = useAction(() => apiFetch("/auth/logout", { method: "POST" }), {
+		error: null,
+	});
+
+	const isLoading = aML || iDL;
+	const error = aME || iDE;
 
 	async function handleLogout(): Promise<void> {
 		if (activeActionCount > 0) {
@@ -53,7 +71,11 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 		} finally {
 			// Always navigate away, even if the server-side logout call failed —
 			// clearing local state matters more than a clean server round-trip.
-			router.replace(`/login?continue=${encodeURIComponent(pathname + (typeof window !== "undefined" ? window.location.search : ""))}`);
+			router.replace(
+				`/login?continue=${encodeURIComponent(
+					pathname + (typeof window !== "undefined" ? window.location.search : ""),
+				)}`,
+			);
 			router.refresh();
 		}
 	}
@@ -83,7 +105,7 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 						{
 							text: "Retry",
 							icon: RefreshCwIcon,
-							onClick: mutate,
+							onClick: iDE ? iDM : aMM,
 						},
 					]}
 				/>
@@ -98,7 +120,9 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 				organizations: me?.organizations ?? [],
 				isLoading: isLoading || logout.isLoading,
 				handleLogout,
-				mutate,
+				mutate: aMM,
+				instance: instanceData,
+				mutateInstance: iDM,
 			}}
 		>
 			<UpdateRecallGuard />

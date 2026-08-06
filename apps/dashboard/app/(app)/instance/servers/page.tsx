@@ -68,10 +68,13 @@ interface RemoteServersResponse {
 
 type SshKeyOption = { id: string; label: string };
 
-const STATUS_VARIANT: Record<ServerStatus, "default" | "secondary" | "destructive" | "outline"> = {
+const STATUS_VARIANT: Record<
+	ServerStatus,
+	"default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
 	pending: "outline",
-	checking: "outline",
-	online: "secondary",
+	checking: "warning",
+	online: "success",
 	offline: "outline",
 	error: "destructive",
 };
@@ -177,10 +180,12 @@ function RemoteServerRowActions({
 	const test = useAction(
 		() => apiFetch(`/instance/servers/${server.id}/test`, { method: "POST" }),
 		{
+			success: "Connection test triggered",
 			error: "Could not test connection",
 		},
 	);
 	const remove = useAction(() => apiFetch(`/instance/servers/${server.id}`, { method: "DELETE" }), {
+		success: `"${server.label}" removed`,
 		error: "Could not remove server",
 	});
 
@@ -274,7 +279,7 @@ function AddServerDialog({
 					sshKeyId,
 				}),
 			}),
-		{ error: "Could not add server" },
+		{ success: "Server added", error: "Could not add server" },
 	);
 
 	function handleOpenChange(next: boolean) {

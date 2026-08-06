@@ -14,11 +14,7 @@ export default function OnboardingDnsStep() {
 				Point a domain at this server for automatic HTTPS. Skippable — you can set this later from
 				instance settings.
 			</CardDescription>
-			<DomainForm
-				saveLabel="Continue"
-				onSaved={() => router.push("/onboarding/smtp")}
-				showInstanceName={false}
-			/>
+			<DomainForm saveLabel="Continue" onSaved={() => router.push("/onboarding/smtp")} />
 			<Button variant="ghost" onClick={() => router.push("/onboarding/smtp")}>
 				Skip
 			</Button>

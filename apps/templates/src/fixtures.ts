@@ -36,8 +36,7 @@ export const FIXTURES = {
 
 	"password-reset-email": [
 		{
-			resetUrl:
-				"https://example.com/reset-password?token=tok_reset_demo1234567890",
+			resetUrl: "https://example.com/reset-password?token=tok_reset_demo1234567890",
 		},
 	],
 } as const;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { type SyntheticEvent, Suspense, useState } from "react";
+import { Suspense, type SyntheticEvent, useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

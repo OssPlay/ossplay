@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
@@ -114,7 +115,7 @@ function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void
 				method: "POST",
 				body: JSON.stringify({ email, role }),
 			}),
-		{ error: "Could not send invitation" },
+		{ error: null },
 	);
 
 	async function handleSubmit() {
@@ -122,7 +123,11 @@ function InviteCard({ orgId, onInvited }: { orgId: string; onInvited: () => void
 		await invite
 			.trigger()
 			.then((res) => {
-				if (res.warning) setWarning(res.warning);
+				if (res.warning) {
+					setWarning(res.warning);
+				} else {
+					toast.success(`Invitation sent to ${email}`);
+				}
 				setEmail("");
 				onInvited();
 			})
@@ -227,7 +232,7 @@ function InvitationRowItem({
 }) {
 	const revoke = useAction(
 		() => apiFetch(`/invitations/${invitation.id}/revoke`, { method: "POST" }),
-		{ error: "Could not revoke invitation" },
+		{ success: "Invitation revoked", error: "Could not revoke invitation" },
 	);
 
 	async function handleRevoke() {

@@ -134,7 +134,7 @@ export default function InstanceSmtpPage() {
 function MakeDefaultButton({ configId, onChange }: { configId: string; onChange: () => void }) {
 	const makeDefault = useAction(
 		() => apiFetch(`/instance/smtp/${configId}/default`, { method: "PUT" }),
-		{ error: "Could not set as default" },
+		{ success: "Set as default SMTP config", error: "Could not set as default" },
 	);
 
 	return (
@@ -165,6 +165,7 @@ function SmtpConfigManageButton({
 	const [deleteOpen, setDeleteOpen] = useState(false);
 
 	const remove = useAction(() => apiFetch(`/instance/smtp/${config.id}`, { method: "DELETE" }), {
+		success: `"${config.name}" deleted`,
 		error: "Could not delete config",
 	});
 
@@ -330,10 +331,6 @@ function SmtpConfigDialog({
 					host,
 					port: Number(port),
 					username: username || null,
-					// Create: omitting entirely vs. sending null both mean "no
-					// password" server-side. Edit: an empty field means "leave the
-					// stored password unchanged", which needs the key omitted rather
-					// than sent as null (null would clear it) — see instance-smtp.ts.
 					...(mode === "edit" ? (password ? { password } : {}) : { password: password || null }),
 					fromAddress,
 					fromName: fromName || null,
@@ -341,6 +338,7 @@ function SmtpConfigDialog({
 				}),
 			}),
 		{
+			success: mode === "edit" ? `"${config?.name}" updated` : "SMTP config created",
 			error: mode === "edit" ? "Could not update SMTP config" : "Could not create SMTP config",
 		},
 	);

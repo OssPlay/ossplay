@@ -2,6 +2,7 @@
 
 import { BellIcon, ChevronsUpDownIcon, MoonIcon, ServerIcon, SunIcon } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Fragment, useEffect, useState } from "react";
 import {
@@ -24,7 +25,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { usePathname } from "next/navigation";
 import { setCurrentOrgId, useCurrentOrgId } from "@/lib/current-org";
 import { useBreadcrumbs } from "@/lib/nav-store";
 import { cn } from "@/lib/utils";

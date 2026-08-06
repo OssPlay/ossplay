@@ -161,8 +161,7 @@ Bun.serve({
 			) {
 				return Response.json(
 					{
-						error:
-							`Refusing to downgrade from ${currentVersion} to ${targetVersion} — this repo's migrations are forward-only.`,
+						error: `Refusing to downgrade from ${currentVersion} to ${targetVersion} — this repo's migrations are forward-only.`,
 					},
 					{ status: 400 },
 				);

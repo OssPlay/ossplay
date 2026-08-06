@@ -68,7 +68,10 @@ instanceInvitationsRoute.post("/token/:token/accept", async (c) => {
 	// email could have been claimed since (e.g. two pending invites racing,
 	// or a fresh /setup) — re-check right before the insert rather than
 	// trust a stale guarantee.
-	const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, invitation.email));
+	const [existingUser] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, invitation.email));
 	if (existingUser) {
 		return c.json({ error: "An account with this email already exists" }, 409);
 	}

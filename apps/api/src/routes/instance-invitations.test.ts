@@ -41,7 +41,11 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 		// environment has no default SMTP config, rather than losing the
 		// invitation.
 		expect(res.status).toBe(201);
-		const body = (await res.json()) as { invitation: InstanceInvitation; inviteUrl: string; warning?: string };
+		const body = (await res.json()) as {
+			invitation: InstanceInvitation;
+			inviteUrl: string;
+			warning?: string;
+		};
 		expect(body.invitation.email).toBe("newbie@example.com");
 		expect(body.invitation.grantRoot).toBe(false);
 		expect(body.warning).toBeTruthy();
@@ -104,7 +108,9 @@ describe.skipIf(!process.env.DATABASE_URL)("instance-level (org-less) user invit
 		const sessionCookie = extractCookie(res, "ossplay_session");
 
 		const meRes = await jsonRequest("/auth/me", { cookie: sessionCookie });
-		const { user } = (await meRes.json()) as { user: { email: string; instanceRole: string | null } };
+		const { user } = (await meRes.json()) as {
+			user: { email: string; instanceRole: string | null };
+		};
 		expect(user.email).toBe("newbie@example.com");
 		expect(user.instanceRole).toBeNull();
 	});

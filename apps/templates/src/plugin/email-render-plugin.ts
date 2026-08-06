@@ -57,10 +57,7 @@ export function emailRenderPlugin(opts: EmailRenderPluginOptions): Plugin {
 					try {
 						// Use Vite's module runner so React/JSX resolution goes through
 						// the same pipeline (handles monorepo node_modules, tsconfig paths)
-						const modulePath = path.join(
-							opts.templatesDir,
-							`${templateName}.tsx`,
-						);
+						const modulePath = path.join(opts.templatesDir, `${templateName}.tsx`);
 
 						// Clear from Vite's module graph so edits hot-reload in the preview
 						const mod = server.moduleGraph.getModulesByFile(modulePath);
@@ -76,20 +73,15 @@ export function emailRenderPlugin(opts: EmailRenderPluginOptions): Plugin {
 						});
 
 						// Find the named export matching the component name
-						const componentName = Object.keys(module).find(
-							(k) => typeof module[k] === "function",
-						);
+						const componentName = Object.keys(module).find((k) => typeof module[k] === "function");
 						if (!componentName) {
 							throw new Error(`No React component export found in ${templateName}`);
 						}
 
-						const Component = module[componentName] as (
-							props: Record<string, unknown>,
-						) => unknown;
+						const Component = module[componentName] as (props: Record<string, unknown>) => unknown;
 
 						// Resolve fixture data for this template
-						const fixtures =
-							FIXTURES[templateName as keyof typeof FIXTURES] ?? [];
+						const fixtures = FIXTURES[templateName as keyof typeof FIXTURES] ?? [];
 						const fixture = fixtures[fixtureIndex] ?? fixtures[0] ?? {};
 
 						// Plain Node `import()`, not server.ssrLoadModule — these are

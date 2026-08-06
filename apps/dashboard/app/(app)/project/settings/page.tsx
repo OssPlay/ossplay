@@ -52,7 +52,7 @@ export default function ProjectGeneralPage() {
 
 	const remove = useAction(
 		() => apiFetch(`/organizations/${orgId}/projects/${projectId}`, { method: "DELETE" }),
-		{ error: "Could not delete project" },
+		{ success: `"${project?.name}" deleted`, error: "Could not delete project" },
 	);
 
 	async function handleRename() {

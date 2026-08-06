@@ -18,7 +18,6 @@ import { passwordRoute } from "./routes/password";
 import { projectsRoute } from "./routes/projects";
 import { setupRoute } from "./routes/setup";
 import { twoFactorRoute } from "./routes/two-factor";
-import { updatesRoute } from "./routes/updates";
 import type { AppEnv } from "./types";
 
 export const app = new Hono<AppEnv>();
@@ -45,7 +44,6 @@ app.route("/instance/users", instanceUsersRoute);
 app.route("/instance/ssh-keys", instanceSshKeysRoute);
 app.route("/instance/servers", instanceServersRoute);
 app.route("/instance/audit-logs", instanceAuditLogsRoute);
-app.route("/updates", updatesRoute);
 app.route("/organizations", organizationsRoute);
 app.route("/organizations", projectsRoute);
 app.route("/invitations", invitationsRoute);

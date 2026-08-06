@@ -26,7 +26,9 @@ function fail(message: string): never {
 async function main() {
 	const docker = Bun.spawnSync(["docker", "info"], { stdout: "ignore", stderr: "ignore" });
 	if (docker.exitCode !== 0) {
-		fail("Docker isn't running — start it and try again (tests need a throwaway Postgres container).");
+		fail(
+			"Docker isn't running — start it and try again (tests need a throwaway Postgres container).",
+		);
 	}
 
 	console.log(`Starting ephemeral test database (${CONTAINER_NAME})...`);
@@ -96,7 +98,10 @@ function resolveHostPort(): string {
 		fail(`Could not resolve the test database's host port.\n${inspect.stderr.toString()}`);
 	}
 	// Output looks like "127.0.0.1:54321" — just need the port.
-	const match = inspect.stdout.toString().trim().match(/:(\d+)$/);
+	const match = inspect.stdout
+		.toString()
+		.trim()
+		.match(/:(\d+)$/);
 	if (!match?.[1]) fail(`Unexpected \`docker port\` output: ${inspect.stdout.toString()}`);
 	return match[1];
 }

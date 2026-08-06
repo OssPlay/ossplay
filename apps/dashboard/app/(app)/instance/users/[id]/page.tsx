@@ -106,11 +106,11 @@ export default function InstanceUserDetailPage() {
 					</Link>
 
 					<div className="flex flex-wrap items-center gap-2">
-						{user.instanceRole === "root" && <Badge variant="secondary">root</Badge>}
+						{user.instanceRole === "root" && <Badge variant="default">root</Badge>}
 						{user.disabledAt ? (
 							<Badge variant="destructive">Blocked</Badge>
 						) : (
-							<Badge variant="secondary">Active</Badge>
+							<Badge variant="success">Active</Badge>
 						)}
 						<span className="text-sm text-muted-foreground">
 							{user.totpEnabled ? "2FA enabled" : "No 2FA"} · {user.passkeyCount} passkey
@@ -143,12 +143,12 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
 				method: "PUT",
 				body: JSON.stringify({ generateTemporary: true }),
 			}),
-		{ error: "Could not reset password" },
+		{ error: null },
 	);
 
 	const reset2fa = useAction(
 		() => apiFetch(`/instance/users/${user.id}/reset-2fa`, { method: "POST" }),
-		{ error: "Could not reset 2FA" },
+		{ success: "2FA & passkeys reset", error: "Could not reset 2FA" },
 	);
 
 	const toggleBlock = useAction(
@@ -157,6 +157,7 @@ function SecurityActions({ user, onChange }: { user: UserDetail; onChange: () =>
 				method: "PUT",
 			}),
 		{
+			success: user.disabledAt ? "User unblocked" : "User blocked",
 			error: user.disabledAt ? "Could not unblock user" : "Could not block user",
 		},
 	);
@@ -307,7 +308,7 @@ function OrgMembershipRow({
 				method: "PUT",
 				body: JSON.stringify({ role }),
 			}),
-		{ error: "Could not change role" },
+		{ success: "Role updated", error: "Could not change role" },
 	);
 
 	const remove = useAction(
@@ -315,7 +316,7 @@ function OrgMembershipRow({
 			apiFetch(`/instance/users/${userId}/organizations/${org.id}`, {
 				method: "DELETE",
 			}),
-		{ error: "Could not remove from organization" },
+		{ success: `Removed from ${org.name}`, error: "Could not remove from organization" },
 	);
 
 	async function handleRemove() {
@@ -387,6 +388,7 @@ function OrgMembershipRow({
 function DangerZone({ user, onDeleted }: { user: UserDetail; onDeleted: () => void }) {
 	const [open, setOpen] = useState(false);
 	const deleteUser = useAction(() => apiFetch(`/instance/users/${user.id}`, { method: "DELETE" }), {
+		success: `${user.name} deleted`,
 		error: "Could not delete user",
 	});
 

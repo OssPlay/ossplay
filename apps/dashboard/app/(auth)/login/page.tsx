@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type SyntheticEvent, Suspense, useEffect, useState } from "react";
+import { Suspense, type SyntheticEvent, useEffect, useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -126,10 +126,7 @@ function LoginForm() {
 					Continue with a passkey
 				</LoadingButton>
 			)}
-			<Link
-				href="/forgot-password"
-				className="text-center text-sm text-muted-foreground underline"
-			>
+			<Link href="/forgot-password" className="text-center text-sm text-muted-foreground underline">
 				Forgot password?
 			</Link>
 		</form>

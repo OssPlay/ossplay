@@ -18,7 +18,6 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import packageJson from "../../package.json";
 import { useAuth } from "../providers/auth-provider";
 
 const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL;
@@ -36,7 +35,7 @@ function initials(name: string): string {
 }
 
 export function AccountDropdown() {
-	const { user, handleLogout, isLoading } = useAuth();
+	const { user, handleLogout, isLoading, instance } = useAuth();
 
 	function UserItem() {
 		return (
@@ -89,7 +88,7 @@ export function AccountDropdown() {
 				</SidebarMenuItem>
 			</SidebarMenu>
 			<p className="px-2 pb-1 text-xs text-center text-muted-foreground">
-				Version v{packageJson.version}
+				Version {instance?.version}
 			</p>
 		</SidebarFooter>
 	);

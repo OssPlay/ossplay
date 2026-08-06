@@ -53,7 +53,7 @@ export function ProjectSwitcher() {
 				method: "POST",
 				body: JSON.stringify({ name }),
 			}),
-		{ error: "Could not create project" },
+		{ success: (data) => `"${data.project.name}" created`, error: "Could not create project" },
 	);
 
 	async function handleCreate() {

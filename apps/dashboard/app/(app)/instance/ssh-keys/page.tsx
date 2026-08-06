@@ -114,12 +114,15 @@ export default function InstanceSshKeysPage() {
 	async function handleBulkDelete(selected: SshKeyRow[]) {
 		const results = await deleteMany.trigger(selected.map((key) => key.id));
 		const failedCount = results.filter((result) => result.status === "rejected").length;
+		const successCount = selected.length - failedCount;
 		if (failedCount > 0) {
 			toast.error(
 				failedCount === selected.length
 					? "Could not delete the selected keys — they may still be used by a remote server."
-					: `Deleted ${selected.length - failedCount} of ${selected.length} keys — the rest may still be used by a remote server.`,
+					: `Deleted ${successCount} of ${selected.length} keys — the rest may still be used by a remote server.`,
 			);
+		} else {
+			toast.success(successCount === 1 ? "1 key deleted" : `${successCount} keys deleted`);
 		}
 		table.mutate();
 	}
@@ -179,6 +182,7 @@ function SshKeyRowDelete({ sshKey, onDeleted }: { sshKey: SshKeyRow; onDeleted: 
 	const remove = useAction(
 		() => apiFetch(`/instance/ssh-keys/${sshKey.id}`, { method: "DELETE" }),
 		{
+			success: `"${sshKey.label}" deleted`,
 			error: "Could not delete key",
 		},
 	);

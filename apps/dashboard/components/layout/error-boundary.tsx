@@ -13,7 +13,7 @@ export default function ErrorBoundary({
 	description?: string;
 	// action?: () => Promise<void>;
 	// actionText?: string;
-	actions: Array<{
+	actions?: Array<{
 		text: string;
 		icon?: LucideIcon;
 		variant?: VariantProps<typeof buttonVariants>["variant"];

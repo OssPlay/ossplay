@@ -40,7 +40,7 @@ export default function Layout({ children }: React.PropsWithChildren) {
 				<AppSidebar />
 				<SidebarInset>
 					<AppHeader />
-					<div className="flex flex-col flex-1 min-w-0 p-4">
+					<div className="flex flex-col flex-1 gap-y-4 min-w-0 p-4">
 						<Section sidepanel={sidepanel}>{children}</Section>
 					</div>
 				</SidebarInset>

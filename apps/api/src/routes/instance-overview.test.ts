@@ -34,8 +34,8 @@ describe.skipIf(!process.env.DATABASE_URL)("instance overview", () => {
 	// see apps/api/src/lib/updates/check.ts) — this only asserts the
 	// response shape, not what GitHub actually reports, since CI may or may
 	// not have outbound internet.
-	it("POST /instance/updates/check returns a well-formed result", async () => {
-		const res = await jsonRequest("/instance/updates/check", {
+	it("POST /instance/overview/updates returns a well-formed result", async () => {
+		const res = await jsonRequest("/instance/overview/updates", {
 			method: "POST",
 			cookie: rootCookie,
 		});
@@ -51,8 +51,8 @@ describe.skipIf(!process.env.DATABASE_URL)("instance overview", () => {
 		expect(typeof body.forced).toBe("boolean");
 	});
 
-	it("POST /instance/updates/apply degrades gracefully — no updater sidecar configured in tests", async () => {
-		const res = await jsonRequest("/instance/updates/apply", {
+	it("POST /instance/overview/updates/apply degrades gracefully — no updater sidecar configured in tests", async () => {
+		const res = await jsonRequest("/instance/overview/updates/apply", {
 			method: "POST",
 			cookie: rootCookie,
 		});
@@ -62,22 +62,42 @@ describe.skipIf(!process.env.DATABASE_URL)("instance overview", () => {
 		expect(body.reason.length).toBeGreaterThan(0);
 	});
 
-	it("rejects an unauthenticated recall check", async () => {
-		const res = await jsonRequest("/updates/recall-check");
+	it("PUT /instance/overview updates the instance name", async () => {
+		const res = await jsonRequest("/instance/overview", {
+			method: "PUT",
+			cookie: rootCookie,
+			body: JSON.stringify({ instanceName: "Acme OSSPlay" }),
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ instanceName: "Acme OSSPlay" });
+
+		const getRes = await jsonRequest("/instance/overview", { cookie: rootCookie });
+		const getBody = (await getRes.json()) as { instanceName: string | null };
+		expect(getBody.instanceName).toBe("Acme OSSPlay");
+	});
+
+	it("rejects an unauthenticated request to GET /instance", async () => {
+		const res = await jsonRequest("/instance");
 		expect(res.status).toBe(401);
 	});
 
-	// Deliberately outside /instance (root-only) — any authenticated user
-	// can check whether their running version was recalled.
-	it("GET /updates/recall-check returns a well-formed result for any authenticated user", async () => {
-		const res = await jsonRequest("/updates/recall-check", { cookie: rootCookie });
+	// Deliberately outside the root-only /instance/* gate registered below in
+	// routes/instance/index.ts: any authenticated user (not just root) can
+	// check whether their running version was recalled. This is what
+	// replaced the old, dedicated `/updates/recall-check` endpoint.
+	it("GET /instance returns a well-formed result for any authenticated user", async () => {
+		const res = await jsonRequest("/instance", { cookie: rootCookie });
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
-			forced: boolean;
-			forcedReason: string | null;
-			currentVersion: string;
+			version: string;
+			updates: {
+				forced: boolean;
+				forcedReason: string | null;
+				currentVersion: string;
+			};
 		};
-		expect(typeof body.forced).toBe("boolean");
-		expect(typeof body.currentVersion).toBe("string");
+		expect(typeof body.version).toBe("string");
+		expect(typeof body.updates.forced).toBe("boolean");
+		expect(typeof body.updates.currentVersion).toBe("string");
 	});
 });

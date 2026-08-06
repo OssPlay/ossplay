@@ -61,18 +61,12 @@ type DomainResponse = {
 export function DomainForm({
 	saveLabel = "Save",
 	onSaved,
-	showInstanceName = true,
 }: {
 	saveLabel?: string;
 	onSaved?: () => void;
-	// Onboarding's DNS step is about the domain/TLS only — the instance name
-	// field still round-trips through the same PUT so it's never clobbered,
-	// it's just not shown as an input there.
-	showInstanceName?: boolean;
 }) {
 	const { user } = useAuth();
 	const { data, mutate } = useSWR<DomainResponse>("/instance/domain");
-	const [instanceName, setInstanceName] = useState("");
 	const [domain, setDomain] = useState("");
 	const [letsEncryptEmail, setLetsEncryptEmail] = useState("");
 	const [certProvider, setCertProvider] = useState<CertProvider>("letsencrypt");
@@ -92,7 +86,6 @@ export function DomainForm({
 
 	useEffect(() => {
 		if (data && !seeded.current) {
-			setInstanceName(data.instanceName ?? "");
 			setDomain(data.domain ?? "");
 			setLetsEncryptEmail(data.letsEncryptEmail ?? user.email);
 			setCertProvider(data.certProvider);
@@ -120,7 +113,11 @@ export function DomainForm({
 				try {
 					const controller = new AbortController();
 					const timeout = setTimeout(() => controller.abort(), REDIRECT_POLL_INTERVAL_MS - 200);
-					await fetch(targetUrl, { mode: "no-cors", cache: "no-store", signal: controller.signal });
+					await fetch(targetUrl, {
+						mode: "no-cors",
+						cache: "no-store",
+						signal: controller.signal,
+					});
 					clearTimeout(timeout);
 					if (!cancelled) window.location.href = targetUrl;
 					return;
@@ -146,7 +143,6 @@ export function DomainForm({
 				{
 					method: "PUT",
 					body: JSON.stringify({
-						instanceName: instanceName || null,
 						domain: domain || null,
 						letsEncryptEmail: letsEncryptEmail || null,
 						certProvider,
@@ -154,7 +150,7 @@ export function DomainForm({
 					}),
 				},
 			),
-		{ error: "Could not save domain" },
+		{ success: (data) => data.message || "Domain saved", error: null },
 	);
 
 	async function performSave() {
@@ -231,17 +227,6 @@ export function DomainForm({
 
 	return (
 		<div className="flex flex-col gap-4">
-			{showInstanceName && (
-				<FormField
-					id="instanceName"
-					label="Instance name"
-					value={instanceName}
-					onChange={setInstanceName}
-					autoComplete="off"
-					helpText="e.g. your company name — shown in invite emails sent from this instance."
-					disabled={save.isLoading}
-				/>
-			)}
 			<FormField
 				id="domain"
 				label="Domain"

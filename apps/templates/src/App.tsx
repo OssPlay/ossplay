@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { FIXTURES } from "./fixtures";
 import type { FixtureName } from "./fixtures";
+import { FIXTURES } from "./fixtures";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -12,10 +12,7 @@ function templateLabel(name: string): string {
 }
 
 function fixtureCount(name: string): number {
-	return (
-		(FIXTURES[name as FixtureName] as readonly unknown[] | undefined)?.length ??
-		1
-	);
+	return (FIXTURES[name as FixtureName] as readonly unknown[] | undefined)?.length ?? 1;
 }
 
 type ViewMode = "desktop" | "mobile" | "source";
@@ -53,13 +50,10 @@ function SidebarItem({
 			}}
 			onMouseEnter={(e) => {
 				if (!active)
-					(e.currentTarget as HTMLButtonElement).style.background =
-						"var(--surface-raised)";
+					(e.currentTarget as HTMLButtonElement).style.background = "var(--surface-raised)";
 			}}
 			onMouseLeave={(e) => {
-				if (!active)
-					(e.currentTarget as HTMLButtonElement).style.background =
-						"transparent";
+				if (!active) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
 			}}
 		>
 			{/* envelope icon */}
@@ -85,13 +79,7 @@ function SidebarItem({
 
 // ── View mode toggle ──────────────────────────────────────────────────────────
 
-function ViewToggle({
-	mode,
-	onChange,
-}: {
-	mode: ViewMode;
-	onChange: (m: ViewMode) => void;
-}) {
+function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
 	const modes: { id: ViewMode; label: string; icon: string }[] = [
 		{
 			id: "desktop",
@@ -308,12 +296,7 @@ export default function App() {
 						</p>
 					)}
 					{templates.map((t) => (
-						<SidebarItem
-							key={t}
-							name={t}
-							active={t === selected}
-							onClick={() => setSelected(t)}
-						/>
+						<SidebarItem key={t} name={t} active={t === selected} onClick={() => setSelected(t)} />
 					))}
 				</div>
 			</aside>
@@ -354,9 +337,7 @@ export default function App() {
 					{/* Fixture picker */}
 					{numFixtures > 1 && (
 						<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-							<span style={{ fontSize: 11, color: "var(--fg-muted)" }}>
-								Fixture
-							</span>
+							<span style={{ fontSize: 11, color: "var(--fg-muted)" }}>Fixture</span>
 							{Array.from({ length: numFixtures }, (_, i) => (
 								<button
 									// biome-ignore lint/suspicious/noArrayIndexKey: fixed-length, order-stable index range (0..numFixtures), not a reorderable list.
@@ -371,14 +352,8 @@ export default function App() {
 										cursor: "pointer",
 										fontSize: 11,
 										fontWeight: 600,
-										color:
-											fixtureIdx === i
-												? "var(--primary-fg)"
-												: "var(--fg-muted)",
-										background:
-											fixtureIdx === i
-												? "var(--primary)"
-												: "var(--surface-raised)",
+										color: fixtureIdx === i ? "var(--primary-fg)" : "var(--fg-muted)",
+										background: fixtureIdx === i ? "var(--primary)" : "var(--surface-raised)",
 									}}
 								>
 									{i + 1}

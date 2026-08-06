@@ -70,7 +70,7 @@ function ChangePasswordCard() {
 				method: "POST",
 				body: JSON.stringify({ currentPassword, newPassword }),
 			}),
-		{ error: "Could not change password" },
+		{ success: "Password changed", error: null },
 	);
 
 	async function handleSubmit() {
@@ -391,6 +391,7 @@ function PasskeysCard() {
 	}, []);
 
 	const register = useAction(() => registerPasskey(deviceName || undefined), {
+		success: "Passkey registered",
 		error: "Could not register passkey",
 	});
 
@@ -470,6 +471,7 @@ function PasskeysCard() {
 
 function PasskeyRowItem({ passkey, onRemoved }: { passkey: PasskeyRow; onRemoved: () => void }) {
 	const remove = useAction(() => apiFetch(`/auth/passkey/${passkey.id}`, { method: "DELETE" }), {
+		success: `"${passkey.deviceName ?? "Passkey"}" removed`,
 		error: "Could not remove passkey",
 	});
 
@@ -525,6 +527,7 @@ function SessionsCard({ sessions, onChange }: { sessions: SessionRow[]; onChange
 
 function SessionRowItem({ session, onRevoked }: { session: SessionRow; onRevoked: () => void }) {
 	const revoke = useAction(() => apiFetch(`/auth/sessions/${session.id}`, { method: "DELETE" }), {
+		success: "Session revoked",
 		error: "Could not revoke session",
 	});
 
