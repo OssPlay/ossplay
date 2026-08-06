@@ -142,6 +142,10 @@ services:
     environment:
       OSSPLAY_ROLE: updater
       OSSPLAY_UPDATER_TOKEN: ${OSSPLAY_UPDATER_TOKEN:?OSSPLAY_UPDATER_TOKEN must be set — install.sh generates one into .env}
+      # Which release assets applyUpdate() re-syncs docker-compose.yml/.env
+      # against on every real update (infra/updater/index.ts) — same var/
+      # default as the api service below, only needs overriding on a fork.
+      OSSPLAY_GITHUB_REPO: ${OSSPLAY_GITHUB_REPO:-OssPlay/ossplay}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}:${PWD}

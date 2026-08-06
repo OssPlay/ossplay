@@ -6,7 +6,7 @@
 // install directory at the *same absolute path* inside the container as on
 // the host — otherwise this file's own relative volume paths resolve wrong
 // once the daemon (which only ever sees the host filesystem) reads them.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 const PORT = 8787;
 const TOKEN = process.env.OSSPLAY_UPDATER_TOKEN;
@@ -18,6 +18,19 @@ if (!TOKEN) {
 }
 
 const COMPOSE_FILE = process.env.OSSPLAY_COMPOSE_FILE ?? "docker-compose.yml";
+const ENV_FILE = process.env.OSSPLAY_ENV_FILE ?? ".env";
+// Same repo the api container checks for releases against (apps/api/src/lib/
+// updates/check.ts) — overridable so a fork's updater re-syncs from its own
+// releases instead of upstream's.
+const REPO = process.env.OSSPLAY_GITHUB_REPO ?? "OssPlay/ossplay";
+
+// Secrets install.sh (website/public/install.sh) generates once, at first
+// install — every var here is safe to backfill into an *existing* .env,
+// because unlike POSTGRES_PASSWORD (already baked into Postgres's own data
+// directory — regenerating it here would just lock the running database
+// out) nothing else on the box has this value baked in anywhere else. Keep
+// this list in sync with install.sh's own generation list.
+const GENERATED_ENV_VARS = ["OSSPLAY_UPDATER_TOKEN", "OSSPLAY_ENCRYPTION_KEY"] as const;
 
 type JobStatus = "pending" | "pulling" | "migrating" | "restarting" | "done" | "failed";
 
@@ -57,6 +70,75 @@ function compareVersions(a: string, b: string): number {
 	return pa.prerelease < pb.prerelease ? -1 : 1;
 }
 
+// The box's local docker-compose.yml is a point-in-time copy install.sh
+// downloaded once at first install (see website/public/install.sh) — a real
+// update only ever pulls new *images* (see applyUpdate below), so a
+// compose-file-level change (a new required env var, a new service) would
+// otherwise never reach an already-running instance at all, only a fresh
+// install. Resolving the target release's actual tag first — rather than
+// trusting `version`, which may literally be the string "latest" — mirrors
+// install.sh's own reasoning for why it can't just hit GitHub's
+// /releases/latest redirect: that skips pre-releases, and during the alpha
+// series every release *is* one.
+async function resolveReleaseTag(version: string): Promise<string> {
+	if (version !== "latest") return version.startsWith("v") ? version : `v${version}`;
+	const res = await fetch(`https://api.github.com/repos/${REPO}/releases`, {
+		headers: { Accept: "application/vnd.github+json" },
+	});
+	if (!res.ok)
+		throw new Error(`Could not resolve the latest release: GitHub returned ${res.status}`);
+	const releases = (await res.json()) as Array<{ tag_name?: string }>;
+	const tag = releases[0]?.tag_name;
+	if (!tag) throw new Error(`No published release found for ${REPO}`);
+	return tag;
+}
+
+async function syncComposeFile(tag: string, job: Job): Promise<void> {
+	const url = `https://github.com/${REPO}/releases/download/${tag}/docker-compose.yml`;
+	const res = await fetch(url);
+	if (!res.ok) {
+		throw new Error(`Could not fetch docker-compose.yml for ${tag} (${url}): ${res.status}`);
+	}
+	const text = await res.text();
+	const path = `${process.cwd()}/${COMPOSE_FILE}`;
+	const current = await Bun.file(path)
+		.text()
+		.catch(() => "");
+	if (text === current) return;
+	await Bun.write(path, text);
+	job.log.push(`Synced ${COMPOSE_FILE} to ${tag}`);
+}
+
+// Runs right after syncComposeFile, before the very first `docker compose`
+// invocation — `pull` interpolates the *whole* compose file, including every
+// service's `environment:` block, not just the ones `pull` itself needs
+// (verified empirically: a bare `docker compose pull` fails immediately on a
+// missing `${VAR:?...}`, same as `up`). Without this, a release that adds a
+// newly-required var (like OSSPLAY_ENCRYPTION_KEY) would leave every
+// existing instance's "Check for updates" stuck permanently failing at the
+// pull step, with no way to recover short of SSHing in and hand-editing
+// .env — silently defeating the whole point of an update button.
+async function ensureEnvDefaults(job: Job): Promise<void> {
+	const path = `${process.cwd()}/${ENV_FILE}`;
+	const current = await Bun.file(path)
+		.text()
+		.catch(() => "");
+	const present = new Set(
+		current
+			.split("\n")
+			.map((line) => line.match(/^([A-Z0-9_]+)=/)?.[1])
+			.filter((name): name is string => Boolean(name)),
+	);
+	const missing = GENERATED_ENV_VARS.filter((name) => !present.has(name));
+	if (missing.length === 0) return;
+	const additions = missing.map((name) => `${name}=${randomBytes(32).toString("hex")}\n`).join("");
+	await Bun.write(
+		path,
+		(current.endsWith("\n") || current === "" ? current : `${current}\n`) + additions,
+	);
+	job.log.push(`Backfilled missing .env vars: ${missing.join(", ")}`);
+}
+
 async function run(cmd: string[], env: Record<string, string | undefined> = {}): Promise<string> {
 	const proc = Bun.spawn(cmd, {
 		cwd: process.cwd(),
@@ -78,6 +160,14 @@ async function run(cmd: string[], env: Record<string, string | undefined> = {}):
 async function applyUpdate(job: Job) {
 	try {
 		job.status = "pulling";
+		// dev/local dry runs (job.version === "dev") have no matching GitHub
+		// release to sync against — the compose file/.env are whatever the
+		// dry run set up directly, nothing to fetch.
+		if (job.version !== "dev") {
+			const tag = await resolveReleaseTag(job.version);
+			await syncComposeFile(tag, job);
+		}
+		await ensureEnvDefaults(job);
 		job.log.push(
 			await run(["docker", "compose", "-f", COMPOSE_FILE, "pull"], {
 				OSSPLAY_VERSION: job.version,

@@ -6,6 +6,18 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-06 — Updater re-syncs docker-compose.yml + backfills .env on every real update
+
+**Status:** Decided
+
+Real EC2 install testing surfaced `OSSPLAY_ENCRYPTION_KEY` missing from `docker-compose.yml`'s `api` service and from `install.sh`'s `.env` generation — a fresh install crash-looped with `packages/core/src/crypto/secret-box.ts`'s "not set" error. The first fix (wire the var into `docker-compose.yml`, generate/backfill it in `install.sh`) was itself incomplete: it assumed re-running `install.sh` is how an existing instance picks up a fix like this. It isn't — the actual "Check for updates" apply flow (`infra/updater/index.ts`'s `POST /update`) only ever pulls new *images*; it never re-downloads `docker-compose.yml` or touches `.env`. A box's local compose file is a point-in-time copy from whenever `install.sh` first ran, so a compose-level change (a newly-required env var, a new service) would never reach an already-running instance through the supported update path — only a fresh install (or a manual reinstall) would ever see it.
+
+- **The updater, not `install.sh`, is now the authoritative place for this.** `applyUpdate()` resolves the target release's real tag (mirroring `install.sh`'s own `/releases`-listing trick, since GitHub's `/releases/latest` skips pre-releases and every release is one during the alpha series), re-fetches that release's `docker-compose.yml` over the box's local copy, and backfills any missing generated secret into `.env` — all before the first `docker compose` call, since `docker compose pull` itself interpolates the whole compose file (verified empirically: a bare `pull` fails immediately on a missing `${VAR:?...}`, not just `up`).
+- **`install.sh`'s own generate/backfill table stays** (`ENV_VARS`/`BACKFILLABLE_ENV_VARS` in `website/public/install.sh`) — useful for the first install and for manually recovering an instance by reinstalling — but it's belt-and-suspenders now, not the mechanism a normal "click update in the dashboard" flow goes through. The two lists (updater's `GENERATED_ENV_VARS`, install.sh's `BACKFILLABLE_ENV_VARS`) are intentionally kept in sync by comment, not by shared code — different languages, only two call sites, not worth a cross-repo abstraction yet.
+- **`POSTGRES_PASSWORD` is excluded from every backfill path, in both places.** It's the one generated var that isn't actually safe to regenerate after the fact: Postgres's own data directory already has that exact password baked in from first init, so silently backfilling a new one would just lock the running database out (`DATABASE_URL` would carry the new value, Postgres would still only accept the old one). Caught as a real bug in an interim version of `install.sh`'s own generalization that briefly included it in the backfill loop.
+
+---
+
 ## 2026-08-06 — Profile settings, org-picker-in-sidebar, URL-based project nav, `org_creator` role
 
 **Status:** Decided (Supersedes, in part: PRD.md §2.3's "root promotion has no UI" — narrowed below, not reversed)
