@@ -21,6 +21,15 @@ export interface InstanceConfig {
 	// Acme Inc"), since a bare hostname is a poor greeting and a domain isn't
 	// always configured at all.
 	instanceName: string | null;
+	// Set once, the first time any organization is ever created on this
+	// instance (see organizations.ts's POST /) — never cleared afterward.
+	// This is what lets /onboarding/status's `needsOnboarding` stay false
+	// permanently once an instance has been through setup, even if every
+	// organization is later deleted (e.g. via the org settings danger zone)
+	// — onboarding is a one-time first-run experience, not something that
+	// should re-trigger just because the org count happens to hit zero
+	// again.
+	onboardedAt: string | null;
 	domain: {
 		name: string | null;
 		configuredAt: string | null; // ISO string — plain YAML has no native Date type
@@ -43,12 +52,14 @@ export interface InstanceConfig {
 // without needing to know or re-send the rest.
 export interface InstanceConfigPatch {
 	instanceName?: string | null;
+	onboardedAt?: string | null;
 	domain?: Partial<InstanceConfig["domain"]>;
 	updates?: Partial<InstanceConfig["updates"]>;
 }
 
 const DEFAULTS: InstanceConfig = {
 	instanceName: null,
+	onboardedAt: null,
 	domain: {
 		name: null,
 		configuredAt: null,
@@ -81,6 +92,7 @@ export function readInstanceConfig(): InstanceConfig {
 	}
 	return {
 		instanceName: parsed.instanceName ?? DEFAULTS.instanceName,
+		onboardedAt: parsed.onboardedAt ?? DEFAULTS.onboardedAt,
 		domain: { ...DEFAULTS.domain, ...parsed.domain },
 		updates: { ...DEFAULTS.updates, ...parsed.updates },
 	};
@@ -93,6 +105,7 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 	const current = readInstanceConfig();
 	const next: InstanceConfig = {
 		instanceName: patch.instanceName !== undefined ? patch.instanceName : current.instanceName,
+		onboardedAt: patch.onboardedAt !== undefined ? patch.onboardedAt : current.onboardedAt,
 		domain: { ...current.domain, ...patch.domain },
 		updates: { ...current.updates, ...patch.updates },
 	};
@@ -130,6 +143,7 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 export function resetInstanceConfig(): InstanceConfig {
 	return writeInstanceConfig({
 		instanceName: DEFAULTS.instanceName,
+		onboardedAt: DEFAULTS.onboardedAt,
 		domain: DEFAULTS.domain,
 		updates: DEFAULTS.updates,
 	});

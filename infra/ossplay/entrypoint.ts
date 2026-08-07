@@ -1,9 +1,11 @@
-// Role-dispatch entrypoint for the unified ghcr.io/ossplay/ossplay image.
-// docker-compose runs this same image as several containers (api, dashboard,
-// worker, updater), each with a different OSSPLAY_ROLE — this just execs the
-// matching app's process, so there's one build/publish pipeline but the
-// containers still restart/scale/health-check independently, same as when
-// they were four separate images.
+// Role-dispatch entrypoint shared by all four ghcr.io/ossplay/ossplay:<ver>-*
+// role images (see infra/ossplay/Dockerfile's runner-{api,dashboard,worker,
+// updater} stages) — one build definition/version to manage instead of four
+// in lockstep, even though each stage only bakes in that role's own code.
+// docker-compose sets OSSPLAY_ROLE per service (see infra/docker-compose.yml)
+// to pick which process this execs; a mismatched role (e.g. OSSPLAY_ROLE=
+// worker against the -api image, which has no apps/worker directory) fails
+// fast here rather than the container silently doing nothing useful.
 const ROLE_COMMANDS: Record<string, { cwd: string; cmd: string[] }> = {
 	api: { cwd: "apps/api", cmd: ["bun", "run", "src/index.ts"] },
 	dashboard: { cwd: "apps/dashboard", cmd: ["bun", "run", "server.js"] },

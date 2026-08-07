@@ -30,7 +30,12 @@ services:
       retries: 10
 
   api:
-    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
+    # -api/-dashboard/-updater: each role is its own published image (see
+    # infra/ossplay/Dockerfile's runner-* stages + docker-images.yml's role
+    # matrix) — a container for one role never carries another role's
+    # source. OSSPLAY_ROLE is still set below for entrypoint.ts's dispatch;
+    # it's now also implied by which tag a service pulls.
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}-api
     environment:
       OSSPLAY_ROLE: api
       DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
@@ -85,7 +90,7 @@ services:
     restart: unless-stopped
 
   dashboard:
-    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}-dashboard
     environment:
       OSSPLAY_ROLE: dashboard
       PORT: 3000
@@ -138,7 +143,7 @@ services:
   # was invoked from) is what makes those paths line up on both sides — the
   # standard DooD pattern.
   updater:
-    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}-updater
     environment:
       OSSPLAY_ROLE: updater
       OSSPLAY_UPDATER_TOKEN: ${OSSPLAY_UPDATER_TOKEN:?OSSPLAY_UPDATER_TOKEN must be set — install.sh generates one into .env}

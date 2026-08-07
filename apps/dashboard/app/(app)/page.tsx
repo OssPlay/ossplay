@@ -1,5 +1,6 @@
 "use client";
 
+import { Building2Icon } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
 import { buttonVariants } from "@/components/ui/button";
@@ -11,12 +12,42 @@ export default function Home() {
 	const { user, organizations, handleLogout, isLoading } = useAuth();
 
 	const primaryOrg = organizations[0];
+	const hasNoOrg = organizations.length === 0;
 	// Root has implicit access to every org regardless of membership rows
-	// (see ARCHITECTURE.md's Authorization Model section), so an empty
-	// `organizations` array means something different for them than for
-	// anyone else — root always has somewhere to go (/instance), a non-root
-	// account with no membership genuinely has nothing to do here yet.
-	const isStranded = organizations.length === 0 && user.instanceRole !== "root";
+	// (see ARCHITECTURE.md's Authorization Model section) — a root with zero
+	// membership rows still has somewhere useful to go: Instance >
+	// Organizations, the one real place organizations get created and
+	// managed (see that page's "New organization" dialog) — not a duplicate
+	// input right here. A non-root account with no membership genuinely has
+	// nothing to do until an admin adds them. This is also what a fresh
+	// instance's root — or any root after the only org gets deleted — lands
+	// on now, instead of being bounced through the onboarding wizard again
+	// (see proxy.ts/onboarding.ts: onboarding only ever needs to happen
+	// once).
+	const isRootStranded = hasNoOrg && user.instanceRole === "root";
+	const isStranded = hasNoOrg && user.instanceRole !== "root";
+
+	if (isRootStranded) {
+		return (
+			<Container size="lg" className="flex-1">
+				<div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
+					<div className="flex size-14 items-center justify-center rounded-2xl bg-muted">
+						<Building2Icon className="size-7 text-muted-foreground" />
+					</div>
+					<div className="flex max-w-sm flex-col gap-1.5">
+						<h2 className="text-lg font-semibold">No organizations yet</h2>
+						<p className="text-sm text-muted-foreground">
+							This instance doesn't have an organization. Create one from Instance settings to get
+							started.
+						</p>
+					</div>
+					<Link href="/instance/organizations" className={buttonVariants({ variant: "default" })}>
+						Go to Organizations
+					</Link>
+				</div>
+			</Container>
+		);
+	}
 
 	if (isStranded) {
 		return (

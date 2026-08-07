@@ -1,7 +1,11 @@
-// The `updater` role of the unified ghcr.io/ossplay/ossplay image (PRD.md
-// §2.2). Docker-outside-of-Docker: this process talks to the HOST docker
-// daemon via the mounted /var/run/docker.sock, using the `docker`/`docker
-// compose` CLIs baked into the image (see infra/ossplay/Dockerfile). It
+// The ghcr.io/ossplay/ossplay:<version>-updater image (PRD.md §2.2) — the
+// only one of the four role images with docker-cli/docker-cli-compose baked
+// in, and the only one that ever gets the host docker.sock mounted (see
+// infra/docker-compose.yml's `updater` service) — deliberately the smallest,
+// most isolated image of the four (see infra/ossplay/Dockerfile) since it's
+// also the most privileged. Docker-outside-of-Docker: this process talks to
+// the HOST docker daemon via that mounted socket, using the `docker`/`docker
+// compose` CLIs baked into its own image. It
 // depends on infra/docker-compose.yml's `updater` service bind-mounting the
 // install directory at the *same absolute path* inside the container as on
 // the host — otherwise this file's own relative volume paths resolve wrong

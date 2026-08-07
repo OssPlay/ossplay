@@ -3,17 +3,22 @@ name: Docker Image
 # Publishes to GHCR, not Docker Hub — see ARCHITECTURE.md §8. Zero-config:
 # uses the repo's built-in GITHUB_TOKEN, no separate registry account needed.
 #
-# One unified image (api/dashboard/worker/updater run as roles of the same
-# build — see infra/ossplay/entrypoint.ts) instead of a per-app matrix, so
-# this is a single build/push job rather than four.
+# One Dockerfile (infra/ossplay/Dockerfile), one version to manage — but NOT
+# one image. Each role (api/dashboard/worker/updater) is its own final build
+# stage/target, published as ghcr.io/ossplay/ossplay:<version>-<role>, so a
+# container for one role never carries another role's source (see that
+# Dockerfile's own comment for why: exec'ing into, say, the public api
+# container used to also expose infra/updater's privileged docker-compose-
+# control code). The matrix below is 4 image pushes instead of 1, but still
+# a single Dockerfile/CI-workflow to keep in lockstep, not four.
 #
 # Versioning is tag-derived, never hand-bumped in package.json: pushing
-# `v0.0.1` (or a prerelease like `v0.0.1-rc.1`) is the only release step.
-# docker/metadata-action's `type=semver` tags strip the leading `v` and
-# derive the major/minor/latest tags for free — it correctly skips
-# major/minor/latest for prerelease tags. `steps.meta.outputs.version` (the
-# bare `0.0.1` string) is baked into the image as OSSPLAY_VERSION, which
-# apps/api/src/lib/server-info.ts's readVersion() reads at runtime.
+# `v0.0.1` (or a prerelease like `v0.0.1-rc.1`) is the only release step —
+# OSSPLAY_VERSION is derived directly from github.ref_name (stripping the
+# leading `v`) rather than from docker/metadata-action's `version` output,
+# since that output isn't guaranteed suffix-clean once flavor.suffix is in
+# play across a matrix. apps/api/src/lib/server-info.ts's readVersion()
+# reads this baked-in value at runtime.
 on:
   push:
     tags:
@@ -26,6 +31,9 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        role: [api, dashboard, worker, updater]
     steps:
       - uses: actions/checkout@v4
 
@@ -37,12 +45,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
           # Set a repo variable named GHCR_IMAGE to override (e.g. for a
           # fork) — falls back to the real org image otherwise.
           images: ${{ vars.GHCR_IMAGE || 'ghcr.io/ossplay/ossplay' }}
+          # Every tag below (including the auto-generated `latest`) gets
+          # -${{ matrix.role }} appended — this is what keeps one image name
+          # hosting four independent, role-scoped tags instead of colliding.
+          flavor: |
+            suffix=-${{ matrix.role }},onlatest=true
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -52,18 +68,30 @@ jobs:
         with:
           context: .
           file: infra/ossplay/Dockerfile
+          target: runner-${{ matrix.role }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            OSSPLAY_VERSION=${{ steps.meta.outputs.version }}
+            OSSPLAY_VERSION=${{ steps.version.outputs.value }}
 
-      # What install.sh downloads on a fresh box — a pinned self-host stack
-      # that pulls the image above instead of building from source. Auto-
-      # creates/updates the GitHub Release for this tag if softprops/
-      # action-gh-release doesn't find one yet (this is also the "GitHub
-      # Releases" half of the update-check source of truth — see
-      # apps/api/src/routes/instance.ts).
+  # What install.sh downloads on a fresh box — a pinned self-host stack that
+  # pulls the role-tagged images above instead of building from source. Runs
+  # once, after every role has actually published, not once per matrix leg
+  # (four concurrent legs all creating/attaching to the same GitHub Release
+  # would race). Auto-creates/updates the release for this tag if softprops/
+  # action-gh-release doesn't find one yet (this is also the "GitHub
+  # Releases" half of the update-check source of truth — see
+  # apps/api/src/routes/instance.ts). This release's docker-compose.yml is
+  # also what infra/updater/index.ts's syncComposeFile re-syncs an already-
+  # running instance to before it pulls — that's what carries an existing
+  # install across this tag-scheme change without a separate migration step.
+  release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

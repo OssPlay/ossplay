@@ -46,12 +46,13 @@ ossplay/
 │   └── config/         # Shared tsconfig, lint config
 ├── infra/
 │   ├── docker-compose.yml       # Full self-host stack: api, dashboard, postgres, redis, caddy, updater — the
-│   │                             # first four all run the same published image under a different role
+│   │                             # first three (+updater) each pull their own role-scoped image tag
 │   ├── docker-compose.dev.yml   # Local dev overrides
 │   ├── caddy/                   # Caddyfile template for the auto-SSL reverse proxy
 │   ├── updater/                 # docker.sock-mounted auto-updater sidecar (PRD §2.2, see §6)
-│   └── ossplay/                 # The single Dockerfile + role-dispatch entrypoint.ts published as
-│                                 # ghcr.io/ossplay/ossplay — see §6
+│   └── ossplay/                 # One Dockerfile, four role-scoped final stages + the shared
+│                                 # role-dispatch entrypoint.ts, published as ghcr.io/ossplay/ossplay:
+│                                 # <version>-{api,dashboard,worker,updater} — see §6
 ├── .github/workflows/  # ci.yml, docker-images.yml, migrate-check.yml
 ├── package.json         # Bun workspaces root
 ├── turbo.json
@@ -89,7 +90,7 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 ## 4. Deployment Topology
 
-- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. Every service (`api`, `dashboard`, `updater`, and `worker` if run locally) pulls the single published `ghcr.io/ossplay/ossplay` image and picks its role via `OSSPLAY_ROLE` (see §6) — nothing builds from source on the box itself, which is what makes `install.sh` possible. The updater container mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
+- **`ossplay`**: self-hosted by the end user via `docker-compose.yml` — Caddy handles ACME/SSL termination and reverse-proxies to the Hono API and Next.js dashboard containers on ports 80/443 (PRD §2.1). Caddy's admin API is exposed only inside the compose network (`expose`, never `ports` — publishing config-mutation access to the host/internet would be a real hole) so the `api` service can push a new domain into Caddy's live config at runtime, without a restart. Every service (`api`, `dashboard`, `updater`, and `worker` if run locally) pulls its own role-scoped `ghcr.io/ossplay/ossplay:<version>-<role>` tag and confirms its role via `OSSPLAY_ROLE` (see §6) — nothing builds from source on the box itself, which is what makes `install.sh` possible. The updater container mounts `/var/run/docker.sock` to pull new images and run migrations on demand (PRD §2.2).
 - **Instance-wide config (SMTP, custom domain) is a bind-mounted YAML file, not a DB row** — `apps/api/src/lib/config/instance-config.ts` reads/writes `OSSPLAY_CONFIG_PATH` (`/ossplay.yaml` in the compose stack, bind-mounted to `infra/ossplay.yaml` on the host so it survives container recreation). Still live-editable through the same onboarding wizard / `/settings/instance` UI as before — only the storage mechanism changed. The same file/env-var mechanism is what a future SaaS-style deployment would use to mount a per-tenant config instead of a shared one.
 - **`website`** and **`docs`**: centrally hosted by the OSSPlay project (host TBD — e.g. Vercel or Cloudflare Pages; this is a deployment detail, not an architecture decision, and doesn't affect repo structure). Deploy on push to `main`.
 - **`sdk-js`**: no runtime deployment — published as a package on version tags.
@@ -102,16 +103,16 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 ---
 
-## 6. CI/CD, the unified image, and OTA updates
+## 6. CI/CD, the role-scoped images, and OTA updates
 
 | Repo | Workflows |
 | --- | --- |
-| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (single build+push job for `ghcr.io/ossplay/ossplay` — one image, not a per-app matrix — on version tags, plus a GitHub Release with `docker-compose.yml`/`Caddyfile` attached as assets) · `migrate-check.yml` (drizzle-kit schema drift check) |
+| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (`strategy.matrix` build+push job — one Dockerfile, four role-scoped targets — for `ghcr.io/ossplay/ossplay:<version>-{api,dashboard,worker,updater}` on version tags, plus a single follow-up job creating the GitHub Release with `docker-compose.yml`/`Caddyfile` attached as assets) · `migrate-check.yml` (drizzle-kit schema drift check) |
 | `sdk-js` | `ci.yml` (typecheck/test/build) · `publish.yml` (GitHub Packages publish on version tags) |
 | `website` / `docs` | `ci.yml` (typecheck/lint/build) · deploy on push to `main` |
 | `.github` | none — template files only |
 
-**One image, role-selected at runtime.** `infra/ossplay/Dockerfile` bundles `apps/api`, `apps/dashboard` (built, standalone output), `apps/worker`, and `infra/updater`'s logic into a single multi-stage build; `infra/ossplay/entrypoint.ts` reads `OSSPLAY_ROLE` (`api`/`dashboard`/`worker`/`updater`) and `Bun.spawn`s the matching process. `docker-compose.yml` runs this same image as several containers, each with a different role — one build/publish pipeline, but the containers still restart/scale/health-check independently, and only the `updater` container gets `/var/run/docker.sock` mounted. This replaced an earlier four-image matrix (`dashboard`/`api`/`worker`/`updater`, each its own Dockerfile) — see `MEMORY.md`'s "Release prep" entry for why.
+**One Dockerfile, one version — four separate images, not one.** `infra/ossplay/Dockerfile` has a `runner-api`/`runner-dashboard`/`runner-worker`/`runner-updater` final stage off a shared `runner-base`, each `COPY`ing only that role's own app source plus the `packages/*` it actually imports (dashboard needs none — its Next standalone output is fully self-contained) — a container for one role can no longer read or exec into another role's source. `infra/ossplay/entrypoint.ts` (identical across all four images — it's generic role-dispatch glue, not app code) reads `OSSPLAY_ROLE` and `Bun.spawn`s the matching process; `docker-compose.yml` runs each role's own image tag as its own container, still independently restartable/health-checkable, and only the `updater` image (and container) carries `docker-cli`/`docker-cli-compose` or gets `/var/run/docker.sock` mounted. This replaced a brief single-unified-image design (one image, all four apps' source, role chosen only at runtime) after that design's real isolation cost was reconsidered — see `MEMORY.md`'s 2026-08-07 entry for why, and its linked 2026-08-04 entry for the versioning/OTA mechanics this preserved unchanged.
 
 ### Versioning
 

@@ -31,9 +31,23 @@ function subscribe(listener: () => void): () => void {
  * falls back to the first available org (and persists that fallback) — the
  * same "just use the first org" behavior every org-scoped page already had
  * before there was any real switching, just made explicit and correctable.
+ *
+ * `allowAny` trusts the stored id even when it's outside `availableOrgIds`
+ * — for root managing an organization it isn't a member of (no membership
+ * row means it never appears in `availableOrgIds`, which only reflects
+ * `/auth/me`'s real membership rows), navigated to via
+ * instance/organizations/[id]'s "Manage" links, which call
+ * `setCurrentOrgId` before navigating. Every other caller (org picker,
+ * project list, project settings) omits it and keeps the strict
+ * membership-only behavior, since a user actually switching their own
+ * working context should never land on an org they don't belong to.
  */
-export function useCurrentOrgId(availableOrgIds: string[] | undefined): string | null {
+export function useCurrentOrgId(
+	availableOrgIds: string[] | undefined,
+	options?: { allowAny?: boolean },
+): string | null {
 	const stored = useSyncExternalStore(subscribe, readStored, () => null);
+	if (options?.allowAny && stored) return stored;
 	if (!availableOrgIds || availableOrgIds.length === 0) return null;
 	if (stored && availableOrgIds.includes(stored)) return stored;
 	return availableOrgIds[0] ?? null;

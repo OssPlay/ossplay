@@ -4,23 +4,16 @@
 // opt out of static prerendering so Next.js does not attempt it at build time.
 export const dynamic = "force-dynamic";
 
-import { ArrowLeftIcon, Building2Icon } from "lucide-react";
+import { ArrowLeftIcon, Building2Icon, FolderIcon, SettingsIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Section } from "@/components/layout/section";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { ApiError } from "@/lib/api";
+import { setCurrentOrgId } from "@/lib/current-org";
 import { formatDatetime } from "@/lib/utils";
 
 interface OrganizationDetail {
@@ -30,20 +23,18 @@ interface OrganizationDetail {
 }
 interface Member {
 	userId: string;
-	name: string;
-	email: string;
-	role: string;
-	lastSignInAt: string | null;
-	joinedAt: string;
 }
 interface Project {
 	id: string;
-	name: string;
-	createdAt: string;
 }
 
+// A summary, not a second copy of Members/Projects — root manages an
+// organization through its own real settings pages (organization/*), same
+// as its owners would, just reached from here. See that section's
+// Members/Projects pages for the actual tables.
 export default function InstanceOrganizationDetailPage() {
 	const params = useParams<{ id: string }>();
+	const router = useRouter();
 	const { data: orgData, error: orgError } = useSWR<{ organization: OrganizationDetail }>(
 		`/organizations/${params.id}`,
 	);
@@ -62,8 +53,16 @@ export default function InstanceOrganizationDetailPage() {
 	if (!orgData) return null;
 
 	const { organization } = orgData;
-	const members = membersData?.members ?? [];
-	const projects = projectsData?.projects ?? [];
+
+	// Switches the app's "current org" to this one before navigating into its
+	// real settings pages — those resolve which org they're managing from
+	// that same shared context every org-scoped page uses (see
+	// current-org.ts). Root reaches any org this way even without a
+	// membership row there (organization/layout.tsx's `allowAny`).
+	function manage(href: string) {
+		setCurrentOrgId(organization.id);
+		router.push(href);
+	}
 
 	return (
 		<Section
@@ -86,76 +85,28 @@ export default function InstanceOrganizationDetailPage() {
 						<ArrowLeftIcon className="size-4" /> Back to Organizations
 					</Link>
 
-					<Card>
-						<CardHeader>
-							<CardTitle>Members</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{members.length === 0 ? (
-								<p className="text-sm text-muted-foreground">No members yet.</p>
-							) : (
-								<Table>
-									<TableHeader>
-										<TableRow>
-											<TableHead>Name</TableHead>
-											<TableHead>Role</TableHead>
-											<TableHead>Last sign-in</TableHead>
-											<TableHead>Joined</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{members.map((member) => (
-											<TableRow key={member.userId}>
-												<TableCell>
-													{member.name}{" "}
-													<span className="text-muted-foreground">{member.email}</span>
-												</TableCell>
-												<TableCell>
-													<Badge variant="secondary">{member.role}</Badge>
-												</TableCell>
-												<TableCell className="text-muted-foreground">
-													{member.lastSignInAt ? formatDatetime(member.lastSignInAt) : "Never"}
-												</TableCell>
-												<TableCell className="text-muted-foreground">
-													{formatDatetime(member.joinedAt)}
-												</TableCell>
-											</TableRow>
-										))}
-									</TableBody>
-								</Table>
-							)}
-						</CardContent>
-					</Card>
+					<div className="flex flex-wrap items-center gap-2">
+						<Badge variant="secondary">
+							{membersData ? membersData.members.length : "…"} member
+							{membersData?.members.length === 1 ? "" : "s"}
+						</Badge>
+						<Badge variant="secondary">
+							{projectsData ? projectsData.projects.length : "…"} project
+							{projectsData?.projects.length === 1 ? "" : "s"}
+						</Badge>
+					</div>
 
-					<Card>
-						<CardHeader>
-							<CardTitle>Projects</CardTitle>
-						</CardHeader>
-						<CardContent>
-							{projects.length === 0 ? (
-								<p className="text-sm text-muted-foreground">No projects yet.</p>
-							) : (
-								<Table>
-									<TableHeader>
-										<TableRow>
-											<TableHead>Name</TableHead>
-											<TableHead>Created</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{projects.map((project) => (
-											<TableRow key={project.id}>
-												<TableCell className="font-medium">{project.name}</TableCell>
-												<TableCell className="text-muted-foreground">
-													{formatDatetime(project.createdAt)}
-												</TableCell>
-											</TableRow>
-										))}
-									</TableBody>
-								</Table>
-							)}
-						</CardContent>
-					</Card>
+					<div className="flex flex-wrap gap-2">
+						<Button variant="secondary" onClick={() => manage("/organization")}>
+							<SettingsIcon /> Organization settings
+						</Button>
+						<Button variant="secondary" onClick={() => manage("/organization/members")}>
+							<UsersIcon /> Members
+						</Button>
+						<Button variant="secondary" onClick={() => manage("/organization/projects")}>
+							<FolderIcon /> Projects
+						</Button>
+					</div>
 				</div>
 			</Container>
 		</Section>

@@ -1,4 +1,4 @@
-import { getDb, type ProjectRules, projects } from "@ossplay/db";
+import { getDb, organizations, type ProjectRules, projects } from "@ossplay/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -42,7 +42,21 @@ projectsRoute.post(
 		const parsed = createProjectSchema.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
-		const [project] = await getDb()
+		const db = getDb();
+		// Unlike rename/delete below, there's no existing project row to
+		// select-and-check here — this is the one write in this file that can
+		// target a since-deleted org (e.g. a stale page, or a race with
+		// another tab's organization delete) with nothing else to catch it
+		// first. Without this check the insert still fails, just as an
+		// unhandled FK-constraint violation (opaque 500) instead of a clean
+		// 404.
+		const [org] = await db
+			.select({ id: organizations.id })
+			.from(organizations)
+			.where(eq(organizations.id, c.req.param("orgId")));
+		if (!org) return c.json({ error: "Organization not found" }, 404);
+
+		const [project] = await db
 			.insert(projects)
 			.values({
 				orgId: c.req.param("orgId"),

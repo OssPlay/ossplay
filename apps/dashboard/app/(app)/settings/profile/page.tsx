@@ -1,11 +1,12 @@
 "use client";
 
+import { Building2Icon, UserIcon } from "lucide-react";
 import { useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Container from "@/components/ui/container";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
 	Table,
@@ -23,15 +24,31 @@ export default function ProfilePage() {
 
 	return (
 		<ApiLoader isLoading={isLoading}>
-			<div className="flex flex-col gap-6">
-				<ProfileCard name={user.name} email={user.email} onSaved={() => mutate()} />
-				<OrganizationsCard organizations={organizations} />
-			</div>
+			<Container
+				header={{
+					icon: UserIcon,
+					title: "Profile",
+					description: "Your name and email address.",
+				}}
+				size="sm"
+			>
+				<ProfileForm name={user.name} email={user.email} onSaved={() => mutate()} />
+			</Container>
+			<Container
+				header={{
+					icon: Building2Icon,
+					title: "Organizations",
+					description: "Every organization you're a member of.",
+				}}
+				size="sm"
+			>
+				<OrganizationsTable organizations={organizations} />
+			</Container>
 		</ApiLoader>
 	);
 }
 
-function ProfileCard({
+function ProfileForm({
 	name: initialName,
 	email,
 	onSaved,
@@ -61,70 +78,58 @@ function ProfileCard({
 	);
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Profile</CardTitle>
-			</CardHeader>
-			<CardContent className="flex flex-col gap-4">
-				<FormField
-					id="name"
-					label="Name"
-					value={name}
-					onChange={setName}
-					autoComplete="name"
-					disabled={save.isLoading}
-				/>
-				<div className="flex flex-col gap-1.5 w-full">
-					<span className="text-base font-medium text-foreground">Email</span>
-					<p className="text-sm text-muted-foreground">{email}</p>
-				</div>
-				<FormError message={save.error ? errorMessage(save.error, "Could not save name") : null} />
-				<LoadingButton
-					type="button"
-					loading={save.isLoading}
-					onClick={() => save.trigger()}
-					disabled={!name.trim() || name === initialName}
-					className="w-fit"
-				>
-					Save changes
-				</LoadingButton>
-			</CardContent>
-		</Card>
+		<div className="flex flex-col gap-4">
+			<FormField
+				id="name"
+				label="Name"
+				value={name}
+				onChange={setName}
+				autoComplete="name"
+				disabled={save.isLoading}
+			/>
+			<div className="flex flex-col gap-1.5 w-full">
+				<span className="text-base font-medium text-foreground">Email</span>
+				<p className="text-sm text-muted-foreground">{email}</p>
+			</div>
+			<FormError message={save.error ? errorMessage(save.error, "Could not save name") : null} />
+			<LoadingButton
+				type="button"
+				loading={save.isLoading}
+				onClick={() => save.trigger()}
+				disabled={!name.trim() || name === initialName}
+				className="w-fit"
+			>
+				Save changes
+			</LoadingButton>
+		</div>
 	);
 }
 
-function OrganizationsCard({
+function OrganizationsTable({
 	organizations,
 }: {
 	organizations: Array<{ id: string; name: string; role: string }>;
 }) {
+	if (organizations.length === 0) {
+		return <p className="text-sm text-muted-foreground">Not a member of any organization.</p>;
+	}
+
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Organizations</CardTitle>
-			</CardHeader>
-			<CardContent>
-				{organizations.length === 0 ? (
-					<p className="text-sm text-muted-foreground">Not a member of any organization.</p>
-				) : (
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Organization</TableHead>
-								<TableHead>Role</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{organizations.map((org) => (
-								<TableRow key={org.id}>
-									<TableCell>{org.name}</TableCell>
-									<TableCell className="capitalize">{org.role}</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				)}
-			</CardContent>
-		</Card>
+		<Table>
+			<TableHeader>
+				<TableRow>
+					<TableHead>Organization</TableHead>
+					<TableHead>Role</TableHead>
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{organizations.map((org) => (
+					<TableRow key={org.id}>
+						<TableCell>{org.name}</TableCell>
+						<TableCell className="capitalize">{org.role}</TableCell>
+					</TableRow>
+				))}
+			</TableBody>
+		</Table>
 	);
 }

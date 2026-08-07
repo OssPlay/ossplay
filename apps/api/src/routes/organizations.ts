@@ -13,6 +13,7 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { getPublicUrl } from "../lib/auth/request-info";
 import { generateToken, hashToken } from "../lib/auth/tokens";
+import { readInstanceConfig, writeInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
@@ -131,6 +132,15 @@ organizationsRoute.post(
 			.insert(organizationMembers)
 			.values({ userId: user.id, orgId: organization.id, role: "owner" });
 
+		// Stamped once, the first time any org is ever created — see
+		// InstanceConfig.onboardedAt's comment. Not just during onboarding:
+		// root creating a further org later (e.g. after deleting the only
+		// one) should also permanently clear the "needs onboarding" state if
+		// it somehow wasn't set yet.
+		if (!readInstanceConfig().onboardedAt) {
+			writeInstanceConfig({ onboardedAt: new Date().toISOString() });
+		}
+
 		await logAudit(c, {
 			action: "organization.create",
 			targetType: "organization",
@@ -139,6 +149,71 @@ organizationsRoute.post(
 		});
 
 		return c.json({ organization }, 201);
+	},
+);
+
+const renameOrganizationSchema = z.object({
+	name: z.string().trim().min(1).max(200),
+});
+
+// Owner-only (org:manage_settings) — the same "who can touch the org
+// itself" boundary as org:delete below; admins can run projects but not
+// rename or remove the organization they belong to.
+organizationsRoute.put(
+	"/:orgId",
+	requireAuth,
+	requireOrgPermission("org:manage_settings"),
+	async (c) => {
+		const parsed = renameOrganizationSchema.safeParse(await c.req.json().catch(() => null));
+		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+		const orgId = c.req.param("orgId");
+		const [organization] = await getDb()
+			.update(organizations)
+			.set({ name: parsed.data.name })
+			.where(eq(organizations.id, orgId))
+			.returning();
+		if (!organization) return c.json({ error: "Organization not found" }, 404);
+
+		await logAudit(c, {
+			action: "organization.update",
+			targetType: "organization",
+			targetId: organization.id,
+			metadata: { name: organization.name },
+		});
+
+		return c.json({ organization });
+	},
+);
+
+// Cascades at the DB level — organization_members, invitations, projects
+// (and projects' assets) all reference orgId/projectId with
+// onDelete: "cascade" (see packages/db's organization.schema.ts and
+// project.schema.ts), so a single delete here is enough; no manual cleanup
+// pass needed.
+organizationsRoute.delete(
+	"/:orgId",
+	requireAuth,
+	requireOrgPermission("org:delete"),
+	async (c) => {
+		const orgId = c.req.param("orgId");
+		const db = getDb();
+		const [existing] = await db
+			.select({ id: organizations.id, name: organizations.name })
+			.from(organizations)
+			.where(eq(organizations.id, orgId));
+		if (!existing) return c.json({ error: "Organization not found" }, 404);
+
+		await db.delete(organizations).where(eq(organizations.id, orgId));
+
+		await logAudit(c, {
+			action: "organization.delete",
+			targetType: "organization",
+			targetId: orgId,
+			metadata: { name: existing.name },
+		});
+
+		return c.body(null, 204);
 	},
 );
 

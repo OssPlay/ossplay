@@ -83,12 +83,16 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 		expect(body.steps.dns.completed).toBe(true);
 	});
 
+	let orgId: string;
+
 	it("needsOnboarding flips to false once the first org exists", async () => {
-		await jsonRequest("/organizations", {
+		const createRes = await jsonRequest("/organizations", {
 			method: "POST",
 			cookie: rootCookie,
 			body: JSON.stringify({ name: "Acme Inc" }),
 		});
+		const { organization } = (await createRes.json()) as { organization: { id: string } };
+		orgId = organization.id;
 
 		const res = await jsonRequest("/onboarding/status", { cookie: rootCookie });
 		const body = (await res.json()) as {
@@ -97,6 +101,26 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 		};
 		expect(body.needsOnboarding).toBe(false);
 		expect(body.steps.org.completed).toBe(true);
+	});
+
+	// Regression test: onboarding is a one-time first-run experience, stamped
+	// via InstanceConfig.onboardedAt when the first org is ever created — it
+	// must not flip back to true just because the instance is later emptied
+	// out again (e.g. deleting the only org from its settings danger zone).
+	it("needsOnboarding stays false after the only organization is deleted", async () => {
+		const deleteRes = await jsonRequest(`/organizations/${orgId}`, {
+			method: "DELETE",
+			cookie: rootCookie,
+		});
+		expect(deleteRes.status).toBe(204);
+
+		const res = await jsonRequest("/onboarding/status", { cookie: rootCookie });
+		const body = (await res.json()) as {
+			needsOnboarding: boolean;
+			steps: { org: { completed: boolean } };
+		};
+		expect(body.needsOnboarding).toBe(false);
+		expect(body.steps.org.completed).toBe(false);
 	});
 
 	// Regression test: a root invited via the org-less instance invite flow

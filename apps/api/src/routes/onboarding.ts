@@ -28,10 +28,17 @@ onboardingRoute.get(
 		const [anyOrg] = await db.select({ id: organizations.id }).from(organizations).limit(1);
 		const orgCompleted = Boolean(anyOrg);
 
-		const { domain } = readInstanceConfig();
+		const { domain, onboardedAt } = readInstanceConfig();
 
+		// Once an instance has been onboarded (organizations.ts's POST /
+		// stamps this the first time any org is ever created), onboarding
+		// never needs to happen again — even if every organization is later
+		// deleted, e.g. from the org settings danger zone. Re-deriving this
+		// from live org count (as before) would otherwise walk root back
+		// through the whole DNS/SMTP/org wizard just because they emptied
+		// out the instance, which is a false "first run" signal.
 		return c.json({
-			needsOnboarding: !orgCompleted,
+			needsOnboarding: !onboardedAt,
 			steps: {
 				dns: { skippable: true, completed: Boolean(domain.name) },
 				smtp: { skippable: true, completed: await isSmtpConfigured() },

@@ -222,4 +222,52 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 		});
 		expect(acceptRes.status).toBe(404);
 	});
+
+	it("PUT /:orgId is forbidden for a non-owner", async () => {
+		// memberCookie was promoted to "admin" in the re-invite test above —
+		// org:manage_settings is owner-only, admins can't rename the org.
+		const res = await jsonRequest(`/organizations/${orgId}`, {
+			method: "PUT",
+			cookie: memberCookie,
+			body: JSON.stringify({ name: "Hijacked" }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it("PUT /:orgId renames the organization for the owner", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}`, {
+			method: "PUT",
+			cookie: ownerCookie,
+			body: JSON.stringify({ name: "Acme Incorporated" }),
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { organization: { name: string } };
+		expect(body.organization.name).toBe("Acme Incorporated");
+
+		const getRes = await jsonRequest(`/organizations/${orgId}`, { cookie: ownerCookie });
+		const getBody = (await getRes.json()) as { organization: { name: string } };
+		expect(getBody.organization.name).toBe("Acme Incorporated");
+	});
+
+	it("DELETE /:orgId is forbidden without org:delete permission", async () => {
+		// memberCookie has no membership at all in secondOrgId, which also
+		// resolves to a 403 (no membership = no permission), same outcome as a
+		// non-owner member of the org being deleted.
+		const res = await jsonRequest(`/organizations/${secondOrgId}`, {
+			method: "DELETE",
+			cookie: memberCookie,
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it("DELETE /:orgId removes the organization and cascades", async () => {
+		const res = await jsonRequest(`/organizations/${secondOrgId}`, {
+			method: "DELETE",
+			cookie: ownerCookie,
+		});
+		expect(res.status).toBe(204);
+
+		const getRes = await jsonRequest(`/organizations/${secondOrgId}`, { cookie: ownerCookie });
+		expect(getRes.status).toBe(404);
+	});
 });

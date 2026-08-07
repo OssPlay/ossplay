@@ -17,6 +17,7 @@ describe("instance-config", () => {
 	it("returns defaults when the file does not exist", () => {
 		expect(readInstanceConfig()).toEqual({
 			instanceName: null,
+			onboardedAt: null,
 			domain: {
 				name: null,
 				configuredAt: null,

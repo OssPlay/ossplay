@@ -44,7 +44,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`api`/`dashboard`/`updater` all run the same published `ghcr.io/ossplay/ossplay` image (see `infra/ossplay/entrypoint.ts` — each container just sets a different `OSSPLAY_ROLE`), so updating is `docker compose pull && docker compose up -d` — no rebuild, no repo checkout needed on the box itself. Pin a specific release with `OSSPLAY_VERSION=v0.0.1` in `.env`; unset (or `latest`) tracks the newest tag.
+`api`/`dashboard`/`updater` each pull their own role-scoped `ghcr.io/ossplay/ossplay:<version>-<role>` image (see `infra/ossplay/Dockerfile`'s role-scoped stages and `infra/ossplay/entrypoint.ts`), so updating is `docker compose pull && docker compose up -d` — no rebuild, no repo checkout needed on the box itself. Pin a specific release with `OSSPLAY_VERSION=v0.0.1` in `.env`; unset (or `latest`) tracks the newest tag.
 
 `infra/ossplay.yaml` holds instance-wide domain settings, filled in by the onboarding wizard or Settings > Instance — not a DB row, so it survives container recreation as long as the file does. Override where the `api` container looks for it with `OSSPLAY_CONFIG_PATH` (defaults to `/ossplay.yaml`, the bind-mount target above); this is also the knob a SaaS-style deployment would use to mount a per-tenant file/ConfigMap instead.
 

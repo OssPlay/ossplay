@@ -133,4 +133,18 @@ describe.skipIf(!process.env.DATABASE_URL)("projects", () => {
 		const listBody = (await listRes.json()) as { projects: Project[] };
 		expect(listBody.projects).toHaveLength(0);
 	});
+
+	// Regression test: creating a project against a nonexistent org (a stale
+	// page, or a race with another tab deleting the org) used to fail as an
+	// unhandled DB foreign-key-constraint violation — an opaque 500 instead
+	// of a clean 404, the same "does this org actually exist" check every
+	// other write in this file already does before touching a row.
+	it("POST /:orgId/projects 404s for a nonexistent org", async () => {
+		const res = await jsonRequest(`/organizations/${crypto.randomUUID()}/projects`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ name: "Orphaned" }),
+		});
+		expect(res.status).toBe(404);
+	});
 });

@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The unified `ghcr.io/ossplay/ossplay` image runs api/dashboard/worker/
-// updater as roles of the same build, so there's exactly one version for
-// the whole running instance now — not one per app. Releases are tagged,
+// api/dashboard/worker/updater each publish as their own
+// `ghcr.io/ossplay/ossplay:<version>-<role>` image (one Dockerfile, one
+// version, four role-scoped final stages — see infra/ossplay/Dockerfile),
+// so there's still exactly one version for the whole running instance, not
+// one per app. Releases are tagged,
 // not hand-bumped in package.json (see docker-images.yml): the pushed git
 // tag (e.g. `v0.0.1`) is stripped of its `v` and baked into the image as
 // OSSPLAY_VERSION at build time, which always wins here. Local dev (no

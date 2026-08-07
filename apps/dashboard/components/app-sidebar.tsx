@@ -93,8 +93,8 @@ function isManagementSection(pathname: string): boolean {
 	return (
 		pathname === "/instance" ||
 		pathname.startsWith("/instance/") ||
-		pathname === "/organization/settings" ||
-		pathname.startsWith("/organization/settings/") ||
+		pathname === "/organization" ||
+		pathname.startsWith("/organization/") ||
 		pathname === "/settings" ||
 		pathname.startsWith("/settings/")
 	);
