@@ -1,8 +1,9 @@
 "use client";
 
-import { BookOpenIcon, LogOutIcon, SettingsIcon, UserIcon } from "lucide-react";
+import { BookOpenIcon, LogOutIcon, RssIcon, SettingsIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { openUpdateDialog } from "@/lib/update-dialog-store";
 import { useAuth } from "../providers/auth-provider";
 
 const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL;
@@ -53,6 +55,12 @@ export function AccountDropdown() {
 		);
 	}
 
+	// Same signal UpdateRecallGuard already reads from the shared /instance
+	// session-level check (see auth-provider.tsx) — no extra request. Root-
+	// only: applying an update is a root-only action (instance:manage_settings
+	// on the backend), showing this to anyone else would just be a dead end.
+	const canUpdate = user.instanceRole === "root" && instance?.updates.available;
+
 	return (
 		<SidebarFooter>
 			<SidebarMenu>
@@ -87,9 +95,19 @@ export function AccountDropdown() {
 					</DropdownMenu>
 				</SidebarMenuItem>
 			</SidebarMenu>
-			<p className="px-2 pb-1 text-xs text-center text-muted-foreground">
-				Version {instance?.version}
-			</p>
+			{canUpdate ? (
+				<Badge
+					variant="warning"
+					render={<button type="button" onClick={() => openUpdateDialog()} />}
+					className="mx-2 mb-1 h-auto w-auto cursor-pointer justify-center py-1"
+				>
+					<RssIcon /> Update available v{instance?.updates.latestVersion}
+				</Badge>
+			) : (
+				<p className="px-2 pb-1 text-xs text-center text-muted-foreground">
+					Version {instance?.version}
+				</p>
+			)}
 		</SidebarFooter>
 	);
 }

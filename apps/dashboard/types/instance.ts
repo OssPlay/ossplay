@@ -4,5 +4,7 @@ export type InstanceRepo = {
 		forced: boolean;
 		forcedReason: string | null;
 		currentVersion: `v${string}`;
+		available: boolean;
+		latestVersion: string | null;
 	};
 };

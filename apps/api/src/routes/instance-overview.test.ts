@@ -57,9 +57,9 @@ describe.skipIf(!process.env.DATABASE_URL)("instance overview", () => {
 			cookie: rootCookie,
 		});
 		expect(res.status).toBe(503);
-		const body = (await res.json()) as { started: boolean; reason: string };
+		const body = (await res.json()) as { started: boolean; error: string };
 		expect(body.started).toBe(false);
-		expect(body.reason.length).toBeGreaterThan(0);
+		expect(body.error.length).toBeGreaterThan(0);
 	});
 
 	it("PUT /instance/overview updates the instance name", async () => {

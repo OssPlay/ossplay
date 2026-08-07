@@ -22,6 +22,13 @@ instanceRoute.get("/", requireAuth, async (c) => {
 			forced: result.forced,
 			forcedReason: result.forcedReason,
 			currentVersion: result.currentVersion,
+			// Already computed by the same checkForUpdates() call above — no
+			// extra cost to also return them. Lets the sidebar's root-only
+			// "Update available" button (components/layout/account-dropdown.tsx)
+			// reuse this same once-per-session check instead of root needing a
+			// separate live request just to learn a version number.
+			available: result.available,
+			latestVersion: result.latestVersion,
 		},
 	});
 });

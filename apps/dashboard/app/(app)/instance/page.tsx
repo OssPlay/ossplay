@@ -22,6 +22,7 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { Tippy } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
+import { openUpdateDialog } from "@/lib/update-dialog-store";
 import { formatDatetime } from "@/lib/utils";
 
 type OverviewResponse = {
@@ -233,6 +234,8 @@ function ServerUpdates({
 	data: OverviewResponse;
 	mutate: KeyedMutator<OverviewResponse>;
 }) {
+	const { mutateInstance } = useAuth();
+
 	const checkUpdates = useAction(
 		() =>
 			apiFetch<{
@@ -244,6 +247,19 @@ function ServerUpdates({
 			}>("/instance/overview/updates", { method: "POST" }),
 		{ error: "Could not check for updates" },
 	);
+
+	// The sidebar footer's "Update available" badge and the global update
+	// dialog (components/providers/update-apply-dialog.tsx) both read from
+	// the separate, session-level GET /instance check (see auth-provider.tsx)
+	// rather than this page's own /instance/overview fetch — refresh that
+	// shared cache too so a manual check here is immediately reflected
+	// everywhere else, not just on this page.
+	async function handleCheck() {
+		await checkUpdates
+			.trigger()
+			.then(() => mutateInstance())
+			.catch(() => {});
+	}
 
 	const toggleAutoCheck = useAction(
 		(autoCheck: boolean) =>
@@ -278,11 +294,17 @@ function ServerUpdates({
 					variant="secondary"
 					className="w-fit"
 					loading={checkUpdates.isLoading}
-					onClick={() => checkUpdates.trigger()}
+					onClick={handleCheck}
 				>
 					<RefreshCwIcon className="size-4" />
 					Check for updates
 				</LoadingButton>
+
+				{updateResult?.available && (
+					<Button className="w-fit" onClick={() => openUpdateDialog()}>
+						Update now
+					</Button>
+				)}
 
 				{updateResult && (
 					<p

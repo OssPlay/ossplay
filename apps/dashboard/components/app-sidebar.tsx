@@ -83,6 +83,23 @@ function toChunks(sidepanel: Sidepanel): Chunk[] {
 	return chunks;
 }
 
+// The org's project list belongs to the main dashboard (home + browsing a
+// project itself, where project-list.tsx's own isActive highlighting is
+// meaningful) — not to an instance-wide/org-wide/account management section,
+// which has nothing to do with any one project and gets its own dedicated
+// sidepanel via <Section> instead. Same pathname-prefix approach app-header.tsx
+// already uses for isInstanceSection.
+function isManagementSection(pathname: string): boolean {
+	return (
+		pathname === "/instance" ||
+		pathname.startsWith("/instance/") ||
+		pathname === "/organization/settings" ||
+		pathname.startsWith("/organization/settings/") ||
+		pathname === "/settings" ||
+		pathname.startsWith("/settings/")
+	);
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 	const sidepanel = useSidepanel();
 	const pathname = usePathname();
@@ -92,7 +109,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 		<Sidebar variant="floating" {...props}>
 			<OrgPicker />
 			<SidebarContent>
-				<ProjectList />
+				{!isManagementSection(pathname) && <ProjectList />}
 				{toChunks(sidepanel ?? []).map((chunk, index) =>
 					chunk.kind === "group" ? (
 						<SidebarGroup key={`group-${chunk.group.title}`}>

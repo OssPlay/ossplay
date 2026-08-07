@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api";
 import type { Auth, Me, MeUser } from "@/types/auth";
 import type { InstanceRepo } from "@/types/instance";
 import ErrorBoundary from "../layout/error-boundary";
+import { UpdateApplyDialog } from "./update-apply-dialog";
 import { UpdateRecallGuard } from "./update-recall-guard";
 
 const defaultUser: MeUser = {
@@ -126,6 +127,7 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 			}}
 		>
 			<UpdateRecallGuard />
+			<UpdateApplyDialog />
 			{children}
 		</AuthContext>
 	);

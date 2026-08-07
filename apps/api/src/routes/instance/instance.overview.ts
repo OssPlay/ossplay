@@ -94,7 +94,15 @@ instanceOverviewRoute.post("/updates/apply", async (c) => {
 	});
 
 	if (!result.started) {
-		return c.json({ started: false, reason: result.reason }, 503);
+		// `error`, not `reason` — apps/dashboard/lib/api.ts's apiFetch only ever
+		// reads a failure's `error` field to build the thrown ApiError's
+		// message; every other error response in this API already follows
+		// that contract. This endpoint had no caller until the update-apply
+		// dialog, which is what surfaced the mismatch — `reason` here was
+		// silently swallowed into apiFetch's generic "Request failed"
+		// fallback instead of the actual reason (e.g. "The update sidecar is
+		// not configured on this deployment.").
+		return c.json({ started: false, error: result.reason }, 503);
 	}
 	return c.json({ started: true, jobId: result.jobId });
 });
