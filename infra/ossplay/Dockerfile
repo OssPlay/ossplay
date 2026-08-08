@@ -5,8 +5,11 @@
 # apps/dashboard's, or infra/updater's source. A container compromised (or
 # just exec'd into) under one role therefore can't read or tamper with
 # another role's code — especially infra/updater, the one role with the host
-# docker.sock mounted, which now ships in the smallest, most isolated image
-# of the four. docker-compose still runs these as separate containers with
+# docker.sock mounted, which now ships with zero npm dependencies at all
+# (its own image is the smallest of api/worker/updater; dashboard's is
+# smaller still, since Next's standalone output is self-contained and needs
+# none of the deps-* stages below). docker-compose still runs these as
+# separate containers with
 # OSSPLAY_ROLE set per service (see entrypoint.ts) — that part is unchanged,
 # only what's baked into each container's filesystem is scoped down. See
 # MEMORY.md's release-prep entry and the role-isolation follow-up recorded
@@ -19,8 +22,11 @@ WORKDIR /repo
 # though it's never otherwise copied into any of the images below (excluded
 # from the production build, see MEMORY.md/ARCHITECTURE.md §2): its absence
 # alone is enough to make bun consider the lockfile stale and refuse to
-# install.
-FROM base AS deps
+# install. Just the COPYs, no install — deps/deps-api/deps-worker below each
+# branch from here and run their OWN `bun install`, deliberately not from
+# each other, so a filtered install's smaller result isn't layered on top of
+# (and hidden behind, without actually shrinking) a prior unfiltered one.
+FROM base AS deps-base
 COPY package.json bun.lock ./
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
@@ -30,10 +36,34 @@ COPY packages/config/package.json packages/config/
 COPY packages/db/package.json packages/db/
 COPY packages/core/package.json packages/core/
 COPY packages/mail/package.json packages/mail/
+
+# Bun's default linker stores every *installed* package's real content once,
+# centrally, under node_modules/.bun/ — installing the whole workspace here
+# makes that central store the UNION of every app's dependencies (dashboard's
+# Next/React, worker's BullMQ, api's Hono, all of it), which is exactly the
+# multi-hundred-MB blob every runner-* stage used to copy in full regardless
+# of whether it needed any of it (measured: ~1GB uncompressed). Still needed
+# as-is for the dashboard build below (next build wants the whole tree
+# available, and its final output is pruned separately either way).
+FROM deps-base AS deps
 RUN bun install --frozen-lockfile
 
+# --filter installs just this workspace member's own dependency subgraph
+# into its own fresh central store (still validated against the one shared
+# bun.lock, so --frozen-lockfile still catches real drift) — measured 145MB
+# vs. deps' ~1GB for api alone, 109MB for worker.
+FROM deps-base AS deps-api
+RUN bun install --frozen-lockfile --filter='@ossplay/api'
+
+FROM deps-base AS deps-worker
+RUN bun install --frozen-lockfile --filter='@ossplay/worker'
+
 # Only apps/dashboard has an actual build step (next build); api/worker/
-# updater are plain TS run directly by Bun, no bundling needed.
+# updater are plain TS run directly by Bun, no bundling needed. Uses the
+# full `deps` stage (not a filtered one) — irrelevant to final image size
+# either way, since next build's own standalone output (copied into
+# runner-dashboard below) is what actually ships, already pruned to just
+# what dashboard needs regardless of what's sitting in this stage.
 FROM base AS builder
 COPY --from=deps /repo/node_modules /repo/node_modules
 COPY --from=deps /repo/apps/dashboard/node_modules /repo/apps/dashboard/node_modules
@@ -84,12 +114,13 @@ COPY apps/api apps/api
 # member's specific deps (e.g. apps/api/node_modules/hono) — it does NOT
 # hoist everything to the root, so the root copy alone isn't enough (that
 # omission previously surfaced at runtime as "Cannot find package 'hono'",
-# since nothing here typechecks/bundles it at build time).
-COPY --from=deps /repo/node_modules /repo/node_modules
-COPY --from=deps /repo/apps/api/node_modules apps/api/node_modules
-COPY --from=deps /repo/packages/db/node_modules packages/db/node_modules
-COPY --from=deps /repo/packages/core/node_modules packages/core/node_modules
-COPY --from=deps /repo/packages/mail/node_modules packages/mail/node_modules
+# since nothing here typechecks/bundles it at build time). --from=deps-api,
+# not deps — see that stage's comment for why this matters for image size.
+COPY --from=deps-api /repo/node_modules /repo/node_modules
+COPY --from=deps-api /repo/apps/api/node_modules apps/api/node_modules
+COPY --from=deps-api /repo/packages/db/node_modules packages/db/node_modules
+COPY --from=deps-api /repo/packages/core/node_modules packages/core/node_modules
+COPY --from=deps-api /repo/packages/mail/node_modules packages/mail/node_modules
 EXPOSE 3001
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
 
@@ -98,19 +129,21 @@ RUN apk add --no-cache ffmpeg
 COPY packages/db packages/db
 COPY packages/core packages/core
 COPY apps/worker apps/worker
-COPY --from=deps /repo/node_modules /repo/node_modules
-COPY --from=deps /repo/apps/worker/node_modules apps/worker/node_modules
-COPY --from=deps /repo/packages/db/node_modules packages/db/node_modules
-COPY --from=deps /repo/packages/core/node_modules packages/core/node_modules
+COPY --from=deps-worker /repo/node_modules /repo/node_modules
+COPY --from=deps-worker /repo/apps/worker/node_modules apps/worker/node_modules
+COPY --from=deps-worker /repo/packages/db/node_modules packages/db/node_modules
+COPY --from=deps-worker /repo/packages/core/node_modules packages/core/node_modules
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
 
 FROM runner-base AS runner-updater
 # docker-cli + the compose plugin are only used by this role (it shells out
 # to `docker compose pull`/`up -d` against the host's mounted docker.sock —
 # see infra/updater/index.ts) — scoped to just this image now instead of
-# every role carrying host-Docker-control tooling it never uses.
+# every role carrying host-Docker-control tooling it never uses. No
+# node_modules copy at all: infra/updater/index.ts's only import is
+# node:crypto (a Bun/Node built-in) — it has zero npm dependencies, so
+# unlike the other three roles there's no deps-* stage for it to pull from.
 RUN apk add --no-cache docker-cli docker-cli-compose
 COPY infra/updater infra/updater
-COPY --from=deps /repo/node_modules /repo/node_modules
 EXPOSE 8787
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]

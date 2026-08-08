@@ -6,6 +6,22 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-08 — Per-role filtered installs: role images were 3-4x bigger than they needed to be
+
+**Status:** Decided (refines the 2026-08-07 role-split entry below, doesn't reverse it)
+
+Published sizes after the first real role-split release: `-api` 297MB, `-updater` 329.2MB, `-dashboard` 19MB — `-updater` being *larger* than `-api` despite having almost no code was the tell something was off, since it was supposed to be the leanest of the three. `docker history` on a local build showed one dominant layer in both: `COPY /repo/node_modules /repo/node_modules` at **~1.04GB uncompressed**, identical in every role's image. Root cause: Bun's default linker stores every *installed* package's real content once, centrally, under `node_modules/.bun/` — the Dockerfile's single `deps` stage ran one `bun install --frozen-lockfile` for the *entire workspace*, so that central store was the union of every app's dependencies (dashboard's Next/React, worker's BullMQ, api's Hono — all of it), and every `runner-*` stage copied that same full union regardless of which slice it actually used. Each app's own `apps/<name>/node_modules` (what the previous pass's comments focused on) turned out to be just a few KB of symlinks *into* that central store, not the real content — so trimming those never had any real effect on image size.
+
+- **`bun install --filter='@ossplay/<name>'` installs only that workspace member's own dependency subgraph** into its own central store, still validated against the one shared `bun.lock` (`--frozen-lockfile` still catches real drift — confirmed by testing it standalone). Measured: 145MB for api's subgraph, 109MB for worker's, vs. ~1.04GB for the whole workspace.
+- **First attempt at this was a no-op and worth recording as a trap**: branching `deps-api`/`deps-worker` `FROM deps` (the already-fully-installed stage) and re-running `bun install --filter=...` on top changed nothing — Docker layers are cumulative, so the filtered install has nothing left to prune once the parent layer already has everything. Fixed by giving `deps`/`deps-api`/`deps-worker` a shared `deps-base` ancestor (just the `COPY`s, no install) and branching all three *from that* instead of from each other, so each install stage starts from a genuinely empty `node_modules`.
+- **`updater` needs no `deps-*` stage at all.** `infra/updater/index.ts`'s only import is `node:crypto` (a Bun/Node built-in) — it has zero npm dependencies. The original pass copied the full shared `node_modules` into it anyway "to be safe," which is exactly what made it the single largest image despite being the smallest role by any other measure. Dropped that `COPY` line entirely.
+- **Verified functionally, not just by size**: built all three locally, ran each with the DB/Redis vars they'd need in production (deliberately wrong values, since no real Postgres/Redis was running) — api's `drizzle-kit migrate` ran and failed on *connection*, not "Cannot find package"; worker logged its normal BullMQ startup line; updater logged its normal listen line. Confirms the smaller images still resolve every dependency correctly, this was purely dead weight before.
+- **Resulting compressed sizes** (local build, same ballpark as what GHCR will show): api 297MB → ~75MB, worker (not yet published) ~113MB, updater 329MB → ~73MB. Dashboard (19MB) was already minimal and untouched — it has zero `@ossplay/*` runtime deps, so it never used any `deps-*` stage to begin with.
+
+**Artifacts updated:** `infra/ossplay/Dockerfile`.
+
+---
+
 ## 2026-08-08 — `worker` excluded from the publish matrix; stale `bun.lock` fixed
 
 **Status:** Decided (refines the 2026-08-07 entry below, doesn't reverse it)
