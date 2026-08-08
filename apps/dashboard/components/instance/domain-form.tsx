@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2Icon } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
@@ -217,7 +218,7 @@ export function DomainForm({
 				<Button
 					type="button"
 					variant={pendingTimedOut ? "default" : "outline"}
-					render={<a href={`https://${pendingOrigin}`} />}
+					render={<Link href={`https://${pendingOrigin}`} />}
 				>
 					Open https://{pendingOrigin} now
 				</Button>

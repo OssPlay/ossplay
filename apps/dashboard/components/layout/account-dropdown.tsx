@@ -1,5 +1,7 @@
 "use client";
 
+import { BookOpenIcon, LogOutIcon, RssIcon, SettingsIcon, UserIcon } from "lucide-react";
+import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -18,14 +20,6 @@ import {
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { openUpdateDialog } from "@/lib/update-dialog-store";
-import {
-	BookOpenIcon,
-	LogOutIcon,
-	RssIcon,
-	SettingsIcon,
-	UserIcon,
-} from "lucide-react";
-import Link from "next/link";
 import { useAuth } from "../providers/auth-provider";
 import { Button } from "../ui/button";
 
@@ -56,9 +50,7 @@ export function AccountDropdown() {
 				</Avatar>
 				<div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
 					<span className="font-medium truncate">{user.name}</span>
-					<span className="text-xs truncate text-muted-foreground">
-						{user.email}
-					</span>
+					<span className="text-xs truncate text-muted-foreground">{user.email}</span>
 				</div>
 			</>
 		);
@@ -75,9 +67,7 @@ export function AccountDropdown() {
 			<SidebarMenu>
 				<SidebarMenuItem>
 					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={<SidebarMenuButton size="lg" className="rounded-2xl" />}
-						>
+						<DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="rounded-2xl" />}>
 							<UserItem />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" side="top">
@@ -95,40 +85,32 @@ export function AccountDropdown() {
 							</DropdownMenuItem>
 							{DOCS_URL && (
 								<DropdownMenuItem
-									render={
-										<a href={DOCS_URL} target="_blank" rel="noreferrer" />
-									}
+									render={<Link href={DOCS_URL} target="_blank" rel="noreferrer" />}
 								>
 									<BookOpenIcon /> Documentation
 								</DropdownMenuItem>
 							)}
 							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								variant="destructive"
-								disabled={isLoading}
-								onClick={handleLogout}
-							>
+							<DropdownMenuItem variant="destructive" disabled={isLoading} onClick={handleLogout}>
 								<LogOutIcon /> Log out
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</SidebarMenuItem>
 			</SidebarMenu>
-			{canUpdate
-				? (
-					<Badge
-						variant="warning"
-						render={<Button type="button" onClick={() => openUpdateDialog()} />}
-						className="mx-2 mb-1 h-auto w-auto cursor-pointer justify-center py-1"
-					>
-						<RssIcon /> Update available v{instance?.updates.latestVersion}
-					</Badge>
-				)
-				: (
-					<p className="px-2 pb-1 text-xs text-center text-muted-foreground">
-						Version {instance?.version}
-					</p>
-				)}
+			{canUpdate ? (
+				<Badge
+					variant="warning"
+					render={<Button type="button" onClick={() => openUpdateDialog()} />}
+					className="mx-2 mb-1 h-auto w-auto cursor-pointer justify-center py-1"
+				>
+					<RssIcon /> Update available v{instance?.updates.latestVersion}
+				</Badge>
+			) : (
+				<p className="px-2 pb-1 text-xs text-center text-muted-foreground">
+					Version {instance?.version}
+				</p>
+			)}
 		</SidebarFooter>
 	);
 }
