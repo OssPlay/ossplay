@@ -4,13 +4,18 @@ name: Docker Image
 # uses the repo's built-in GITHUB_TOKEN, no separate registry account needed.
 #
 # One Dockerfile (infra/ossplay/Dockerfile), one version to manage — but NOT
-# one image. Each role (api/dashboard/worker/updater) is its own final build
-# stage/target, published as ghcr.io/ossplay/ossplay:<version>-<role>, so a
-# container for one role never carries another role's source (see that
-# Dockerfile's own comment for why: exec'ing into, say, the public api
-# container used to also expose infra/updater's privileged docker-compose-
-# control code). The matrix below is 4 image pushes instead of 1, but still
-# a single Dockerfile/CI-workflow to keep in lockstep, not four.
+# one image. Each self-hosted role (api/dashboard/updater) is its own final
+# build stage/target, published as ghcr.io/ossplay/ossplay:<version>-<role> —
+# still the same single GHCR *package* (ghcr.io/ossplay/ossplay), just one
+# tag per role instead of one tag shared by all of them — so a container for
+# one role never carries another role's source (see that Dockerfile's own
+# comment for why: exec'ing into, say, the public api container used to also
+# expose infra/updater's privileged docker-compose-control code).
+#
+# `worker` has its own runner-worker target in the Dockerfile (built and
+# smoke-tested locally) but is deliberately NOT in the matrix below yet —
+# it isn't ready to publish. Add it to the matrix once it is; nothing else
+# needs to change.
 #
 # Versioning is tag-derived, never hand-bumped in package.json: pushing
 # `v0.0.1` (or a prerelease like `v0.0.1-rc.1`) is the only release step —
@@ -33,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        role: [api, dashboard, worker, updater]
+        role: [api, dashboard, updater]
     steps:
       - uses: actions/checkout@v4
 

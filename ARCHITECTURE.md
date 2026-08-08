@@ -51,8 +51,9 @@ ossplay/
 │   ├── caddy/                   # Caddyfile template for the auto-SSL reverse proxy
 │   ├── updater/                 # docker.sock-mounted auto-updater sidecar (PRD §2.2, see §6)
 │   └── ossplay/                 # One Dockerfile, four role-scoped final stages + the shared
-│                                 # role-dispatch entrypoint.ts, published as ghcr.io/ossplay/ossplay:
-│                                 # <version>-{api,dashboard,worker,updater} — see §6
+│                                 # role-dispatch entrypoint.ts; api/dashboard/updater publish as
+│                                 # ghcr.io/ossplay/ossplay:<version>-{api,dashboard,updater} (worker's
+│                                 # stage exists but isn't in the CI matrix yet) — see §6
 ├── .github/workflows/  # ci.yml, docker-images.yml, migrate-check.yml
 ├── package.json         # Bun workspaces root
 ├── turbo.json
@@ -107,12 +108,12 @@ Dashboard (Next.js) ──HTTP──> API (Hono)
 
 | Repo | Workflows |
 | --- | --- |
-| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (`strategy.matrix` build+push job — one Dockerfile, four role-scoped targets — for `ghcr.io/ossplay/ossplay:<version>-{api,dashboard,worker,updater}` on version tags, plus a single follow-up job creating the GitHub Release with `docker-compose.yml`/`Caddyfile` attached as assets) · `migrate-check.yml` (drizzle-kit schema drift check) |
+| `ossplay` | `ci.yml` (bun install → typecheck → lint → unit tests, with a real Postgres service container for the auth/setup integration suite, on every PR) · `docker-images.yml` (`strategy.matrix` build+push job — one Dockerfile, three published role-scoped targets — for `ghcr.io/ossplay/ossplay:<version>-{api,dashboard,updater}` on version tags, plus a single follow-up job creating the GitHub Release with `docker-compose.yml`/`Caddyfile` attached as assets; `worker`'s stage exists in the Dockerfile but isn't in the matrix yet — not ready to publish) · `migrate-check.yml` (drizzle-kit schema drift check) |
 | `sdk-js` | `ci.yml` (typecheck/test/build) · `publish.yml` (GitHub Packages publish on version tags) |
 | `website` / `docs` | `ci.yml` (typecheck/lint/build) · deploy on push to `main` |
 | `.github` | none — template files only |
 
-**One Dockerfile, one version — four separate images, not one.** `infra/ossplay/Dockerfile` has a `runner-api`/`runner-dashboard`/`runner-worker`/`runner-updater` final stage off a shared `runner-base`, each `COPY`ing only that role's own app source plus the `packages/*` it actually imports (dashboard needs none — its Next standalone output is fully self-contained) — a container for one role can no longer read or exec into another role's source. `infra/ossplay/entrypoint.ts` (identical across all four images — it's generic role-dispatch glue, not app code) reads `OSSPLAY_ROLE` and `Bun.spawn`s the matching process; `docker-compose.yml` runs each role's own image tag as its own container, still independently restartable/health-checkable, and only the `updater` image (and container) carries `docker-cli`/`docker-cli-compose` or gets `/var/run/docker.sock` mounted. This replaced a brief single-unified-image design (one image, all four apps' source, role chosen only at runtime) after that design's real isolation cost was reconsidered — see `MEMORY.md`'s 2026-08-07 entry for why, and its linked 2026-08-04 entry for the versioning/OTA mechanics this preserved unchanged.
+**One Dockerfile, one version — separate images, not one.** `infra/ossplay/Dockerfile` has a `runner-api`/`runner-dashboard`/`runner-worker`/`runner-updater` final stage off a shared `runner-base`, each `COPY`ing only that role's own app source plus the `packages/*` it actually imports (dashboard needs none — its Next standalone output is fully self-contained) — a container for one role can no longer read or exec into another role's source. `infra/ossplay/entrypoint.ts` (identical across every image — it's generic role-dispatch glue, not app code) reads `OSSPLAY_ROLE` and `Bun.spawn`s the matching process; `docker-compose.yml` runs each role's own image tag as its own container, still independently restartable/health-checkable, and only the `updater` image (and container) carries `docker-cli`/`docker-cli-compose` or gets `/var/run/docker.sock` mounted. Only `api`/`dashboard`/`updater` are actually in `docker-images.yml`'s publish matrix today — `worker`'s stage exists and builds cleanly, it's just not wired into CI yet (add it to the matrix once it's ready, nothing else changes). This replaced a brief single-unified-image design (one image, all apps' source, role chosen only at runtime) after that design's real isolation cost was reconsidered — see `MEMORY.md`'s 2026-08-07 entry for why, and its linked 2026-08-04 entry for the versioning/OTA mechanics this preserved unchanged.
 
 ### Versioning
 
