@@ -6,6 +6,20 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-08 — Update-check hit the wrong GitHub endpoint; manual check never persisted
+
+**Status:** Decided
+
+Real report: running `0.0.1-alpha.8`, published `0.0.1-alpha.9`, dashboard still said "Up to date — running 0.0.1-alpha.8," and clicking "Check for updates" never changed the "Last check: …" timestamp either.
+
+- **`apps/api/src/lib/updates/check.ts` was hitting `GET /releases/latest`**, which explicitly excludes pre-releases and 404s if none exist — wrong for the entire alpha series, where every release published so far *is* a GitHub pre-release. `infra/updater/index.ts`'s `resolveReleaseTag` already had this exact fix (with a comment explaining why), but `check.ts` duplicates its own logic and never got it. Fixed to hit `GET /releases` (the list, newest-first) and take index `0`, same as the updater.
+- **The manual "Check for updates" button never persisted anything.** `POST /instance/overview/updates` ran the real check and returned it, but only the 24h background `autoCheck` job (`apps/api/src/index.ts`) ever called `writeInstanceConfig` to update `updates.lastCheckedAt`/`lastCheckResult` — the values `GET /` (and the dashboard's "Last check" line) actually reads. Fixed the POST handler to persist the same way the background job does. Separately, even once persisted, the dashboard's `handleCheck` only revalidated the session-level `/instance` SWR cache (for the sidebar badge/global dialog), never this page's own `/instance/overview` fetch — fixed to revalidate both.
+- **Latent secondary bug, caught while fixing the above, not yet the actual symptom**: both `check.ts`'s `isNewer` and `infra/updater/index.ts`'s `compareVersions` compared prerelease suffixes with a plain string `<`/`>` — `"alpha.10" < "alpha.9"` is `true` lexically. Harmless below 10 prereleases, but with alpha.9 already tagged, alpha.10 was one release away from being silently reported as older than alpha.9 (update-check) or rejected as a downgrade (updater's real downgrade guard). Replaced with a real semver-precedence-aware `comparePrerelease()` (dot-separated identifiers, numeric ones compared numerically) in both places — same "kept duplicated, not shared" reasoning as the rest of that function.
+
+**Artifacts updated:** `apps/api/src/lib/updates/check.ts` (+ new `check.test.ts`), `apps/api/src/routes/instance/instance.overview.ts`, `apps/dashboard/app/(app)/instance/page.tsx`, `infra/updater/index.ts`.
+
+---
+
 ## 2026-08-08 — Per-role filtered installs: role images were 3-4x bigger than they needed to be
 
 **Status:** Decided (refines the 2026-08-07 role-split entry below, doesn't reverse it)

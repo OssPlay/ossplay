@@ -55,6 +55,38 @@ const jobs = new Map<string, Job>();
 // "-prerelease" suffix, compares major.minor.patch numerically, and treats
 // "has a prerelease suffix" as strictly older when the numeric parts are
 // equal (matches real semver precedence for the one case this needs).
+//
+// Prerelease identifiers are compared per real semver precedence (dot-
+// separated identifiers, numeric ones compared numerically and always
+// lower-precedence than non-numeric ones) rather than one plain string
+// comparison — `"alpha.10" < "alpha.9"` is true lexically, which would make
+// this reject an update FROM alpha.10 TO alpha.9 as a downgrade... but also
+// silently accept the reverse (alpha.9 -> alpha.10) as a downgrade too,
+// rejecting a real forward update. Same bug, same fix, as check.ts's
+// isNewer — kept duplicated for the same reason that one is (see its
+// comment), not shared.
+function comparePrerelease(a: string, b: string): number {
+	const aParts = a.split(".");
+	const bParts = b.split(".");
+	for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+		const ai = aParts[i];
+		const bi = bParts[i];
+		if (ai === undefined) return -1;
+		if (bi === undefined) return 1;
+		const an = Number.parseInt(ai, 10);
+		const bn = Number.parseInt(bi, 10);
+		const aIsNum = String(an) === ai;
+		const bIsNum = String(bn) === bi;
+		if (aIsNum && bIsNum) {
+			if (an !== bn) return an - bn;
+			continue;
+		}
+		if (aIsNum !== bIsNum) return aIsNum ? -1 : 1;
+		if (ai !== bi) return ai < bi ? -1 : 1;
+	}
+	return 0;
+}
+
 function compareVersions(a: string, b: string): number {
 	const parse = (v: string) => {
 		const clean = v.replace(/^v/, "");
@@ -71,7 +103,7 @@ function compareVersions(a: string, b: string): number {
 	if (pa.prerelease === pb.prerelease) return 0;
 	if (pa.prerelease === null) return 1;
 	if (pb.prerelease === null) return -1;
-	return pa.prerelease < pb.prerelease ? -1 : 1;
+	return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
 // The box's local docker-compose.yml is a point-in-time copy install.sh

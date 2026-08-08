@@ -253,11 +253,16 @@ function ServerUpdates({
 	// the separate, session-level GET /instance check (see auth-provider.tsx)
 	// rather than this page's own /instance/overview fetch — refresh that
 	// shared cache too so a manual check here is immediately reflected
-	// everywhere else, not just on this page.
+	// everywhere else, not just on this page. Also refresh this page's own
+	// /instance/overview data (`mutate`, this component's prop) — the POST
+	// itself now persists a fresh `updates.lastCheckedAt`/`lastCheckResult`
+	// (see instance.overview.ts), but nothing re-fetched GET / to pick that
+	// up, so the "Last check: …" line below never changed after a manual
+	// click even though the check genuinely ran.
 	async function handleCheck() {
 		await checkUpdates
 			.trigger()
-			.then(() => mutateInstance())
+			.then(() => Promise.all([mutateInstance(), mutate()]))
 			.catch(() => {});
 	}
 

@@ -13,7 +13,13 @@ import { readVersion } from "../server-info";
 // Overridable so a fork (different org/repo) still gets working update
 // checks against its own releases, rather than checking upstream's.
 const GITHUB_REPO = process.env.OSSPLAY_GITHUB_REPO ?? "OssPlay/ossplay";
-const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+// /releases/latest explicitly excludes pre-releases and 404s if none exist —
+// wrong during the alpha series, where every release published so far *is*
+// one (same reasoning install.sh and infra/updater/index.ts's
+// resolveReleaseTag already apply). /releases (the list, newest-first) plus
+// taking index 0 is what actually reflects the newest published release,
+// pre- or not.
+const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
 const RECALL_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/RELEASES.json`;
 const REQUEST_TIMEOUT_MS = 5000;
 
@@ -45,12 +51,45 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 	}
 }
 
-// Minimal semver compare (same shape as infra/updater/index.ts's — kept
-// duplicated rather than shared, since infra/updater isn't part of this
-// app's TS project/workspace and pulling in a shared package for one small
-// function isn't worth the boundary). Only used here to decide "is the
-// latest release actually newer," not for downgrade protection.
-function isNewer(candidate: string, base: string): boolean {
+// Minimal semver compare (same shape as infra/updater/index.ts's
+// compareVersions — kept duplicated rather than shared, since infra/updater
+// isn't part of this app's TS project/workspace and pulling in a shared
+// package for one small function isn't worth the boundary). Only used here
+// to decide "is the latest release actually newer," not for downgrade
+// protection.
+//
+// Prerelease identifiers are compared per real semver precedence rules
+// (dot-separated identifiers, numeric identifiers compared numerically and
+// always lower-precedence than non-numeric ones, fewer identifiers is
+// lower-precedence than a shared prefix with more) rather than one plain
+// string comparison — a plain `"alpha.10" > "alpha.9"` is false (lexical
+// comparison), which would make this report alpha.9 as newer than an
+// already-installed alpha.10. Caught by testing this against the repo's
+// actual alpha.9/alpha.10 tags, not hypothetically.
+function comparePrerelease(a: string, b: string): number {
+	const aParts = a.split(".");
+	const bParts = b.split(".");
+	for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+		const ai = aParts[i];
+		const bi = bParts[i];
+		if (ai === undefined) return -1;
+		if (bi === undefined) return 1;
+		const an = Number.parseInt(ai, 10);
+		const bn = Number.parseInt(bi, 10);
+		const aIsNum = String(an) === ai;
+		const bIsNum = String(bn) === bi;
+		if (aIsNum && bIsNum) {
+			if (an !== bn) return an - bn;
+			continue;
+		}
+		if (aIsNum !== bIsNum) return aIsNum ? -1 : 1;
+		if (ai !== bi) return ai < bi ? -1 : 1;
+	}
+	return 0;
+}
+
+// Exported for testing only — checkForUpdates() is the real public API.
+export function isNewer(candidate: string, base: string): boolean {
 	const parse = (v: string) => {
 		const clean = v.replace(/^v/, "");
 		const [core, prerelease] = clean.split("-", 2);
@@ -66,7 +105,7 @@ function isNewer(candidate: string, base: string): boolean {
 	if (pa.prerelease === pb.prerelease) return false;
 	if (pa.prerelease === null) return true;
 	if (pb.prerelease === null) return false;
-	return pa.prerelease > pb.prerelease;
+	return comparePrerelease(pa.prerelease, pb.prerelease) > 0;
 }
 
 // Never throws — an unreachable GitHub (offline instance, rate limit, no
@@ -76,14 +115,15 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 	const currentVersion = readVersion();
 	const checkedAt = new Date().toISOString();
 
-	const [release, manifest] = await Promise.all([
-		fetchJson<{ tag_name?: string; html_url?: string }>(GITHUB_RELEASES_URL),
+	const [releases, manifest] = await Promise.all([
+		fetchJson<Array<{ tag_name?: string; html_url?: string }>>(GITHUB_RELEASES_URL),
 		fetchJson<RecallManifest>(RECALL_MANIFEST_URL),
 	]);
+	const release = releases?.[0] ?? null;
 
 	const recall = manifest?.recalled?.[currentVersion];
 
-	if (!release && !manifest) {
+	if (!releases && !manifest) {
 		return {
 			currentVersion,
 			latestVersion: null,

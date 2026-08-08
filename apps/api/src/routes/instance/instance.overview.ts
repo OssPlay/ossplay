@@ -81,6 +81,22 @@ instanceOverviewRoute.get("/version", async (c) => {
 
 instanceOverviewRoute.post("/updates", async (c) => {
 	const result = await checkForUpdates();
+	// Persist the same way the background autoCheck job does (apps/api/src/
+	// index.ts) — a manual click is still a real check, and GET /'s
+	// `updates.lastCheckedAt`/`lastCheckResult` (what the dashboard's "Last
+	// check" line reads) previously only ever moved on the 24h autoCheck
+	// tick, never on a manual trigger, even though this endpoint ran the
+	// check just fine — it just never wrote the result down anywhere.
+	writeInstanceConfig({
+		updates: {
+			lastCheckedAt: result.checkedAt,
+			lastCheckResult: {
+				available: result.available,
+				latestVersion: result.latestVersion,
+				forced: result.forced,
+			},
+		},
+	});
 	return c.json(result);
 });
 
