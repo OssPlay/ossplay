@@ -72,14 +72,16 @@ export function AccountDropdown() {
 
 	return (
 		<SidebarFooter>
-			<Button
-				variant="outline"
-				size="xs"
-				onClick={() => openUpdateDialog()}
-				className="hover:bg-primary/10"
-			>
-				<RssIcon /> Update available v{instance?.updates.latestVersion}
-			</Button>
+			{canUpdate && (
+				<Button
+					variant="outline"
+					size="xs"
+					onClick={() => openUpdateDialog()}
+					className="hover:bg-primary/10"
+				>
+					<RssIcon /> Update available v{instance?.updates.latestVersion}
+				</Button>
+			)}
 			<SidebarMenu>
 				<SidebarMenuItem>
 					<DropdownMenu>
