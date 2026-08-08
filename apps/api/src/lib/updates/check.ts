@@ -16,9 +16,9 @@ const GITHUB_REPO = process.env.OSSPLAY_GITHUB_REPO ?? "OssPlay/ossplay";
 // /releases/latest explicitly excludes pre-releases and 404s if none exist —
 // wrong during the alpha series, where every release published so far *is*
 // one (same reasoning install.sh and infra/updater/index.ts's
-// resolveReleaseTag already apply). /releases (the list, newest-first) plus
-// taking index 0 is what actually reflects the newest published release,
-// pre- or not.
+// resolveReleaseTag already apply). /releases (the full list) is what
+// actually reflects the newest published release, pre- or not — but its
+// order isn't trustworthy on its own, see pickLatestReleaseTag below.
 const GITHUB_RELEASES_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
 const RECALL_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/RELEASES.json`;
 const REQUEST_TIMEOUT_MS = 5000;
@@ -88,6 +88,32 @@ function comparePrerelease(a: string, b: string): number {
 	return 0;
 }
 
+// GitHub's /releases list is NOT reliably sorted by version — confirmed
+// against this repo's own real tags (curl the endpoint and diff its raw
+// order against `sort -V`): alpha.9/alpha.8 came back ahead of
+// alpha.12/alpha.11/alpha.10 in one real response, apparently ordered by
+// each release object's `created_at` rather than by tag, which drifts from
+// tag order whenever a release is drafted/edited out of sequence. Taking
+// index 0 as "the latest" (the previous approach here, in install.sh, and
+// in infra/updater/index.ts's resolveReleaseTag) reported an OLDER release
+// as the update target — silently offering a downgrade, or worse, a
+// dashboard rendered "up to date" while already ahead of that stale
+// "latest". Fixed by explicitly picking the highest by version instead of
+// trusting API order — same reasoning, independently, in the other two
+// call sites listed above (kept duplicated, not shared, for the same
+// reason isNewer/comparePrerelease are).
+export function pickLatestReleaseTag(
+	releases: Array<{ tag_name?: string }> | null | undefined,
+): string | null {
+	let latest: string | null = null;
+	for (const release of releases ?? []) {
+		const tag = release.tag_name;
+		if (!tag) continue;
+		if (latest === null || isNewer(tag, latest)) latest = tag;
+	}
+	return latest;
+}
+
 // Exported for testing only — checkForUpdates() is the real public API.
 export function isNewer(candidate: string, base: string): boolean {
 	const parse = (v: string) => {
@@ -119,7 +145,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 		fetchJson<Array<{ tag_name?: string; html_url?: string }>>(GITHUB_RELEASES_URL),
 		fetchJson<RecallManifest>(RECALL_MANIFEST_URL),
 	]);
-	const release = releases?.[0] ?? null;
+	const latestTag = pickLatestReleaseTag(releases);
+	const release = releases?.find((r) => r.tag_name === latestTag) ?? null;
 
 	const recall = manifest?.recalled?.[currentVersion];
 

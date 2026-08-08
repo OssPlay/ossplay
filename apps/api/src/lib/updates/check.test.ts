@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isNewer } from "./check";
+import { isNewer, pickLatestReleaseTag } from "./check";
 
 describe("isNewer", () => {
 	it("detects a newer patch/minor/major release", () => {
@@ -32,5 +32,34 @@ describe("isNewer", () => {
 	it("handles a leading v on either side", () => {
 		expect(isNewer("v0.0.2", "v0.0.1")).toBe(true);
 		expect(isNewer("v0.0.1", "0.0.1")).toBe(false);
+	});
+});
+
+describe("pickLatestReleaseTag", () => {
+	// Regression: a real GET /releases response came back with alpha.9 and
+	// alpha.8 ahead of alpha.12/alpha.11/alpha.10 (GitHub's list order isn't
+	// reliably newest-first). Taking index 0, the previous approach, would
+	// report alpha.9 as "latest" while an alpha.11 instance was already
+	// ahead of it.
+	it("picks the highest version regardless of array order", () => {
+		const releases = [
+			{ tag_name: "v0.0.1-alpha.9" },
+			{ tag_name: "v0.0.1-alpha.8" },
+			{ tag_name: "v0.0.1-alpha.12" },
+			{ tag_name: "v0.0.1-alpha.11" },
+			{ tag_name: "v0.0.1-alpha.10" },
+			{ tag_name: "v0.0.1-alpha.7" },
+		];
+		expect(pickLatestReleaseTag(releases)).toBe("v0.0.1-alpha.12");
+	});
+
+	it("ignores entries with no tag_name", () => {
+		expect(pickLatestReleaseTag([{}, { tag_name: "v0.0.1-alpha.2" }])).toBe("v0.0.1-alpha.2");
+	});
+
+	it("returns null for an empty or missing list", () => {
+		expect(pickLatestReleaseTag([])).toBeNull();
+		expect(pickLatestReleaseTag(null)).toBeNull();
+		expect(pickLatestReleaseTag(undefined)).toBeNull();
 	});
 });

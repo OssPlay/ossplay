@@ -124,7 +124,20 @@ async function resolveReleaseTag(version: string): Promise<string> {
 	if (!res.ok)
 		throw new Error(`Could not resolve the latest release: GitHub returned ${res.status}`);
 	const releases = (await res.json()) as Array<{ tag_name?: string }>;
-	const tag = releases[0]?.tag_name;
+	// GitHub's /releases list is NOT reliably sorted by version — confirmed
+	// against this repo's own real tags, where alpha.9/alpha.8 came back
+	// ahead of alpha.12/alpha.11/alpha.10 in one real response (apparently
+	// ordered by each release object's `created_at`, which drifts from tag
+	// order whenever a release is drafted/edited out of sequence). Taking
+	// index 0 as "the latest" would resolve "latest" to an older tag than
+	// what's actually newest — same bug, same fix, as
+	// apps/api/src/lib/updates/check.ts's pickLatestReleaseTag (kept
+	// duplicated, not shared, for the same reason compareVersions is).
+	let tag: string | undefined;
+	for (const release of releases) {
+		if (!release.tag_name) continue;
+		if (!tag || compareVersions(release.tag_name, tag) > 0) tag = release.tag_name;
+	}
 	if (!tag) throw new Error(`No published release found for ${REPO}`);
 	return tag;
 }

@@ -6,6 +6,24 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-08 — GitHub `/releases` order is not reliably newest-first; every "latest" resolution was trusting it
+
+**Status:** Decided
+
+Real report, with proof: an instance running `0.0.1-alpha.11` had the in-app update check report `latestVersion: "0.0.1-alpha.9"` — an *older* release reported as latest. Confirmed directly against the real API (`curl .../releases | grep tag_name`): the raw response order was `alpha.9, alpha.8, alpha.12, alpha.11, alpha.10, alpha.7, …` — not version-sorted, apparently ordered by each release object's own `created_at` rather than by tag, which drifts from tag order whenever a release is drafted/edited out of sequence.
+
+Three independent call sites all made the same assumption — "the list is newest-first, take index 0" — because `/releases/latest` (which *would* be reliably "the latest") explicitly excludes pre-releases and 404s during the alpha series, so all three fetch the full `/releases` list instead and had trusted its order:
+
+- **`apps/api/src/lib/updates/check.ts`** (`checkForUpdates`, backs the dashboard's update banner and the post-login recall check) — was `releases?.[0]`. New exported `pickLatestReleaseTag()` scans the whole list and picks the highest by `isNewer()` (the numeric-aware prerelease comparator already fixed in the 2026-08-08 "update-check hit the wrong GitHub endpoint" entry below) instead of trusting array order.
+- **`infra/updater/index.ts`**'s `resolveReleaseTag` (resolves what `"latest"` means before an in-app "Update now" actually pulls images) — was `releases[0]?.tag_name`. Same fix, using its own `compareVersions`.
+- **`website/public/install.sh`** (a fresh VPS install resolving what to download when no `--version` is passed) — was `grep -m1 '"tag_name"'` on the raw response. Fixed to extract every `tag_name`, then `sort -rV | head -n1` — verified against this repo's real tag set (`v0.0.1-alpha.2` through `v0.0.1-alpha.12`) to produce the numerically-correct order, matching what `pickLatestReleaseTag`/`compareVersions` independently compute.
+
+All three fixes are kept duplicated rather than shared (same reasoning as the existing `isNewer`/`comparePrerelease`/`compareVersions` duplication across these exact three files — different runtimes: dashboard-adjacent API code, a standalone Bun script with no shared TS project, and POSIX shell).
+
+**Artifacts updated:** `apps/api/src/lib/updates/check.ts` (+ `check.test.ts` regression test reproducing the exact real out-of-order response), `infra/updater/index.ts`, `website/public/install.sh`.
+
+---
+
 ## 2026-08-08 — Org-switch redirect, S3 endpoint autofill, dashboard charts, mail react-dom fix, org nav cleanup
 
 **Status:** Decided
