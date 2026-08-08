@@ -48,6 +48,19 @@ type Invitation = {
 
 const ROLES = ["member", "admin", "owner"] as const;
 
+// Mirrors instance/users/page.tsx's INVITE_ROLE_LABELS — same "label plus
+// what it actually grants" pattern, kept accurate against the real org
+// permission grants in apps/api/src/lib/authz/permissions.ts's
+// ORG_ROLE_PERMISSIONS rather than restated loosely: member can edit
+// existing projects and manage assets (not create/delete projects); admin
+// adds create/delete projects; owner adds members and organization
+// settings (rename/delete the org itself).
+const ROLE_LABELS: Record<(typeof ROLES)[number], string> = {
+	member: "Member — edit projects, manage assets",
+	admin: "Admin — create/delete projects & assets",
+	owner: "Owner — full access, members & settings",
+};
+
 export default function MembersPage() {
 	const { organizations } = useAuth();
 	const orgId = useOrgSectionId();
@@ -222,22 +235,21 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 						disabled={invite.isLoading}
 					/>
 				</div>
-				<div className="flex flex-col gap-1.5 max-w-32 w-full">
+				<div className="flex flex-col gap-1.5 w-full sm:w-80">
 					<Label htmlFor="inviteRole">Role</Label>
 					<Select
-						items={ROLES.map((r) => ({ label: r, value: r }))}
 						defaultValue={ROLES[0]}
 						onValueChange={(val) => {
 							if (val) setRole(val);
 						}}
 					>
-						<SelectTrigger className="w-full">
-							<SelectValue />
+						<SelectTrigger id="inviteRole" className="w-full">
+							<SelectValue items={ROLE_LABELS} />
 						</SelectTrigger>
 						<SelectContent>
 							{ROLES.map((item) => (
 								<SelectItem key={item} value={item}>
-									{item}
+									{ROLE_LABELS[item]}
 								</SelectItem>
 							))}
 						</SelectContent>
