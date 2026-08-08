@@ -67,7 +67,7 @@ export const CodeBlock = React.forwardRef<HTMLPreElement, CodeBlockProps>(
 						className={cn("p-4 font-mono text-sm leading-relaxed overflow-x-auto", className)}
 						{...props}
 					>
-						<code className={cn("block w-full language-" + language)}>{code.trim()}</code>
+						<code className={cn(`block w-full language-${language}`)}>{code.trim()}</code>
 					</pre>
 				</ScrollArea>
 			</div>

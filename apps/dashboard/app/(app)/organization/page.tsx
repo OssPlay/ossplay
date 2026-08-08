@@ -24,7 +24,7 @@ import Container from "@/components/ui/container";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
-import { useCurrentOrgId } from "@/lib/current-org";
+import { useOrgSectionId } from "@/lib/current-org";
 
 // Either a real membership row (from /auth/me, has `role`/`projects`) or, for
 // root managing an org it doesn't belong to (navigated to from
@@ -39,10 +39,7 @@ type OrgLike = { id: string; name: string; role: string; projectCount: number | 
 export default function OrganizationGeneralPage() {
 	const router = useRouter();
 	const { organizations, isLoading, mutate, user } = useAuth();
-	const orgId = useCurrentOrgId(
-		organizations.map((o) => o.id),
-		{ allowAny: user.instanceRole === "root" },
-	);
+	const orgId = useOrgSectionId();
 	const membershipOrg = organizations.find((o) => o.id === orgId);
 
 	const {

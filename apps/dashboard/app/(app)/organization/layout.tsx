@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Section } from "@/components/layout/section";
 import { useAuth } from "@/components/providers/auth-provider";
-import { useCurrentOrgId } from "@/lib/current-org";
+import { useOrgSectionId } from "@/lib/current-org";
 import type { Sidepanel } from "@/lib/nav-types";
 
 const sidepanel: Sidepanel = [
@@ -38,15 +38,11 @@ const sidepanel: Sidepanel = [
 export default function OrganizationLayout({ children }: { children: React.ReactNode }) {
 	const { organizations, user } = useAuth();
 	// Root has implicit access to every organization regardless of membership
-	// rows (see ARCHITECTURE.md's Authorization Model section) — allowAny
-	// lets this section resolve to whatever org root navigated here to
-	// manage (e.g. from instance/organizations/[id]'s "Manage" links, which
-	// call setCurrentOrgId before navigating), not just ones they happen to
-	// belong to.
-	const orgId = useCurrentOrgId(
-		organizations.map((o) => o.id),
-		{ allowAny: user.instanceRole === "root" },
-	);
+	// rows (see ARCHITECTURE.md's Authorization Model section) — useOrgSectionId
+	// resolves to whatever org root navigated here to manage (e.g. from
+	// instance/organizations/[id]'s "Manage" links, which call setCurrentOrgId
+	// before navigating), not just ones they happen to belong to.
+	const orgId = useOrgSectionId();
 	const access = organizations.some((o) => o.id === orgId) || user.instanceRole === "root";
 
 	return (

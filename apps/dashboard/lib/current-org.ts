@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { useAuth } from "@/components/providers/auth-provider";
 
 // sessionStorage, not localStorage — each browser TAB gets its own current
 // org, so two tabs can browse different orgs without one silently
@@ -51,4 +52,23 @@ export function useCurrentOrgId(
 	if (!availableOrgIds || availableOrgIds.length === 0) return null;
 	if (stored && availableOrgIds.includes(stored)) return stored;
 	return availableOrgIds[0] ?? null;
+}
+
+/**
+ * The org-management section's current org id — layout.tsx, page.tsx,
+ * members/page.tsx, and projects/page.tsx under app/(app)/organization/ all
+ * resolved this via the exact same `useCurrentOrgId(organizations.map(...),
+ * { allowAny: ... })` three-liner (4 call sites is the repo's own threshold
+ * for pulling a repeated pattern out — see CLAUDE.md). Deliberately NOT a
+ * replacement for plain `useCurrentOrgId` itself: the org picker, project
+ * list, and project settings page all call that directly without `allowAny`
+ * and should keep the strict membership-only behavior described on it above
+ * — this hook is specific to the one flow that needs root's exception.
+ */
+export function useOrgSectionId(): string | null {
+	const { organizations, user } = useAuth();
+	return useCurrentOrgId(
+		organizations.map((o) => o.id),
+		{ allowAny: user.instanceRole === "root" },
+	);
 }

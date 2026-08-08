@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { useAction } from "@/hooks/use-action";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
-import { useCurrentOrgId } from "@/lib/current-org";
+import { useOrgSectionId } from "@/lib/current-org";
 import { formatDatetime } from "@/lib/utils";
 
 type Project = { id: string; name: string; orgId: string; createdAt: string };
@@ -41,12 +41,7 @@ type Project = { id: string; name: string; orgId: string; createdAt: string };
 // themselves (org-picker.tsx vs instance/organizations).
 export default function OrganizationProjectsPage() {
 	const { organizations, user } = useAuth();
-	// allowAny: root managing an org it isn't a member of (navigated here
-	// from instance/organizations/[id]) — see current-org.ts's comment.
-	const orgId = useCurrentOrgId(
-		organizations.map((o) => o.id),
-		{ allowAny: user.instanceRole === "root" },
-	);
+	const orgId = useOrgSectionId();
 	const membershipOrg = organizations.find((o) => o.id === orgId);
 	const hasMembership = Boolean(membershipOrg);
 

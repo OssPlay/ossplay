@@ -143,7 +143,7 @@ export default function InstanceOverviewPage() {
 				}}
 				size="sm"
 			>
-				<ServerUpdates data={data!} mutate={mutate} />
+				{data && <ServerUpdates data={data} mutate={mutate} />}
 			</Container>
 
 			<Container

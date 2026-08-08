@@ -18,7 +18,7 @@ class UrlLib {
 	}
 
 	matches(url_pattern: `/${string}`) {
-		return this.url.pathname === url_pattern || this.url.pathname.startsWith(url_pattern + "/");
+		return this.url.pathname === url_pattern || this.url.pathname.startsWith(`${url_pattern}/`);
 	}
 
 	// Not a hook despite the "set" verb pairing with getQueryParam below —

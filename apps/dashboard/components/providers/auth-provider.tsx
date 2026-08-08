@@ -67,7 +67,7 @@ export default function AuthProvider({ children }: React.PropsWithChildren) {
 		}
 		try {
 			await logout.trigger();
-		} catch (e) {
+		} catch {
 			toast.error("Failed to log out.");
 		} finally {
 			// Always navigate away, even if the server-side logout call failed —

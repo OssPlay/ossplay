@@ -12,6 +12,13 @@ import Container from "@/components/ui/container";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -21,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { useAction } from "@/hooks/use-action";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
-import { useCurrentOrgId } from "@/lib/current-org";
+import { useOrgSectionId } from "@/lib/current-org";
 
 type Member = {
 	userId: string;
@@ -42,13 +49,8 @@ type Invitation = {
 const ROLES = ["member", "admin", "owner"] as const;
 
 export default function MembersPage() {
-	const { organizations, user } = useAuth();
-	// allowAny: root managing an org it isn't a member of (navigated here
-	// from instance/organizations/[id]) — see current-org.ts's comment.
-	const orgId = useCurrentOrgId(
-		organizations.map((o) => o.id),
-		{ allowAny: user.instanceRole === "root" },
-	);
+	const { organizations } = useAuth();
+	const orgId = useOrgSectionId();
 	const hasMembership = organizations.some((o) => o.id === orgId);
 
 	// Only meaningful for root browsing an org outside its own membership
@@ -220,21 +222,26 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 						disabled={invite.isLoading}
 					/>
 				</div>
-				<div className="flex flex-col gap-1.5">
+				<div className="flex flex-col gap-1.5 max-w-32 w-full">
 					<Label htmlFor="inviteRole">Role</Label>
-					<select
-						id="inviteRole"
-						value={role}
-						onChange={(e) => setRole(e.target.value as (typeof ROLES)[number])}
-						disabled={invite.isLoading}
-						className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+					<Select
+						items={ROLES.map((r) => ({ label: r, value: r }))}
+						defaultValue={ROLES[0]}
+						onValueChange={(val) => {
+							if (val) setRole(val);
+						}}
 					>
-						{ROLES.map((r) => (
-							<option key={r} value={r}>
-								{r}
-							</option>
-						))}
-					</select>
+						<SelectTrigger className="w-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{ROLES.map((item) => (
+								<SelectItem key={item} value={item}>
+									{item}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 				</div>
 				<LoadingButton
 					type="button"

@@ -8,7 +8,7 @@ export default function ApiLoader({
 	children,
 }: React.PropsWithChildren<{
 	isLoading: boolean;
-	error?: any | null;
+	error?: unknown;
 }>) {
 	if (isLoading) {
 		return (
