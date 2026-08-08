@@ -354,7 +354,7 @@ function InviteUserDialog({
 					return;
 				}
 				toast.success("Invitation sent");
-				onOpenChange(false);
+				handleOpenChange(false);
 			})
 			.catch(() => {});
 	}

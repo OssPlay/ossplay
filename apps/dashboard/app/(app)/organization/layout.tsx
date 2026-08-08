@@ -5,7 +5,7 @@ import {
 	Building2Icon,
 	DatabaseIcon,
 	FolderIcon,
-	ServerIcon,
+	ServerCogIcon,
 	UsersIcon,
 } from "lucide-react";
 import { Section } from "@/components/layout/section";
@@ -13,26 +13,35 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useOrgSectionId } from "@/lib/current-org";
 import type { Sidepanel } from "@/lib/nav-types";
 
+// Grouped to match instance/layout.tsx's icon-labeled-section convention
+// (Server/Connections/Infrastructure/Access Control) instead of a flat mix
+// of grouped and ungrouped items. No "Remote Servers" entry here — remote
+// servers are provisioned instance-wide by root only (instance/servers);
+// an org can't add or manage its own, it can only end up using one once a
+// project's processing rules reference it. That page never existed, so the
+// old link was a dead 404.
 const sidepanel: Sidepanel = [
 	{ title: "Back to Dashboard", href: "/", icon: ArrowLeftIcon },
 	{
-		title: "Configuration",
+		title: "Organization",
+		icon: Building2Icon,
+		items: [
+			{ title: "General", href: "/organization", icon: Building2Icon },
+			{ title: "Members", href: "/organization/members", icon: UsersIcon },
+			{ title: "Projects", href: "/organization/projects", icon: FolderIcon },
+		],
+	},
+	{
+		title: "Infrastructure",
+		icon: ServerCogIcon,
 		items: [
 			{
 				title: "S3 Destinations",
 				href: "/organization/destinations",
 				icon: DatabaseIcon,
 			},
-			{
-				title: "Remote Servers",
-				href: "/organization/servers",
-				icon: ServerIcon,
-			},
 		],
 	},
-	{ title: "General", href: "/organization", icon: Building2Icon },
-	{ title: "Members", href: "/organization/members", icon: UsersIcon },
-	{ title: "Projects", href: "/organization/projects", icon: FolderIcon },
 ];
 
 export default function OrganizationLayout({ children }: { children: React.ReactNode }) {

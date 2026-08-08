@@ -1,6 +1,7 @@
 "use client";
 
 import { Building2Icon, ChevronsUpDownIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -25,8 +26,21 @@ export function OrgPicker() {
 	const { organizations } = useAuth();
 	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
 	const org = organizations.find((o) => o.id === orgId);
+	const router = useRouter();
+	const pathname = usePathname();
 
 	if (!org) return null;
+
+	// A /project/[projectId]/... route is pinned to whichever org owns that
+	// project — project/[projectId]/settings/layout.tsx resolves the owning
+	// org from the URL and force-corrects `currentOrgId` back to it on every
+	// render, which otherwise fights this picker (org appears to "switch"
+	// then immediately snaps back). Route away to the dashboard first so
+	// there's nothing left to fight the switch.
+	function handleSelect(newOrgId: string) {
+		setCurrentOrgId(newOrgId);
+		if (pathname.startsWith("/project/")) router.push("/");
+	}
 
 	return (
 		<SidebarHeader>
@@ -49,7 +63,7 @@ export function OrgPicker() {
 							<DropdownMenuGroup>
 								<DropdownMenuLabel>Organizations</DropdownMenuLabel>
 								{organizations.map((o) => (
-									<DropdownMenuItem key={o.id} onClick={() => setCurrentOrgId(o.id)}>
+									<DropdownMenuItem key={o.id} onClick={() => handleSelect(o.id)}>
 										{o.name}
 									</DropdownMenuItem>
 								))}

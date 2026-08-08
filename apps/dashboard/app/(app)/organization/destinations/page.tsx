@@ -294,6 +294,7 @@ function AddDestinationDialog({
 }) {
 	const [label, setLabel] = useState("");
 	const [endpoint, setEndpoint] = useState("");
+	const [endpointTouched, setEndpointTouched] = useState(false);
 	const [region, setRegion] = useState("");
 	const [bucket, setBucket] = useState("");
 	const [accessKeyId, setAccessKeyId] = useState("");
@@ -319,10 +320,19 @@ function AddDestinationDialog({
 		{ success: "Destination added", error: "Could not add destination" },
 	);
 
+	// Reset on close, not open: the header's "Add destination" button sets
+	// `open` directly (bypassing this handler entirely, see the Container
+	// header action below), so a reset-on-open branch never actually runs on
+	// that path — the dialog would reopen still showing the previous
+	// destination's values. Every close path (Escape, overlay click, a
+	// successful submit) does go through this handler, so resetting here
+	// covers all of them regardless of how it opened. Same fix as
+	// instance/users/page.tsx's InviteUserDialog.
 	function handleOpenChange(next: boolean) {
-		if (next) {
+		if (!next) {
 			setLabel("");
 			setEndpoint("");
+			setEndpointTouched(false);
 			setRegion("");
 			setBucket("");
 			setAccessKeyId("");
@@ -334,11 +344,26 @@ function AddDestinationDialog({
 		onOpenChange(next);
 	}
 
+	// Same seed-once-then-freely-editable pattern as CreateProjectDialog's
+	// name→id slugify: suggest AWS's standard regional endpoint as soon as a
+	// region is typed, but stop touching it the moment the user edits it
+	// directly (an S3-compatible provider like MinIO/R2/Spaces needs its own
+	// endpoint, not this default).
+	function handleRegionChange(next: string) {
+		setRegion(next);
+		if (!endpointTouched) setEndpoint(next ? `https://s3.${next}.amazonaws.com` : "");
+	}
+
+	function handleEndpointChange(next: string) {
+		setEndpointTouched(true);
+		setEndpoint(next);
+	}
+
 	async function handleCreate() {
 		await create
 			.trigger()
 			.then(() => {
-				onOpenChange(false);
+				handleOpenChange(false);
 				onAdded();
 			})
 			.catch(() => {});
@@ -366,17 +391,19 @@ function AddDestinationDialog({
 						id="destinationEndpoint"
 						label="Endpoint"
 						value={endpoint}
-						onChange={setEndpoint}
+						onChange={handleEndpointChange}
 						placeholder="https://s3.us-east-1.amazonaws.com"
 						autoComplete="off"
 						disabled={create.isLoading}
+						helpText="Auto-filled from region for AWS — edit directly for MinIO, R2, Spaces, etc."
 					/>
 					<div className="flex gap-4 flex-nowrap">
 						<FormField
 							id="destinationRegion"
 							label="Region"
 							value={region}
-							onChange={setRegion}
+							onChange={handleRegionChange}
+							placeholder="us-east-1"
 							autoComplete="off"
 							disabled={create.isLoading}
 						/>

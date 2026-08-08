@@ -83,8 +83,13 @@ export function CreateProjectDialog({
 		setId(next);
 	}
 
+	// Reset on close, not open: both callers (organization/projects's header
+	// button and the sidebar's project-list quick-create) set `open` directly,
+	// bypassing this handler entirely, so a reset-on-open branch never
+	// actually runs — the dialog would reopen still showing the previous
+	// project's values. Every close path does go through this handler.
 	function handleOpenChange(next: boolean) {
-		if (next) {
+		if (!next) {
 			setName("");
 			setId("");
 			setIdTouched(false);
@@ -106,7 +111,7 @@ export function CreateProjectDialog({
 		await createProject
 			.trigger()
 			.then(() => {
-				onOpenChange(false);
+				handleOpenChange(false);
 				onCreated();
 			})
 			.catch(() => {});

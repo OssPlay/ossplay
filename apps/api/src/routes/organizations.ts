@@ -1,13 +1,15 @@
 import {
+	assets,
 	getDb,
 	invitations,
 	organizationMembers,
 	organizations,
 	projects,
+	s3Destinations,
 	users,
 } from "@ossplay/db";
 import { inviteEmail, sendMail } from "@ossplay/mail";
-import { and, count, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
@@ -357,3 +359,105 @@ organizationsRoute.post(
 		return c.json({ invitation }, 201);
 	},
 );
+
+// Backs the dashboard home page's charts — every number here is derived
+// straight from rows this org already owns (projects, destinations,
+// members, assets), nothing computed or cached separately. `assets` has no
+// write path yet (see project.schema.ts's Asset type comment / PRD.md §6),
+// so the storage/asset sections legitimately read as all-zero on a fresh
+// instance — that's real data, not a bug, until the upload pipeline lands.
+organizationsRoute.get("/:orgId/stats", requireAuth, requireOrgMembership, async (c) => {
+	const db = getDb();
+	const orgId = c.req.param("orgId");
+	const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+	const [
+		projectsByVisibility,
+		destinationsByStatus,
+		memberCountRows,
+		storageByProject,
+		assetsByStatus,
+		assetsOverTime,
+	] = await Promise.all([
+		db
+			.select({ visibility: projects.visibility, count: count() })
+			.from(projects)
+			.where(eq(projects.orgId, orgId))
+			.groupBy(projects.visibility),
+		db
+			.select({ status: s3Destinations.status, count: count() })
+			.from(s3Destinations)
+			.where(eq(s3Destinations.orgId, orgId))
+			.groupBy(s3Destinations.status),
+		db
+			.select({ count: count() })
+			.from(organizationMembers)
+			.where(eq(organizationMembers.orgId, orgId)),
+		db
+			.select({
+				projectId: projects.id,
+				name: projects.name,
+				bytes: sql<string>`coalesce(sum(${assets.size}), 0)::bigint`,
+			})
+			.from(projects)
+			.leftJoin(assets, eq(assets.projectId, projects.id))
+			.where(eq(projects.orgId, orgId))
+			.groupBy(projects.id, projects.name)
+			.orderBy(desc(sql`coalesce(sum(${assets.size}), 0)`)),
+		db
+			.select({ status: assets.status, count: count() })
+			.from(assets)
+			.innerJoin(projects, eq(assets.projectId, projects.id))
+			.where(eq(projects.orgId, orgId))
+			.groupBy(assets.status),
+		db
+			.select({
+				date: sql<string>`to_char(date_trunc('day', ${assets.createdAt}), 'YYYY-MM-DD')`,
+				count: count(),
+			})
+			.from(assets)
+			.innerJoin(projects, eq(assets.projectId, projects.id))
+			.where(and(eq(projects.orgId, orgId), gte(assets.createdAt, since)))
+			.groupBy(sql`date_trunc('day', ${assets.createdAt})`)
+			.orderBy(sql`date_trunc('day', ${assets.createdAt})`),
+	]);
+
+	const storage = storageByProject.map((row) => ({
+		projectId: row.projectId,
+		name: row.name,
+		bytes: Number(row.bytes),
+	}));
+
+	return c.json({
+		projects: {
+			total: projectsByVisibility.reduce((sum, row) => sum + row.count, 0),
+			byVisibility: {
+				public: projectsByVisibility.find((r) => r.visibility === "public")?.count ?? 0,
+				private: projectsByVisibility.find((r) => r.visibility === "private")?.count ?? 0,
+			},
+		},
+		members: { total: memberCountRows[0]?.count ?? 0 },
+		destinations: {
+			total: destinationsByStatus.reduce((sum, row) => sum + row.count, 0),
+			byStatus: {
+				untested: destinationsByStatus.find((r) => r.status === "untested")?.count ?? 0,
+				ok: destinationsByStatus.find((r) => r.status === "ok")?.count ?? 0,
+				error: destinationsByStatus.find((r) => r.status === "error")?.count ?? 0,
+			},
+		},
+		storage: {
+			totalBytes: storage.reduce((sum, row) => sum + row.bytes, 0),
+			byProject: storage,
+		},
+		assets: {
+			total: assetsByStatus.reduce((sum, row) => sum + row.count, 0),
+			byStatus: {
+				pending: assetsByStatus.find((r) => r.status === "pending")?.count ?? 0,
+				processing: assetsByStatus.find((r) => r.status === "processing")?.count ?? 0,
+				ready: assetsByStatus.find((r) => r.status === "ready")?.count ?? 0,
+				failed: assetsByStatus.find((r) => r.status === "failed")?.count ?? 0,
+			},
+			createdOverTime: assetsOverTime,
+		},
+	});
+});
