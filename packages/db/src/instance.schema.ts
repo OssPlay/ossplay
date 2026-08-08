@@ -131,6 +131,14 @@ export const instanceInvitations = pgTable("instance_invitations", {
 		onDelete: "set null",
 	}),
 	tokenHash: text("token_hash").notNull(),
+	// Plaintext copy of the same token `tokenHash` verifies, kept purely so a
+	// pending invitation's link can be re-displayed/copied later (e.g. from
+	// the pending-invitations list) — `tokenHash` remains the source of truth
+	// for accept-flow verification, this column is never read for that. Low
+	// risk: these are short-lived, single-use, revocable bearer links already
+	// sent over email in the clear, and only instance:manage_users can see
+	// this list anyway.
+	token: text("token").notNull(),
 	status: text("status", { enum: ["pending", "accepted", "revoked"] })
 		.default("pending")
 		.notNull(),
@@ -139,11 +147,32 @@ export const instanceInvitations = pgTable("instance_invitations", {
 	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Operator-facing trail for backend failures that are deliberately
+// suppressed from the end-user response (e.g. a mail-send failure behind a
+// generic "if that email exists…" reply, or an invite email failure behind
+// a dashboard warning that doesn't linger) — see MEMORY.md. Distinct from
+// `auditLogs`: audit logs record actions someone took, this records the
+// system trying and failing on its own. `source` is free-form but expected
+// to stay a short, fixed set in practice (e.g. "mail"), same convention as
+// `auditLogs.action`.
+export const systemLogs = pgTable(
+	"system_logs",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		source: text("source").notNull(),
+		message: text("message").notNull(),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [index("system_logs_created_at_idx").on(table.createdAt.desc())],
+);
+
 export type SshKey = typeof sshKeys.$inferSelect;
 export type RemoteServer = typeof remoteServers.$inferSelect;
 export type SmtpConfig = typeof smtpConfigs.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InstanceInvitation = typeof instanceInvitations.$inferSelect;
+export type SystemLog = typeof systemLogs.$inferSelect;
 
 export const sshKeysRelations = relations(sshKeys, ({ one, many }) => ({
 	createdBy: one(users, {

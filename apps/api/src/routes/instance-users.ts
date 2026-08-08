@@ -18,6 +18,7 @@ import { revokeAllSessionsForUser } from "../lib/auth/session";
 import { generateToken, hashToken } from "../lib/auth/tokens";
 import { readInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
+import { logSystemError } from "../lib/system-log";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import type { AppEnv } from "../types";
@@ -166,6 +167,7 @@ instanceUsersRoute.post("/invite", async (c) => {
 			instanceRole: parsed.data.instanceRole,
 			invitedByUserId: inviter.id,
 			tokenHash,
+			token,
 			expiresAt,
 		})
 		.returning();
@@ -193,6 +195,12 @@ instanceUsersRoute.post("/invite", async (c) => {
 			}),
 		);
 	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		await logSystemError({
+			source: "mail",
+			message,
+			metadata: { context: "instance_invite", to: email },
+		});
 		// Same graceful degradation as the org-invite flow — the invitation
 		// still exists, so surface the link for root to share manually rather
 		// than pretending the email went out.
@@ -201,13 +209,60 @@ instanceUsersRoute.post("/invite", async (c) => {
 				invitation,
 				inviteUrl,
 				warning: "Invitation created but the email could not be sent",
-				error: err instanceof Error ? err.message : String(err),
+				error: message,
 			},
 			201,
 		);
 	}
 
 	return c.json({ invitation, inviteUrl }, 201);
+});
+
+// Mirrors organizations.ts's GET /:orgId/invitations — same shape, minus
+// orgId/role (instance invitations have instanceRole instead), plus the
+// same per-row inviteUrl (reconstructed from the stored plaintext token,
+// see instance.schema.ts's instanceInvitations.token).
+instanceUsersRoute.get("/invitations", async (c) => {
+	const rows = await getDb()
+		.select({
+			id: instanceInvitations.id,
+			email: instanceInvitations.email,
+			instanceRole: instanceInvitations.instanceRole,
+			status: instanceInvitations.status,
+			expiresAt: instanceInvitations.expiresAt,
+			acceptedAt: instanceInvitations.acceptedAt,
+			createdAt: instanceInvitations.createdAt,
+			token: instanceInvitations.token,
+		})
+		.from(instanceInvitations)
+		.orderBy(desc(instanceInvitations.createdAt));
+
+	return c.json({
+		invitations: rows.map(({ token, ...row }) => ({
+			...row,
+			isExpired: row.status === "pending" && row.expiresAt.getTime() < Date.now(),
+			inviteUrl: `${getPublicUrl(c)}/invite/instance/${token}`,
+		})),
+	});
+});
+
+// Mirrors invitations.ts's POST /:id/revoke — instance-scoped, so no
+// membership check is needed (the blanket instance:manage_users gate on
+// this whole route already covers it).
+instanceUsersRoute.post("/invitations/:id/revoke", async (c) => {
+	const db = getDb();
+	const [invitation] = await db
+		.select({ id: instanceInvitations.id })
+		.from(instanceInvitations)
+		.where(eq(instanceInvitations.id, c.req.param("id")));
+	if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+
+	await db
+		.update(instanceInvitations)
+		.set({ status: "revoked" })
+		.where(eq(instanceInvitations.id, invitation.id));
+
+	return c.body(null, 204);
 });
 
 instanceUsersRoute.get("/:id", async (c) => {

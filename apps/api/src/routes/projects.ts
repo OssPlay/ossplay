@@ -1,4 +1,4 @@
-import { getDb, organizations, type ProjectRules, projects } from "@ossplay/db";
+import { getDb, organizations, type ProjectRules, projects, s3Destinations } from "@ossplay/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -16,12 +16,22 @@ const DEFAULT_PROJECT_RULES: ProjectRules = {
 	video: { resolutions: [], hlsSegmentDuration: 6, drmAes128: false },
 };
 
+// True when `err` is (or wraps, via drizzle-orm's DrizzleQueryError) a
+// Postgres unique_violation — used to turn a duplicate project id into a
+// clean 409 instead of an opaque 500.
+function isUniqueViolation(err: unknown): boolean {
+	const cause = err instanceof Error && err.cause ? err.cause : err;
+	return Boolean(cause && typeof cause === "object" && "code" in cause && cause.code === "23505");
+}
+
 projectsRoute.get("/:orgId/projects", requireAuth, requireOrgMembership, async (c) => {
 	const rows = await getDb()
 		.select({
 			id: projects.id,
 			name: projects.name,
 			orgId: projects.orgId,
+			visibility: projects.visibility,
+			destinationId: projects.destinationId,
 			createdAt: projects.createdAt,
 		})
 		.from(projects)
@@ -30,8 +40,15 @@ projectsRoute.get("/:orgId/projects", requireAuth, requireOrgMembership, async (
 	return c.json({ projects: rows });
 });
 
+// S3-key-safe: lowercase, digits, hyphens, 2-63 chars — this id organizes
+// the project's objects in S3 (see project.schema.ts's column comment).
+const PROJECT_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+
 const createProjectSchema = z.object({
 	name: z.string().trim().min(1).max(200),
+	id: z.string().regex(PROJECT_ID_PATTERN, "Use lowercase letters, numbers, and hyphens only"),
+	visibility: z.enum(["public", "private"]),
+	destinationId: z.uuid(),
 });
 
 projectsRoute.post(
@@ -43,6 +60,7 @@ projectsRoute.post(
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
 		const db = getDb();
+		const orgId = c.req.param("orgId");
 		// Unlike rename/delete below, there's no existing project row to
 		// select-and-check here — this is the one write in this file that can
 		// target a since-deleted org (e.g. a stale page, or a race with
@@ -53,25 +71,53 @@ projectsRoute.post(
 		const [org] = await db
 			.select({ id: organizations.id })
 			.from(organizations)
-			.where(eq(organizations.id, c.req.param("orgId")));
+			.where(eq(organizations.id, orgId));
 		if (!org) return c.json({ error: "Organization not found" }, 404);
 
-		const [project] = await db
-			.insert(projects)
-			.values({
-				orgId: c.req.param("orgId"),
-				name: parsed.data.name,
-				rules: DEFAULT_PROJECT_RULES,
-			})
-			.returning();
-		if (!project) throw new Error("Project insert did not return the expected row");
+		// Client-side filtering already narrows the destination picker to the
+		// chosen visibility, but that's UX only — re-validate here rather than
+		// trust it, same as every other cross-entity check in this file.
+		const [destination] = await db
+			.select({ id: s3Destinations.id, visibility: s3Destinations.visibility })
+			.from(s3Destinations)
+			.where(
+				and(eq(s3Destinations.id, parsed.data.destinationId), eq(s3Destinations.orgId, orgId)),
+			);
+		if (!destination) return c.json({ error: "S3 destination not found" }, 400);
+		if (destination.visibility !== parsed.data.visibility) {
+			return c.json(
+				{ error: "The chosen S3 destination's visibility doesn't match the project's" },
+				400,
+			);
+		}
 
-		return c.json({ project }, 201);
+		try {
+			const [project] = await db
+				.insert(projects)
+				.values({
+					id: parsed.data.id,
+					orgId,
+					name: parsed.data.name,
+					visibility: parsed.data.visibility,
+					destinationId: parsed.data.destinationId,
+					rules: DEFAULT_PROJECT_RULES,
+				})
+				.returning();
+			if (!project) throw new Error("Project insert did not return the expected row");
+
+			return c.json({ project }, 201);
+		} catch (err) {
+			if (isUniqueViolation(err)) {
+				return c.json({ error: "That project ID is already taken" }, 409);
+			}
+			throw err;
+		}
 	},
 );
 
-const renameProjectSchema = z.object({
-	name: z.string().trim().min(1).max(200),
+const updateProjectSchema = z.object({
+	name: z.string().trim().min(1).max(200).optional(),
+	destinationId: z.uuid().optional(),
 });
 
 projectsRoute.put(
@@ -79,21 +125,41 @@ projectsRoute.put(
 	requireAuth,
 	requireOrgPermission("org:manage_projects"),
 	async (c) => {
-		const parsed = renameProjectSchema.safeParse(await c.req.json().catch(() => null));
+		const parsed = updateProjectSchema.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
 		const db = getDb();
+		const orgId = c.req.param("orgId");
 		const [existing] = await db
-			.select({ id: projects.id })
+			.select({ id: projects.id, visibility: projects.visibility })
 			.from(projects)
-			.where(
-				and(eq(projects.id, c.req.param("projectId")), eq(projects.orgId, c.req.param("orgId"))),
-			);
+			.where(and(eq(projects.id, c.req.param("projectId")), eq(projects.orgId, orgId)));
 		if (!existing) return c.json({ error: "Project not found" }, 404);
+
+		if (parsed.data.destinationId) {
+			const [destination] = await db
+				.select({ id: s3Destinations.id, visibility: s3Destinations.visibility })
+				.from(s3Destinations)
+				.where(
+					and(eq(s3Destinations.id, parsed.data.destinationId), eq(s3Destinations.orgId, orgId)),
+				);
+			if (!destination) return c.json({ error: "S3 destination not found" }, 400);
+			if (destination.visibility !== existing.visibility) {
+				return c.json(
+					{ error: "The chosen S3 destination's visibility doesn't match the project's" },
+					400,
+				);
+			}
+		}
 
 		const [project] = await db
 			.update(projects)
-			.set({ name: parsed.data.name })
+			.set({
+				...(parsed.data.name !== undefined && { name: parsed.data.name }),
+				...(parsed.data.destinationId !== undefined && {
+					destinationId: parsed.data.destinationId,
+				}),
+			})
 			.where(eq(projects.id, c.req.param("projectId")))
 			.returning();
 

@@ -11,7 +11,7 @@ import {
 	timestamp,
 	uuid,
 } from "drizzle-orm/pg-core";
-import { organizations } from "./organization.schema";
+import { organizations, s3Destinations } from "./organization.schema";
 
 export type ProjectRules = {
 	image: {
@@ -26,12 +26,28 @@ export type ProjectRules = {
 	};
 };
 
+// `id` is app-supplied (no defaultRandom) — a slug derived from the
+// project's name, editable at creation, required to be unique across the
+// whole instance (not just the org). Two reasons it's a readable string
+// rather than an opaque uuid: a forthcoming project-scoped API-key feature
+// will key off of it, and it's used to organize this project's objects in
+// S3. Existing rows created before this change keep whatever uuid string
+// they already had — a uuid is a valid string, no backfill needed.
 export const projects = pgTable("projects", {
-	id: uuid("id").primaryKey().defaultRandom(),
+	id: text("id").primaryKey(),
 	orgId: uuid("org_id")
 		.references(() => organizations.id, { onDelete: "cascade" })
 		.notNull(),
 	name: text("name").notNull(),
+	// Immutable once created — an S3 destination's own visibility
+	// (public/private) is likewise immutable, so a project can only ever
+	// point at a destination matching this value (enforced in projects.ts).
+	visibility: text("visibility", { enum: ["public", "private"] }).notNull(),
+	// Changeable later (project settings) — new uploads go to whatever
+	// destination is current, previously-stored files don't move.
+	destinationId: uuid("destination_id")
+		.references(() => s3Destinations.id)
+		.notNull(),
 	rules: jsonb("rules").$type<ProjectRules>().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -55,7 +71,7 @@ export const folderClosure = pgTable(
 
 export const assets = pgTable("assets", {
 	id: uuid("id").primaryKey().defaultRandom(),
-	projectId: uuid("project_id")
+	projectId: text("project_id")
 		.references(() => projects.id, { onDelete: "cascade" })
 		.notNull(),
 	folderId: uuid("folder_id"),

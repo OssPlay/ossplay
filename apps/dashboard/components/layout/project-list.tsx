@@ -4,16 +4,7 @@ import { FolderIcon, PlusIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { FormField } from "@/components/auth/form-field";
-import { FormError } from "@/components/form-error";
-import {
-	Dialog,
-	DialogContent,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { LoadingButton } from "@/components/ui/loading-button";
+import { CreateProjectDialog } from "@/components/create-project-dialog";
 import {
 	SidebarGroup,
 	SidebarGroupAction,
@@ -23,12 +14,8 @@ import {
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Tippy } from "@/components/ui/tooltip";
-import { useAction } from "@/hooks/use-action";
-import { apiFetch, errorMessage } from "@/lib/api";
 import { useCurrentOrgId } from "@/lib/current-org";
 import { useAuth } from "../providers/auth-provider";
-
-type Project = { id: string; name: string; orgId: string };
 
 // Projects are real URL-based routes now (/project/{id}/settings), not a
 // sessionStorage-backed dropdown switcher — clicking one navigates there
@@ -42,27 +29,6 @@ export function ProjectList() {
 	const pathname = usePathname();
 
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const [name, setName] = useState("");
-
-	const createProject = useAction(
-		() =>
-			apiFetch<{ project: Project }>(`/organizations/${orgId}/projects`, {
-				method: "POST",
-				body: JSON.stringify({ name }),
-			}),
-		{ success: (data) => `"${data.project.name}" created`, error: "Could not create project" },
-	);
-
-	async function handleCreate() {
-		await createProject
-			.trigger()
-			.then(() => {
-				setName("");
-				setDialogOpen(false);
-				mutate();
-			})
-			.catch(() => {});
-	}
 
 	if (!org) return null;
 
@@ -103,37 +69,14 @@ export function ProjectList() {
 				})}
 			</SidebarMenu>
 
-			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Create project</DialogTitle>
-					</DialogHeader>
-					<FormField
-						id="projectName"
-						label="Name"
-						value={name}
-						onChange={setName}
-						disabled={createProject.isLoading}
-						autoFocus
-					/>
-					<FormError
-						message={
-							createProject.error
-								? errorMessage(createProject.error, "Could not create project")
-								: null
-						}
-					/>
-					<DialogFooter>
-						<LoadingButton
-							loading={createProject.isLoading}
-							onClick={handleCreate}
-							disabled={!name.trim()}
-						>
-							Create
-						</LoadingButton>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			{orgId && (
+				<CreateProjectDialog
+					orgId={orgId}
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+					onCreated={() => mutate()}
+				/>
+			)}
 		</SidebarGroup>
 	);
 }

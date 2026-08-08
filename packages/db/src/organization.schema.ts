@@ -1,22 +1,51 @@
 import { relations } from "drizzle-orm";
-import { jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { projects } from "./project.schema";
 import { users } from "./user.schema";
 
 export const organizations = pgTable("organizations", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	name: text("name").notNull(),
-	// Nullable: an org can exist before storage is configured — the setup
-	// wizard shouldn't force S3 credentials before you can even log in.
-	s3Config: jsonb("s3_config").$type<{
-		endpoint: string;
-		bucket: string;
-		region: string;
-		accessKeyId: string;
-		secretAccessKey: string;
-	}>(),
 	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// An org can have several — a project picks exactly one at creation and can
+// switch later (new files go to the new destination, nothing about
+// previously-stored files migrates). One destination = one bucket: Bun's
+// native S3Client (packages/core/src/s3.ts) binds bucket at construction and
+// has no account-level "list all my buckets" call, only ListObjectsV2
+// within a bucket you already know — so the bucket is fixed here rather
+// than picked from a live-fetched list at project-creation time.
+// `visibility` is immutable once created, same as a project's — a project's
+// locked-in visibility choice only holds if the destination it points to
+// can't flip visibility out from under it.
+export const s3Destinations = pgTable(
+	"s3_destinations",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		orgId: uuid("org_id")
+			.references(() => organizations.id, { onDelete: "cascade" })
+			.notNull(),
+		label: text("label").notNull(),
+		endpoint: text("endpoint").notNull(),
+		region: text("region").notNull(),
+		bucket: text("bucket").notNull(),
+		accessKeyId: text("access_key_id").notNull(),
+		secretAccessKeyEncrypted: text("secret_access_key_encrypted").notNull(),
+		visibility: text("visibility", { enum: ["public", "private"] }).notNull(),
+		cloudfrontUrl: text("cloudfront_url"),
+		status: text("status", { enum: ["untested", "ok", "error"] })
+			.default("untested")
+			.notNull(),
+		lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+		lastError: text("last_error"),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [index("s3_destinations_org_id_idx").on(table.orgId)],
+);
 
 // Organization scope: owner (full control, can delete the org) > admin
 // (manage projects/rules/assets, not membership or deletion) > member (work
@@ -51,6 +80,11 @@ export const invitations = pgTable("invitations", {
 		.references(() => users.id, { onDelete: "cascade" })
 		.notNull(),
 	tokenHash: text("token_hash").notNull(),
+	// Plaintext copy of the same token `tokenHash` verifies — see
+	// instance.schema.ts's `instanceInvitations.token` for the identical
+	// rationale (re-display/copy from the pending list; `tokenHash` stays
+	// the only thing the accept flow trusts).
+	token: text("token").notNull(),
 	status: text("status", { enum: ["pending", "accepted", "revoked"] })
 		.default("pending")
 		.notNull(),
@@ -62,10 +96,20 @@ export const invitations = pgTable("invitations", {
 export type Organization = typeof organizations.$inferSelect;
 export type OrganizationMember = typeof organizationMembers.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
+export type S3Destination = typeof s3Destinations.$inferSelect;
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
 	members: many(organizationMembers),
 	invitations: many(invitations),
+	projects: many(projects),
+	s3Destinations: many(s3Destinations),
+}));
+
+export const s3DestinationsRelations = relations(s3Destinations, ({ one, many }) => ({
+	organization: one(organizations, {
+		fields: [s3Destinations.orgId],
+		references: [organizations.id],
+	}),
 	projects: many(projects),
 }));
 

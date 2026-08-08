@@ -4,20 +4,12 @@ import { FolderIcon, FolderPlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import useSWR from "swr";
-import { FormField } from "@/components/auth/form-field";
-import { FormError } from "@/components/form-error";
+import { CreateProjectDialog } from "@/components/create-project-dialog";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
+import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import Container from "@/components/ui/container";
-import {
-	Dialog,
-	DialogContent,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { LoadingButton } from "@/components/ui/loading-button";
 import {
 	Table,
 	TableBody,
@@ -26,12 +18,17 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useAction } from "@/hooks/use-action";
-import { ApiError, apiFetch, errorMessage } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { useOrgSectionId } from "@/lib/current-org";
 import { formatDatetime } from "@/lib/utils";
 
-type Project = { id: string; name: string; orgId: string; createdAt: string };
+type Project = {
+	id: string;
+	name: string;
+	orgId: string;
+	visibility: "public" | "private";
+	createdAt: string;
+};
 
 // The org's canonical projects list — the sidebar's project-list.tsx is a
 // fast quick-switch nav (and its own quick-create), this is the full
@@ -93,6 +90,7 @@ export default function OrganizationProjectsPage() {
 						<TableHeader>
 							<TableRow>
 								<TableHead>Name</TableHead>
+								<TableHead>Visibility</TableHead>
 								<TableHead>Created</TableHead>
 								<TableHead />
 							</TableRow>
@@ -101,6 +99,11 @@ export default function OrganizationProjectsPage() {
 							{projects.map((project) => (
 								<TableRow key={project.id}>
 									<TableCell className="font-medium">{project.name}</TableCell>
+									<TableCell>
+										<Badge variant="outline" className="capitalize">
+											{project.visibility}
+										</Badge>
+									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDatetime(project.createdAt)}
 									</TableCell>
@@ -126,80 +129,5 @@ export default function OrganizationProjectsPage() {
 				onCreated={() => mutate()}
 			/>
 		</ApiLoader>
-	);
-}
-
-function CreateProjectDialog({
-	orgId,
-	open,
-	onOpenChange,
-	onCreated,
-}: {
-	orgId: string;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	onCreated: () => void;
-}) {
-	const [name, setName] = useState("");
-
-	const createProject = useAction(
-		() =>
-			apiFetch<{ project: Project }>(`/organizations/${orgId}/projects`, {
-				method: "POST",
-				body: JSON.stringify({ name }),
-			}),
-		{ success: (res) => `"${res.project.name}" created`, error: "Could not create project" },
-	);
-
-	function handleOpenChange(next: boolean) {
-		if (next) {
-			setName("");
-			createProject.reset();
-		}
-		onOpenChange(next);
-	}
-
-	async function handleCreate() {
-		await createProject
-			.trigger()
-			.then(() => {
-				onOpenChange(false);
-				onCreated();
-			})
-			.catch(() => {});
-	}
-
-	return (
-		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>New project</DialogTitle>
-				</DialogHeader>
-				<FormField
-					id="newProjectName"
-					label="Name"
-					value={name}
-					onChange={setName}
-					autoFocus
-					disabled={createProject.isLoading}
-				/>
-				<FormError
-					message={
-						createProject.error
-							? errorMessage(createProject.error, "Could not create project")
-							: null
-					}
-				/>
-				<DialogFooter>
-					<LoadingButton
-						loading={createProject.isLoading}
-						onClick={handleCreate}
-						disabled={!name.trim()}
-					>
-						Create
-					</LoadingButton>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
 	);
 }

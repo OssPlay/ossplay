@@ -2,8 +2,11 @@ import { S3Client } from "bun";
 
 /**
  * Thin wrapper around Bun's native S3 client (no @aws-sdk dependency —
- * Bun ships S3-compatible client support directly). One client per
- * organization, built from `organizations.s3Config` (PRD.md §6).
+ * Bun ships S3-compatible client support directly). One client per S3
+ * destination, built from an `s3Destinations` row (PRD.md §6) — an org can
+ * have several, each bound to exactly one bucket at creation time (Bun's
+ * S3Client has no account-level "list all my buckets" call, only
+ * ListObjectsV2 within a bucket you already know).
  */
 export type S3Config = {
 	endpoint: string;

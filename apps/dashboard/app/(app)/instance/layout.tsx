@@ -12,6 +12,7 @@ import {
 	ServerCogIcon,
 	ServerIcon,
 	ShieldKeyholeIcon,
+	TriangleAlertIcon,
 	UsersIcon,
 	WifiCogIcon,
 } from "lucide-react";
@@ -63,6 +64,11 @@ const sidepanel: Sidepanel = [
 				title: "Audit Logs",
 				href: "/instance/audit-logs",
 				icon: ScrollTextIcon,
+			},
+			{
+				title: "Error Logs",
+				href: "/instance/error-logs",
+				icon: TriangleAlertIcon,
 			},
 		],
 	},

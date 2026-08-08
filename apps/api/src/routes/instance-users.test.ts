@@ -395,3 +395,70 @@ describe.skipIf(!process.env.DATABASE_URL)("instance user management", () => {
 		expect(remaining.some((u) => u.id === memberId)).toBe(false);
 	});
 });
+
+// GET /invitations + POST /invitations/:id/revoke — the pending-list/copy-
+// link/revoke surface added to match the org-invite flow (see
+// organizations.test.ts's equivalent coverage).
+describe.skipIf(!process.env.DATABASE_URL)("instance invitations", () => {
+	beforeAll(truncateAllTables);
+
+	let rootCookie: string;
+
+	it("bootstraps root", async () => {
+		({ sessionCookie: rootCookie } = await bootstrapAdmin());
+	});
+
+	let invitationId: string;
+
+	it("POST /instance/users/invite creates a pending invitation", async () => {
+		const res = await jsonRequest("/instance/users/invite", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({ email: "invitee@example.com", instanceRole: null }),
+		});
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { invitation: { id: string }; inviteUrl: string };
+		expect(body.inviteUrl).toContain("/invite/instance/");
+		invitationId = body.invitation.id;
+	});
+
+	it("GET /instance/users/invitations lists it with a copyable link", async () => {
+		const res = await jsonRequest("/instance/users/invitations", { cookie: rootCookie });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			invitations: Array<{ id: string; email: string; status: string; inviteUrl: string }>;
+		};
+		expect(body.invitations).toHaveLength(1);
+		expect(body.invitations[0]).toMatchObject({
+			id: invitationId,
+			email: "invitee@example.com",
+			status: "pending",
+		});
+		expect(body.invitations[0]?.inviteUrl).toContain("/invite/instance/");
+	});
+
+	it("POST /instance/users/invitations/:id/revoke revokes it", async () => {
+		const res = await jsonRequest(`/instance/users/invitations/${invitationId}/revoke`, {
+			method: "POST",
+			cookie: rootCookie,
+		});
+		expect(res.status).toBe(204);
+
+		const listRes = await jsonRequest("/instance/users/invitations", { cookie: rootCookie });
+		const listBody = (await listRes.json()) as { invitations: Array<{ status: string }> };
+		expect(listBody.invitations[0]?.status).toBe("revoked");
+	});
+
+	it("POST /instance/users/invitations/:id/revoke 404s for an unknown id", async () => {
+		const res = await jsonRequest(`/instance/users/invitations/${crypto.randomUUID()}/revoke`, {
+			method: "POST",
+			cookie: rootCookie,
+		});
+		expect(res.status).toBe(404);
+	});
+
+	it("non-root is forbidden from both endpoints", async () => {
+		const listRes = await jsonRequest("/instance/users/invitations");
+		expect(listRes.status).toBe(401);
+	});
+});

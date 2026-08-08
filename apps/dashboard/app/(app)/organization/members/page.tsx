@@ -1,13 +1,15 @@
 "use client";
 
-import { ClockIcon, MailPlusIcon, UsersIcon } from "lucide-react";
+import { ClockIcon, CopyIcon, MailPlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
+import { CopyableLink } from "@/components/copyable-link";
 import { FormError } from "@/components/form-error";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -44,6 +46,7 @@ type Invitation = {
 	status: string;
 	isExpired: boolean;
 	createdAt: string;
+	inviteUrl: string;
 };
 
 const ROLES = ["member", "admin", "owner"] as const;
@@ -194,10 +197,11 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<(typeof ROLES)[number]>("member");
 	const [warning, setWarning] = useState<string | null>(null);
+	const [inviteUrl, setInviteUrl] = useState<string | null>(null);
 
 	const invite = useAction(
 		() =>
-			apiFetch<{ warning?: string }>(`/organizations/${orgId}/invitations`, {
+			apiFetch<{ warning?: string; inviteUrl?: string }>(`/organizations/${orgId}/invitations`, {
 				method: "POST",
 				body: JSON.stringify({ email, role }),
 			}),
@@ -212,10 +216,12 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 
 	async function handleSubmit() {
 		setWarning(null);
+		setInviteUrl(null);
 		await invite
 			.trigger()
 			.then((res) => {
 				setWarning(res.warning ?? null);
+				setInviteUrl(res.warning ? (res.inviteUrl ?? null) : null);
 				setEmail("");
 				onInvited();
 			})
@@ -268,7 +274,10 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 				message={invite.error ? errorMessage(invite.error, "Could not send invitation") : null}
 			/>
 			{warning && (
-				<p className="text-sm text-muted-foreground">{warning} — share the link manually.</p>
+				<div className="flex flex-col gap-2">
+					<p className="text-sm text-muted-foreground">{warning} — share the link manually.</p>
+					{inviteUrl && <CopyableLink url={inviteUrl} />}
+				</div>
 			)}
 		</div>
 	);
@@ -296,6 +305,10 @@ function InvitationRowItem({
 			.catch(() => {});
 	}
 
+	async function handleCopy() {
+		await navigator.clipboard.writeText(invitation.inviteUrl);
+	}
+
 	return (
 		<TableRow>
 			<TableCell>{invitation.email}</TableCell>
@@ -306,6 +319,9 @@ function InvitationRowItem({
 				{invitation.isExpired ? "Expired" : "Pending"}
 			</TableCell>
 			<TableCell className="text-right">
+				<Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copy invite link">
+					<CopyIcon className="size-3.5" />
+				</Button>
 				<LoadingButton variant="ghost" size="sm" loading={revoke.isLoading} onClick={handleRevoke}>
 					Revoke
 				</LoadingButton>

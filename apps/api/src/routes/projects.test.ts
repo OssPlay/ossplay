@@ -1,22 +1,25 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import {
 	bootstrapAdmin,
+	createTestS3Destination,
 	extractCookie,
 	jsonRequest,
 	stampInvitationToken,
 	truncateAllTables,
 } from "../test-support";
 
-type Project = { id: string; name: string; orgId: string };
+type Project = { id: string; name: string; orgId: string; visibility: string; destinationId: string };
 
 describe.skipIf(!process.env.DATABASE_URL)("projects", () => {
 	beforeAll(truncateAllTables);
 
 	let ownerCookie: string;
 	let orgId: string;
+	let destinationId: string;
 
 	it("bootstraps an admin/owner", async () => {
 		({ sessionCookie: ownerCookie, orgId } = await bootstrapAdmin());
+		({ id: destinationId } = await createTestS3Destination(orgId, { visibility: "private" }));
 	});
 
 	it("GET /:orgId/projects starts empty", async () => {
@@ -32,13 +35,62 @@ describe.skipIf(!process.env.DATABASE_URL)("projects", () => {
 		const res = await jsonRequest(`/organizations/${orgId}/projects`, {
 			method: "POST",
 			cookie: ownerCookie,
-			body: JSON.stringify({ name: "Marketing site" }),
+			body: JSON.stringify({
+				name: "Marketing site",
+				id: "marketing-site",
+				visibility: "private",
+				destinationId,
+			}),
 		});
 		expect(res.status).toBe(201);
 		const body = (await res.json()) as { project: Project };
 		expect(body.project.name).toBe("Marketing site");
+		expect(body.project.id).toBe("marketing-site");
 		expect(body.project.orgId).toBe(orgId);
 		project = body.project;
+	});
+
+	it("POST /:orgId/projects rejects a duplicate id", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/projects`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({
+				name: "Another project",
+				id: "marketing-site",
+				visibility: "private",
+				destinationId,
+			}),
+		});
+		expect(res.status).toBe(409);
+	});
+
+	it("POST /:orgId/projects rejects an id in the wrong shape", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/projects`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({
+				name: "Bad id",
+				id: "Not Valid!",
+				visibility: "private",
+				destinationId,
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("POST /:orgId/projects rejects a destination whose visibility doesn't match", async () => {
+		const publicDestination = await createTestS3Destination(orgId, { visibility: "public" });
+		const res = await jsonRequest(`/organizations/${orgId}/projects`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({
+				name: "Mismatched",
+				id: "mismatched",
+				visibility: "private",
+				destinationId: publicDestination.id,
+			}),
+		});
+		expect(res.status).toBe(400);
 	});
 
 	it("GET /:orgId/projects lists the new project", async () => {
@@ -143,7 +195,12 @@ describe.skipIf(!process.env.DATABASE_URL)("projects", () => {
 		const res = await jsonRequest(`/organizations/${crypto.randomUUID()}/projects`, {
 			method: "POST",
 			cookie: ownerCookie,
-			body: JSON.stringify({ name: "Orphaned" }),
+			body: JSON.stringify({
+				name: "Orphaned",
+				id: "orphaned",
+				visibility: "private",
+				destinationId: crypto.randomUUID(),
+			}),
 		});
 		expect(res.status).toBe(404);
 	});

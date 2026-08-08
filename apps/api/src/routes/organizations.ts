@@ -15,6 +15,7 @@ import { getPublicUrl } from "../lib/auth/request-info";
 import { generateToken, hashToken } from "../lib/auth/tokens";
 import { readInstanceConfig, writeInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
+import { logSystemError } from "../lib/system-log";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
 import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";
@@ -191,31 +192,26 @@ organizationsRoute.put(
 // onDelete: "cascade" (see packages/db's organization.schema.ts and
 // project.schema.ts), so a single delete here is enough; no manual cleanup
 // pass needed.
-organizationsRoute.delete(
-	"/:orgId",
-	requireAuth,
-	requireOrgPermission("org:delete"),
-	async (c) => {
-		const orgId = c.req.param("orgId");
-		const db = getDb();
-		const [existing] = await db
-			.select({ id: organizations.id, name: organizations.name })
-			.from(organizations)
-			.where(eq(organizations.id, orgId));
-		if (!existing) return c.json({ error: "Organization not found" }, 404);
+organizationsRoute.delete("/:orgId", requireAuth, requireOrgPermission("org:delete"), async (c) => {
+	const orgId = c.req.param("orgId");
+	const db = getDb();
+	const [existing] = await db
+		.select({ id: organizations.id, name: organizations.name })
+		.from(organizations)
+		.where(eq(organizations.id, orgId));
+	if (!existing) return c.json({ error: "Organization not found" }, 404);
 
-		await db.delete(organizations).where(eq(organizations.id, orgId));
+	await db.delete(organizations).where(eq(organizations.id, orgId));
 
-		await logAudit(c, {
-			action: "organization.delete",
-			targetType: "organization",
-			targetId: orgId,
-			metadata: { name: existing.name },
-		});
+	await logAudit(c, {
+		action: "organization.delete",
+		targetType: "organization",
+		targetId: orgId,
+		metadata: { name: existing.name },
+	});
 
-		return c.body(null, 204);
-	},
-);
+	return c.body(null, 204);
+});
 
 organizationsRoute.get("/:orgId/members", requireAuth, requireOrgMembership, async (c) => {
 	const members = await getDb()
@@ -248,14 +244,16 @@ organizationsRoute.get(
 				expiresAt: invitations.expiresAt,
 				acceptedAt: invitations.acceptedAt,
 				createdAt: invitations.createdAt,
+				token: invitations.token,
 			})
 			.from(invitations)
 			.where(eq(invitations.orgId, c.req.param("orgId")));
 
 		return c.json({
-			invitations: rows.map((row) => ({
+			invitations: rows.map(({ token, ...row }) => ({
 				...row,
 				isExpired: row.status === "pending" && row.expiresAt.getTime() < Date.now(),
+				inviteUrl: `${getPublicUrl(c)}/invite/${token}`,
 			})),
 		});
 	},
@@ -313,6 +311,7 @@ organizationsRoute.post(
 				role: parsed.data.role,
 				invitedByUserId: inviter.id,
 				tokenHash,
+				token,
 				expiresAt,
 			})
 			.returning();
@@ -336,6 +335,12 @@ organizationsRoute.post(
 				}),
 			);
 		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			await logSystemError({
+				source: "mail",
+				message,
+				metadata: { context: "org_invite", to: email, orgId },
+			});
 			// The invitation record still exists — an admin can share the link
 			// manually if SMTP isn't configured.
 			return c.json(
@@ -343,7 +348,7 @@ organizationsRoute.post(
 					invitation,
 					inviteUrl: acceptUrl,
 					warning: "Invitation created but the email could not be sent",
-					error: err instanceof Error ? err.message : String(err),
+					error: message,
 				},
 				201,
 			);

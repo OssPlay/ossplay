@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { getDb, instanceInvitations, invitations } from "@ossplay/db";
+import { getDb, instanceInvitations, invitations, s3Destinations } from "@ossplay/db";
 import { eq, sql } from "drizzle-orm";
 import { app } from "./app";
 import { resetAllRateLimitsForTests } from "./lib/auth/rate-limit";
@@ -75,7 +75,10 @@ export async function bootstrapAdmin(overrides: Partial<typeof DEFAULT_ADMIN> = 
 export async function stampInvitationToken(invitationId: string): Promise<string> {
 	const token = generateToken();
 	const tokenHash = await hashToken(token);
-	await getDb().update(invitations).set({ tokenHash }).where(eq(invitations.id, invitationId));
+	await getDb()
+		.update(invitations)
+		.set({ tokenHash, token })
+		.where(eq(invitations.id, invitationId));
 	return token;
 }
 
@@ -86,7 +89,31 @@ export async function stampInstanceInvitationToken(invitationId: string): Promis
 	const tokenHash = await hashToken(token);
 	await getDb()
 		.update(instanceInvitations)
-		.set({ tokenHash })
+		.set({ tokenHash, token })
 		.where(eq(instanceInvitations.id, invitationId));
 	return token;
+}
+
+// Direct-insert escape hatch (no route exercises S3 credentials end to end
+// in tests) — creating a project requires a destination to point at, so
+// every project-creation test needs one of these first.
+export async function createTestS3Destination(
+	orgId: string,
+	overrides: Partial<{ visibility: "public" | "private"; label: string }> = {},
+): Promise<{ id: string; visibility: "public" | "private" }> {
+	const [destination] = await getDb()
+		.insert(s3Destinations)
+		.values({
+			orgId,
+			label: overrides.label ?? "Test destination",
+			endpoint: "https://s3.test.invalid",
+			region: "us-east-1",
+			bucket: "test-bucket",
+			accessKeyId: "test-access-key",
+			secretAccessKeyEncrypted: "test-encrypted-secret",
+			visibility: overrides.visibility ?? "private",
+		})
+		.returning({ id: s3Destinations.id, visibility: s3Destinations.visibility });
+	if (!destination) throw new Error("Test S3 destination insert did not return the expected row");
+	return destination;
 }

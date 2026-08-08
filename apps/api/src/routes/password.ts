@@ -10,6 +10,7 @@ import { consumePasswordResetToken, createPasswordResetToken } from "../lib/auth
 import { checkRateLimit } from "../lib/auth/rate-limit";
 import { getClientIp, getPublicUrl, getUserAgent } from "../lib/auth/request-info";
 import { completeSignIn, revokeAllSessionsForUser } from "../lib/auth/session";
+import { logSystemError } from "../lib/system-log";
 import { requireAuth } from "../middleware/require-auth";
 import type { AppEnv } from "../types";
 
@@ -63,8 +64,15 @@ passwordRoute.post("/forgot-password", async (c) => {
 		const resetUrl = `${getPublicUrl(c)}/reset-password?token=${token}`;
 		try {
 			await sendMail(user.email, await passwordResetEmail({ resetUrl }));
-		} catch {
-			// Swallowed deliberately — see comment above.
+		} catch (err) {
+			// Swallowed deliberately from the caller's perspective — see comment
+			// above — but still recorded so root can see why, without turning
+			// the response itself into an email-enumeration oracle.
+			await logSystemError({
+				source: "mail",
+				message: err instanceof Error ? err.message : String(err),
+				metadata: { context: "forgot_password", to: user.email },
+			});
 		}
 	}
 

@@ -26,7 +26,7 @@ If a task seems to conflict with something recorded in `MEMORY.md`, surface the 
 
 - **`packages/db` schema changes require a migration.** Never hand-edit the database directly or skip `drizzle-kit generate`. A schema change without a matching migration will break `migrate-check.yml` in CI.
 - **`packages/db` and `packages/core` types are the contract between `apps/api` and `apps/worker`.** A change to a BullMQ job payload shape or asset/rule type must update both the producer (`api`) and consumer (`worker`) side in the same PR — this is the whole reason those two apps share a repo (see [ARCHITECTURE.md §2](./ARCHITECTURE.md#2-ossplay-monorepo-layout)).
-- **Never hardcode secrets** (S3 credentials, SSH keys, API keys) — these are per-organization runtime configuration (`organizations.s3Config` in the schema), not build-time values.
+- **Never hardcode secrets** (S3 credentials, SSH keys, API keys) — these are per-organization runtime configuration (the `s3Destinations` table in the schema — an org can have several, each bound to exactly one bucket), not build-time values.
 - **Respect the closure-table folder invariants.** `folderClosure` rows must stay consistent (every folder is its own ancestor at depth 0, moving a folder means rewriting all affected ancestor/descendant pairs) — don't bypass the closure-table update logic with direct inserts when moving/nesting folders.
 - **Project rules are JSONB and will outgrow their current shape.** When extending `projects.rules`, prefer additive changes and keep the dashboard's rule editor able to fall back to a raw view for shapes it doesn't have a form for yet (see [DESIGN.md §4](./DESIGN.md#4-dashboard-specific-ux-principles)).
 

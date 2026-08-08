@@ -4,11 +4,13 @@
 // opt out of static prerendering so Next.js does not attempt it at build time.
 export const dynamic = "force-dynamic";
 
-import { CheckIcon, CopyIcon, UserPlusIcon, UsersIcon } from "lucide-react";
+import { ClockIcon, CopyIcon, UserPlusIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
+import { CopyableLink } from "@/components/copyable-link";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +32,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
 import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
@@ -63,6 +73,10 @@ export default function InstanceUsersPage() {
 		items: (response) => response.users,
 		pageSize: 10,
 	});
+	const { data: invitationsData, mutate: mutateInvitations } = useSWR<{
+		invitations: InstanceInvitation[];
+	}>("/instance/users/invitations");
+	const pending = (invitationsData?.invitations ?? []).filter((i) => i.status === "pending");
 	const [inviteOpen, setInviteOpen] = useState(false);
 	const forbidden = table.error instanceof ApiError && table.error.status === 403;
 
@@ -137,51 +151,144 @@ export default function InstanceUsersPage() {
 	}
 
 	return (
-		<Container
-			header={{
-				icon: UsersIcon,
-				title: "Users",
-				description: "Every account on this instance.",
-				action: {
-					icon: UserPlusIcon,
-					title: "Add user",
-					onClick: () => setInviteOpen(true),
-				},
-			}}
-			size="lg"
-		>
-			<DataTable
-				table={table}
-				rowId={(row) => row.id}
-				columns={columns}
-				searchPlaceholder="Search name or email…"
-				emptyTitle="No users yet"
-				bulkActions={[
-					{
-						label: "Block selected",
-						onClick: (selected) => handleBulk(selected, "block"),
+		<>
+			<Container
+				header={{
+					icon: UsersIcon,
+					title: "Users",
+					description: "Every account on this instance.",
+					action: {
+						icon: UserPlusIcon,
+						title: "Add user",
+						onClick: () => setInviteOpen(true),
 					},
-					{
-						label: "Unblock selected",
-						onClick: (selected) => handleBulk(selected, "unblock"),
-					},
-				]}
-				rowActions={(row) => (
-					<Link
-						href={`/instance/users/${row.id}`}
-						className={buttonVariants({ variant: "secondary", size: "sm" })}
-					>
-						Manage
-					</Link>
-				)}
-			/>
+				}}
+				size="lg"
+			>
+				<DataTable
+					table={table}
+					rowId={(row) => row.id}
+					columns={columns}
+					searchPlaceholder="Search name or email…"
+					emptyTitle="No users yet"
+					bulkActions={[
+						{
+							label: "Block selected",
+							onClick: (selected) => handleBulk(selected, "block"),
+						},
+						{
+							label: "Unblock selected",
+							onClick: (selected) => handleBulk(selected, "unblock"),
+						},
+					]}
+					rowActions={(row) => (
+						<Link
+							href={`/instance/users/${row.id}`}
+							className={buttonVariants({ variant: "secondary", size: "sm" })}
+						>
+							Manage
+						</Link>
+					)}
+				/>
 
-			<InviteUserDialog
-				open={inviteOpen}
-				onOpenChange={setInviteOpen}
-				onInvited={() => table.mutate()}
-			/>
-		</Container>
+				<InviteUserDialog
+					open={inviteOpen}
+					onOpenChange={setInviteOpen}
+					onInvited={() => {
+						table.mutate();
+						mutateInvitations();
+					}}
+				/>
+			</Container>
+
+			{pending.length > 0 && (
+				<Container
+					header={{
+						icon: ClockIcon,
+						title: "Pending invitations",
+						description: "Invitations that haven't been accepted yet.",
+					}}
+					size="lg"
+				>
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Email</TableHead>
+								<TableHead>Role</TableHead>
+								<TableHead>Status</TableHead>
+								<TableHead />
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{pending.map((invitation) => (
+								<InstanceInvitationRow
+									key={invitation.id}
+									invitation={invitation}
+									onRevoked={() => mutateInvitations()}
+								/>
+							))}
+						</TableBody>
+					</Table>
+				</Container>
+			)}
+		</>
+	);
+}
+
+interface InstanceInvitation {
+	id: string;
+	email: string;
+	instanceRole: "root" | "org_creator" | null;
+	status: string;
+	isExpired: boolean;
+	createdAt: string;
+	inviteUrl: string;
+}
+
+function InstanceInvitationRow({
+	invitation,
+	onRevoked,
+}: {
+	invitation: InstanceInvitation;
+	onRevoked: () => void;
+}) {
+	const revoke = useAction(
+		() => apiFetch(`/instance/users/invitations/${invitation.id}/revoke`, { method: "POST" }),
+		{
+			success: `Invitation to "${invitation.email}" revoked`,
+			error: "Could not revoke invitation",
+		},
+	);
+
+	async function handleRevoke() {
+		await revoke
+			.trigger()
+			.then(onRevoked)
+			.catch(() => {});
+	}
+
+	async function handleCopy() {
+		await navigator.clipboard.writeText(invitation.inviteUrl);
+	}
+
+	return (
+		<TableRow>
+			<TableCell>{invitation.email}</TableCell>
+			<TableCell>
+				<Badge variant="secondary">{INVITE_ROLE_LABELS[invitation.instanceRole ?? "none"]}</Badge>
+			</TableCell>
+			<TableCell className="text-muted-foreground">
+				{invitation.isExpired ? "Expired" : "Pending"}
+			</TableCell>
+			<TableCell className="text-right">
+				<Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copy invite link">
+					<CopyIcon className="size-3.5" />
+				</Button>
+				<LoadingButton variant="ghost" size="sm" loading={revoke.isLoading} onClick={handleRevoke}>
+					Revoke
+				</LoadingButton>
+			</TableCell>
+		</TableRow>
 	);
 }
 
@@ -217,7 +324,13 @@ function InviteUserDialog({
 	);
 
 	function handleOpenChange(next: boolean) {
-		if (next) {
+		// Reset on close, not open: the "Add user" button that opens this
+		// dialog sets `open` directly (bypassing this handler entirely), so a
+		// reset-on-open branch never actually runs on that path — the dialog
+		// would reopen still showing the previous invite's link. Every close
+		// path (Done, Escape, overlay click) does go through this handler,
+		// so resetting here covers all of them regardless of how it opened.
+		if (!next) {
 			setEmail("");
 			setRole("none");
 			setResult(null);
@@ -230,6 +343,10 @@ function InviteUserDialog({
 		await invite
 			.trigger()
 			.then((res) => {
+				// The invitation row exists either way — refresh the pending list
+				// now, not only on the full-success path, or it stays stale until
+				// something else happens to revalidate it.
+				onInvited();
 				if (res.warning) {
 					// Email couldn't go out — keep the dialog open with the link so
 					// root can copy and share it manually instead of losing it.
@@ -238,7 +355,6 @@ function InviteUserDialog({
 				}
 				toast.success("Invitation sent");
 				onOpenChange(false);
-				onInvited();
 			})
 			.catch(() => {});
 	}
@@ -307,24 +423,5 @@ function InviteUserDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-function CopyableLink({ url }: { url: string }) {
-	const [copied, setCopied] = useState(false);
-
-	async function handleCopy() {
-		await navigator.clipboard.writeText(url);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
-	}
-
-	return (
-		<div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
-			<span className="flex-1 truncate font-mono text-xs">{url}</span>
-			<Button type="button" variant="secondary" size="icon-sm" onClick={handleCopy}>
-				{copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-			</Button>
-		</div>
 	);
 }

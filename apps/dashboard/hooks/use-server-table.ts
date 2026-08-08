@@ -15,8 +15,13 @@ export interface ListEnvelope {
 }
 
 export interface UseServerTableOptions<TResponse extends ListEnvelope, TItem> {
-	/** API path, relative to the API base (e.g. "/instance/ssh-keys"). */
-	endpoint: string;
+	/**
+	 * API path, relative to the API base (e.g. "/instance/ssh-keys"). `null`
+	 * skips the fetch entirely (SWR's conditional-key pattern) — for an
+	 * org-scoped table whose path depends on an org id that isn't resolved
+	 * yet on the first render.
+	 */
+	endpoint: string | null;
 	/** Pulls the row array out of the endpoint's response envelope. */
 	items: (response: TResponse) => TItem[];
 	pageSize?: number;
@@ -85,7 +90,7 @@ export function useServerTable<TResponse extends ListEnvelope, TItem>({
 	const queryString = query.toString();
 
 	const { data, error, isLoading, mutate } = useSWR<TResponse>(
-		`${endpoint}${queryString ? `?${queryString}` : ""}`,
+		endpoint ? `${endpoint}${queryString ? `?${queryString}` : ""}` : null,
 	);
 
 	function setPage(next: number) {

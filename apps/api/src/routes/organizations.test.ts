@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import {
 	bootstrapAdmin,
+	createTestS3Destination,
 	extractCookie,
 	jsonRequest,
 	stampInvitationToken,
@@ -46,10 +47,16 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 	});
 
 	it("GET /organizations includes member/project counts, GET /:orgId returns the single org", async () => {
+		const destination = await createTestS3Destination(orgId);
 		await jsonRequest(`/organizations/${orgId}/projects`, {
 			method: "POST",
 			cookie: ownerCookie,
-			body: JSON.stringify({ name: "Website Assets" }),
+			body: JSON.stringify({
+				name: "Website Assets",
+				id: "website-assets",
+				visibility: destination.visibility,
+				destinationId: destination.id,
+			}),
 		});
 
 		const listRes = await jsonRequest("/organizations", { cookie: ownerCookie });
