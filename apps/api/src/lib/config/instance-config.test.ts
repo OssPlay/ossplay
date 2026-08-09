@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { readInstanceConfig, writeInstanceConfig } from "./instance-config";
 
 const SCRATCH_PATH = `${import.meta.dir}/instance-config.test.scratch.yaml`;
 
 beforeEach(() => {
 	process.env.OSSPLAY_CONFIG_PATH = SCRATCH_PATH;
-	rmSync(SCRATCH_PATH, { force: true });
+	rmSync(SCRATCH_PATH, { force: true, recursive: true });
 });
 
 afterEach(() => {
-	rmSync(SCRATCH_PATH, { force: true });
+	rmSync(SCRATCH_PATH, { force: true, recursive: true });
 });
 
 describe("instance-config", () => {
@@ -65,5 +65,24 @@ describe("instance-config", () => {
 		const config = readInstanceConfig();
 		expect(config.domain.name).toBe("ossplay.example.com");
 		expect(config.domain.configuredAt).toBeNull();
+	});
+
+	// Reproduces a real incident: a Docker bind mount created before the
+	// host-side file existed gets auto-vivified as a directory, so every
+	// read/write inside the container hits EISDIR instead of ENOENT.
+	describe("when the config path is a directory (stale bind mount), not a file", () => {
+		beforeEach(() => {
+			mkdirSync(SCRATCH_PATH, { recursive: true });
+		});
+
+		it("falls back to defaults on read, rather than throwing", () => {
+			expect(readInstanceConfig().onboardedAt).toBeNull();
+		});
+
+		it("throws a clear, actionable error on write instead of an opaque EISDIR", () => {
+			expect(() => writeInstanceConfig({ instanceName: "Acme Inc" })).toThrow(
+				/bind mount|directory, not a file/,
+			);
+		});
 	});
 });

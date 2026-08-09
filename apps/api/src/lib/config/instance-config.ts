@@ -91,9 +91,22 @@ export function readInstanceConfig(): InstanceConfig {
 	let parsed: Partial<InstanceConfig> = {};
 	try {
 		parsed = (parse(readFileSync(path, "utf8")) ?? {}) as Partial<InstanceConfig>;
-	} catch {
-		// File doesn't exist yet (first boot) or can't be read — parsed stays
-		// {}, so every field below falls through to its default.
+	} catch (err) {
+		// ENOENT (file doesn't exist yet — first boot) is the only case where
+		// silently falling through to defaults below is correct. Anything
+		// else — most notably EISDIR, which happens when this container's
+		// bind mount was created before the host-side file existed, so
+		// Docker auto-vivified it as a directory instead (see this file's own
+		// resetInstanceConfig comment on why the host file must exist first)
+		// — must not be swallowed the same way: silently returning defaults
+		// here means onboardedAt reads back as null, bouncing an
+		// already-onboarded instance's every user straight back through
+		// onboarding with no indication why. Logging loudly is what actually
+		// makes an incident like that diagnosable from `docker compose logs
+		// api` instead of a silent, confusing redirect.
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+			console.error(`[instance-config] failed to read ${path}, falling back to defaults:`, err);
+		}
 	}
 	return {
 		instanceName: parsed.instanceName ?? DEFAULTS.instanceName,
@@ -133,9 +146,25 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 	try {
 		renameSync(tmpPath, path);
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== "EBUSY") throw err;
-		writeFileSync(path, stringify(next), "utf8");
-		rmSync(tmpPath, { force: true });
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code === "EBUSY") {
+			writeFileSync(path, stringify(next), "utf8");
+			rmSync(tmpPath, { force: true });
+		} else {
+			rmSync(tmpPath, { force: true });
+			if (code === "EISDIR") {
+				// The destination is a directory, not a file — happens when a
+				// container's bind mount was created before the host-side file
+				// existed, so Docker auto-vivified a directory there instead (see
+				// readInstanceConfig's matching comment). No in-process recovery
+				// is possible: the mount itself is wrong-typed, only recreating
+				// the container against a correctly-typed host path fixes it.
+				throw new Error(
+					`Cannot write ${path}: it is a directory, not a file. This usually means the Docker bind mount was created before ${path} existed as a real file on the host — confirm the host-side file exists, then recreate the api container (e.g. \`docker compose up -d --force-recreate --no-deps api\`).`,
+				);
+			}
+			throw err;
+		}
 	}
 
 	return next;
