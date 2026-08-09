@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { logAudit } from "@/lib/audit/log";
 import { readInstanceConfig, writeInstanceConfig } from "@/lib/config/instance-config";
+import { notifyRootsOfUpdateIfNew } from "@/lib/notifications/notify";
 import { detectServerIp, readVersion } from "@/lib/server-info";
 import { checkForUpdates } from "@/lib/updates/check";
 import { applyUpdate, getUpdateJobStatus } from "@/lib/updates/updater-client";
@@ -97,6 +98,7 @@ instanceOverviewRoute.post("/updates", async (c) => {
 			},
 		},
 	});
+	await notifyRootsOfUpdateIfNew(result);
 	return c.json(result);
 });
 

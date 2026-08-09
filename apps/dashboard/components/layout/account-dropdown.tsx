@@ -1,5 +1,7 @@
 "use client";
 
+import { BookOpenIcon, LogOutIcon, RssIcon, SettingsIcon, UserIcon } from "lucide-react";
+import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
 	DropdownMenu,
@@ -17,14 +19,6 @@ import {
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { openUpdateDialog } from "@/lib/update-dialog-store";
-import {
-	BookOpenIcon,
-	LogOutIcon,
-	RssIcon,
-	SettingsIcon,
-	UserIcon,
-} from "lucide-react";
-import Link from "next/link";
 import { useAuth } from "../providers/auth-provider";
 import { Button } from "../ui/button";
 
@@ -55,9 +49,7 @@ export function AccountDropdown() {
 				</Avatar>
 				<div className="flex flex-1 flex-col gap-0.5 overflow-hidden leading-none">
 					<span className="font-medium truncate">{user.name}</span>
-					<span className="text-xs truncate text-muted-foreground">
-						{user.email}
-					</span>
+					<span className="text-xs truncate text-muted-foreground">{user.email}</span>
 				</div>
 			</>
 		);
@@ -84,9 +76,7 @@ export function AccountDropdown() {
 			<SidebarMenu>
 				<SidebarMenuItem>
 					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={<SidebarMenuButton size="lg" className="rounded-2xl" />}
-						>
+						<DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="rounded-2xl" />}>
 							<UserItem />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="start" side="top">
@@ -104,19 +94,13 @@ export function AccountDropdown() {
 							</DropdownMenuItem>
 							{DOCS_URL && (
 								<DropdownMenuItem
-									render={
-										<Link href={DOCS_URL} target="_blank" rel="noreferrer" />
-									}
+									render={<Link href={DOCS_URL} target="_blank" rel="noreferrer" />}
 								>
 									<BookOpenIcon /> Documentation
 								</DropdownMenuItem>
 							)}
 							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								variant="destructive"
-								disabled={isLoading}
-								onClick={handleLogout}
-							>
+							<DropdownMenuItem variant="destructive" disabled={isLoading} onClick={handleLogout}>
 								<LogOutIcon /> Log out
 							</DropdownMenuItem>
 						</DropdownMenuContent>

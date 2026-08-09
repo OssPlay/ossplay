@@ -256,6 +256,120 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 		expect(getBody.organization.name).toBe("Acme Incorporated");
 	});
 
+	describe("member role change / removal", () => {
+		let ownerId: string;
+		let adminId: string; // "newbie" — currently "admin" from the re-invite test above
+		let thirdCookie: string;
+		let thirdId: string;
+
+		it("sets up a third member to exercise the forbidden-for-non-owner case", async () => {
+			const inviteRes = await jsonRequest(`/organizations/${orgId}/invitations`, {
+				method: "POST",
+				cookie: ownerCookie,
+				body: JSON.stringify({ email: "third@example.com", role: "member" }),
+			});
+			const { invitation: thirdInvite } = (await inviteRes.json()) as { invitation: Invitation };
+			const token = await stampInvitationToken(thirdInvite.id);
+			const acceptRes = await jsonRequest(`/invitations/token/${token}/accept`, {
+				method: "POST",
+				body: JSON.stringify({ name: "Third Member", password: "another safe password value" }),
+			});
+			thirdCookie = extractCookie(acceptRes, "ossplay_session");
+			expect(thirdCookie).toBeTruthy();
+
+			const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+				cookie: ownerCookie,
+			});
+			const membersBody = (await membersRes.json()) as {
+				members: Array<{ userId: string; email: string; role: string }>;
+			};
+			expect(membersBody.members).toHaveLength(3);
+			ownerId = membersBody.members.find((m) => m.email === "ada@example.com")?.userId ?? "";
+			adminId = membersBody.members.find((m) => m.email === "newbie@example.com")?.userId ?? "";
+			thirdId = membersBody.members.find((m) => m.email === "third@example.com")?.userId ?? "";
+			expect(ownerId).toBeTruthy();
+			expect(adminId).toBeTruthy();
+			expect(thirdId).toBeTruthy();
+		});
+
+		it("PUT /:orgId/members/:userId changes a member's role", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${adminId}`, {
+				method: "PUT",
+				cookie: ownerCookie,
+				body: JSON.stringify({ role: "member" }),
+			});
+			expect(res.status).toBe(204);
+
+			const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+				cookie: ownerCookie,
+			});
+			const membersBody = (await membersRes.json()) as {
+				members: Array<{ userId: string; role: string }>;
+			};
+			expect(membersBody.members.find((m) => m.userId === adminId)?.role).toBe("member");
+		});
+
+		it("PUT /:orgId/members/:userId is forbidden for a non-owner", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${thirdId}`, {
+				method: "PUT",
+				cookie: memberCookie,
+				body: JSON.stringify({ role: "owner" }),
+			});
+			expect(res.status).toBe(403);
+		});
+
+		it("PUT /:orgId/members/:userId 409s when demoting the sole remaining owner", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${ownerId}`, {
+				method: "PUT",
+				cookie: ownerCookie,
+				body: JSON.stringify({ role: "admin" }),
+			});
+			expect(res.status).toBe(409);
+		});
+
+		it("DELETE /:orgId/members/:userId is forbidden when removing someone else without org:manage_members", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${thirdId}`, {
+				method: "DELETE",
+				cookie: memberCookie,
+			});
+			expect(res.status).toBe(403);
+		});
+
+		it("DELETE /:orgId/members/:userId lets a member leave on their own", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${adminId}`, {
+				method: "DELETE",
+				cookie: memberCookie,
+			});
+			expect(res.status).toBe(204);
+
+			const membersRes = await jsonRequest(`/organizations/${orgId}/members`, {
+				cookie: ownerCookie,
+			});
+			const membersBody = (await membersRes.json()) as { members: Array<{ userId: string }> };
+			expect(membersBody.members.find((m) => m.userId === adminId)).toBeUndefined();
+		});
+
+		it("DELETE /:orgId/members/:userId removes another member as the owner", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${thirdId}`, {
+				method: "DELETE",
+				cookie: ownerCookie,
+			});
+			expect(res.status).toBe(204);
+			// thirdCookie is now orphaned (removed from its only org) — nothing
+			// further to assert with it, kept only so lint doesn't flag it unused
+			// ahead of this point in the file.
+			expect(thirdCookie).toBeTruthy();
+		});
+
+		it("DELETE /:orgId/members/:userId 409s when removing the sole remaining owner", async () => {
+			const res = await jsonRequest(`/organizations/${orgId}/members/${ownerId}`, {
+				method: "DELETE",
+				cookie: ownerCookie,
+			});
+			expect(res.status).toBe(409);
+		});
+	});
+
 	it("DELETE /:orgId is forbidden without org:delete permission", async () => {
 		// memberCookie has no membership at all in secondOrgId, which also
 		// resolves to a 403 (no membership = no permission), same outcome as a

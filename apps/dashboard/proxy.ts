@@ -74,6 +74,26 @@ async function checkIsInstanceRoot(request: NextRequest): Promise<boolean> {
 	}
 }
 
+// Narrower than checkIsInstanceRoot: org_creator's only instance-wide grant
+// is instance:manage_orgs (see apps/api/src/lib/authz/permissions.ts), which
+// is exactly what POST/GET /organizations already allow it to do server-side
+// — this just lets it reach the one page (/instance/organizations) that
+// exercises that permission, without opening the rest of /instance/* (users,
+// ssh-keys, servers, ...), which stays root-only via checkIsInstanceRoot.
+async function checkCanManageOrgs(request: NextRequest): Promise<boolean> {
+	try {
+		const res = await fetch(`${API_INTERNAL_URL}/auth/instance-role`, {
+			cache: "no-store",
+			headers: { cookie: request.headers.get("cookie") ?? "" },
+		});
+		if (!res.ok) return false;
+		const data = (await res.json()) as { instanceRole: string | null };
+		return data.instanceRole === "root" || data.instanceRole === "org_creator";
+	} catch {
+		return false;
+	}
+}
+
 // Cheap redirect gate, not full auth enforcement: a stale/expired session
 // cookie is caught by the API returning 401 and handled client-side, not by
 // re-validating the session here on every navigation.
@@ -134,7 +154,13 @@ export async function proxy(request: NextRequest) {
 
 		const isInstancePage =
 			pathname === INSTANCE_PREFIX || pathname.startsWith(`${INSTANCE_PREFIX}/`);
-		if (isInstancePage && !(await checkIsInstanceRoot(request))) {
+		const isOrganizationsPage =
+			pathname === `${INSTANCE_PREFIX}/organizations` ||
+			pathname.startsWith(`${INSTANCE_PREFIX}/organizations/`);
+		if (isInstancePage && !isOrganizationsPage && !(await checkIsInstanceRoot(request))) {
+			return NextResponse.redirect(new URL("/", request.url));
+		}
+		if (isOrganizationsPage && !(await checkCanManageOrgs(request))) {
 			return NextResponse.redirect(new URL("/", request.url));
 		}
 

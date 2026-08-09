@@ -13,6 +13,7 @@ export interface ContainerHeaderAction {
 }
 
 export interface ContainerHeaderConfig {
+	props?: React.HTMLAttributes<HTMLHeadingElement>;
 	icon?: LucideIcon;
 	title: string;
 	description?: string;
@@ -22,6 +23,7 @@ export interface ContainerHeaderConfig {
 
 export default function Container({
 	inner: { className: innerClassName, ...innerProps } = {},
+	container: { className: containerClassName, ...containerProps } = {},
 	children,
 	className,
 	header,
@@ -29,6 +31,7 @@ export default function Container({
 	...props
 }: React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> & {
 	inner?: React.HTMLAttributes<HTMLDivElement>;
+	container?: React.HTMLAttributes<HTMLDivElement>;
 	header?: ContainerHeaderConfig;
 	size?: "lg" | "md" | "sm";
 }) {
@@ -51,7 +54,10 @@ export default function Container({
 				)}
 			>
 				{header && (
-					<header className="flex items-center gap-4 p-4 mb-4 border-b flex-nowrap">
+					<header
+						className="flex items-center gap-4 p-4 mb-4 border-b flex-nowrap"
+						{...header.props}
+					>
 						{header.icon && <header.icon className="size-8 shrink-0" />}
 						<div className="flex flex-col flex-1 min-w-0">
 							<h3 className="text-lg font-bold dark:text-white">{header.title}</h3>
@@ -72,7 +78,9 @@ export default function Container({
 						)}
 					</header>
 				)}
-				<div className={cn("flex flex-1 flex-col p-4")}>{children}</div>
+				<div className={cn("flex flex-1 flex-col p-4", containerClassName)} {...containerProps}>
+					{children}
+				</div>
 			</div>
 		</section>
 	);

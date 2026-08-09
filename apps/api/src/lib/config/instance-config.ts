@@ -44,6 +44,10 @@ export interface InstanceConfig {
 		autoCheck: boolean;
 		lastCheckedAt: string | null;
 		lastCheckResult: { available: boolean; latestVersion: string | null; forced: boolean } | null;
+		// Dedupes the root "update available" notification (lib/notifications/
+		// notify.ts's notifyRootsOfUpdateIfNew) — fires once per newly-seen
+		// latestVersion, not on every check that still finds the same version.
+		lastNotifiedVersion: string | null;
 	};
 }
 
@@ -71,6 +75,7 @@ const DEFAULTS: InstanceConfig = {
 		autoCheck: false,
 		lastCheckedAt: null,
 		lastCheckResult: null,
+		lastNotifiedVersion: null,
 	},
 };
 

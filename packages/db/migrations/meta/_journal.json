@@ -43,6 +43,13 @@
       "when": 1786190181833,
       "tag": "0005_good_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786278229361,
+      "tag": "0006_needy_the_fallen",
+      "breakpoints": true
     }
   ]
 }

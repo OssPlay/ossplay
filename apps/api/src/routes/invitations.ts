@@ -9,6 +9,7 @@ import { getClientIp, getUserAgent } from "../lib/auth/request-info";
 import { completeSignIn, validateSessionToken } from "../lib/auth/session";
 import { hashToken } from "../lib/auth/tokens";
 import { can } from "../lib/authz/permissions";
+import { getOrgManagers, notifyUsers } from "../lib/notifications/notify";
 import { requireAuth } from "../middleware/require-auth";
 import { getMembership } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -119,6 +120,17 @@ invitationsRoute.post("/token/:token/accept", async (c) => {
 		targetType: "organization",
 		targetId: invitation.orgId,
 		metadata: { userId, role: invitation.role },
+	});
+
+	const [org] = await db
+		.select({ name: organizations.name })
+		.from(organizations)
+		.where(eq(organizations.id, invitation.orgId));
+	await notifyUsers(await getOrgManagers(invitation.orgId, userId), {
+		type: "organization.member_joined",
+		title: `${invitation.email} joined ${org?.name ?? "your organization"}`,
+		href: "/organization/members",
+		metadata: { orgId: invitation.orgId, userId, role: invitation.role },
 	});
 
 	// A brand-new account gets logged in immediately, same as setup. An

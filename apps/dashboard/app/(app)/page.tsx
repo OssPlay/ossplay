@@ -30,24 +30,37 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 import Container from "@/components/ui/container";
-import { LoadingButton } from "@/components/ui/loading-button";
 import { useCurrentOrgId } from "@/lib/current-org";
 import { formatBytes } from "@/lib/format-bytes";
 
 interface OrgStats {
-	projects: { total: number; byVisibility: { public: number; private: number } };
+	projects: {
+		total: number;
+		byVisibility: { public: number; private: number };
+	};
 	members: { total: number };
-	destinations: { total: number; byStatus: { untested: number; ok: number; error: number } };
-	storage: { totalBytes: number; byProject: { projectId: string; name: string; bytes: number }[] };
+	destinations: {
+		total: number;
+		byStatus: { untested: number; ok: number; error: number };
+	};
+	storage: {
+		totalBytes: number;
+		byProject: { projectId: string; name: string; bytes: number }[];
+	};
 	assets: {
 		total: number;
-		byStatus: { pending: number; processing: number; ready: number; failed: number };
+		byStatus: {
+			pending: number;
+			processing: number;
+			ready: number;
+			failed: number;
+		};
 		createdOverTime: { date: string; count: number }[];
 	};
 }
 
 export default function Home() {
-	const { user, organizations, handleLogout, isLoading } = useAuth();
+	const { user, organizations } = useAuth();
 	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
 	const org = organizations.find((o) => o.id === orgId);
 
@@ -57,59 +70,54 @@ export default function Home() {
 	// membership rows still has somewhere useful to go: Instance >
 	// Organizations, the one real place organizations get created and
 	// managed (see that page's "New organization" dialog) — not a duplicate
-	// input right here. A non-root account with no membership genuinely has
-	// nothing to do until an admin adds them. This is also what a fresh
-	// instance's root — or any root after the only org gets deleted — lands
-	// on now, instead of being bounced through the onboarding wizard again
-	// (see proxy.ts/onboarding.ts: onboarding only ever needs to happen
-	// once).
-	const isRootStranded = hasNoOrg && user.instanceRole === "root";
-	const isStranded = hasNoOrg && user.instanceRole !== "root";
+	// input right here. This is also what a fresh instance's root — or any
+	// root after the only org gets deleted — lands on now, instead of being
+	// bounced through the onboarding wizard again (see
+	// proxy.ts/onboarding.ts: onboarding only ever needs to happen once).
+	//
+	// org_creator is in the same boat as root here: its one instance-wide
+	// permission (instance:manage_orgs) is exactly what /instance/organizations
+	// needs, and proxy.ts carves that page out for org_creator specifically —
+	// so a stranded org_creator gets routed there too, instead of the
+	// "ask an administrator" dead end a plain member/no-role account gets.
+	const isOrgCreator = user.instanceRole === "org_creator";
+	const canManageOrgs = hasNoOrg && (user.instanceRole === "root" || isOrgCreator);
+	const isStranded = hasNoOrg && user.instanceRole !== "root" && !isOrgCreator;
 
 	const { data: stats } = useSWR<OrgStats>(orgId ? `/organizations/${orgId}/stats` : null);
 
-	if (isRootStranded) {
+	if (hasNoOrg) {
 		return (
-			<Container size="lg" className="flex-1">
-				<div className="flex flex-1 flex-col items-center justify-center gap-4 py-16 text-center">
-					<div className="flex size-14 items-center justify-center rounded-2xl bg-muted">
-						<Building2Icon className="size-7 text-muted-foreground" />
+			<Container
+				className="h-full"
+				size="md"
+				container={{
+					className: "flex items-center justify-center flex-1 gap-y-2 text-center",
+				}}
+			>
+				<div className="flex size-14 items-center justify-center rounded-2xl bg-muted">
+					<Building2Icon className="size-7 text-muted-foreground" />
+				</div>
+				<div className="flex max-w-sm flex-col gap-1.5">
+					<h2 className="text-lg font-semibold">No organizations yet</h2>
+					<div className="text-sm text-muted-foreground w-full">
+						{canManageOrgs &&
+							[
+								`This instance doesn't have an organization.`,
+								`Create one from Instance settings to get started.`,
+							].map((i) => <p key={i}>{i}</p>)}
+						{isStranded &&
+							[
+								`${user.name}, your account isn't part of any organization on this instance.`,
+								`Ask an instance administrator to add you to one — there's nothing else to do here until then.`,
+							].map((i) => <p key={i}>{i}</p>)}
 					</div>
-					<div className="flex max-w-sm flex-col gap-1.5">
-						<h2 className="text-lg font-semibold">No organizations yet</h2>
-						<p className="text-sm text-muted-foreground">
-							This instance doesn't have an organization. Create one from Instance settings to get
-							started.
-						</p>
-					</div>
+				</div>
+				{canManageOrgs && (
 					<Link href="/instance/organizations" className={buttonVariants({ variant: "default" })}>
 						Go to Organizations
 					</Link>
-				</div>
-			</Container>
-		);
-	}
-
-	if (isStranded) {
-		return (
-			<Container>
-				<Card className="w-full max-w-md">
-					<CardHeader>
-						<CardTitle>No organization yet</CardTitle>
-						<CardDescription>
-							{user.name}, your account isn't part of any organization on this instance.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="flex flex-col gap-4">
-						<p className="text-sm text-muted-foreground">
-							Ask an instance administrator to add you to one — there's nothing else to do here
-							until then.
-						</p>
-						<LoadingButton variant="outline" loading={isLoading} onClick={handleLogout}>
-							Log out
-						</LoadingButton>
-					</CardContent>
-				</Card>
+				)}
 			</Container>
 		);
 	}
@@ -186,7 +194,11 @@ const VISIBILITY_CONFIG: ChartConfig = {
 function ProjectsByVisibilityChart({ stats }: { stats: OrgStats | undefined }) {
 	const data = stats
 		? [
-				{ visibility: "public", count: stats.projects.byVisibility.public, fill: "var(--chart-1)" },
+				{
+					visibility: "public",
+					count: stats.projects.byVisibility.public,
+					fill: "var(--chart-1)",
+				},
 				{
 					visibility: "private",
 					count: stats.projects.byVisibility.private,
@@ -284,13 +296,21 @@ const DESTINATION_CONFIG: ChartConfig = {
 function DestinationHealthChart({ stats }: { stats: OrgStats | undefined }) {
 	const data = stats
 		? [
-				{ status: "ok", count: stats.destinations.byStatus.ok, fill: "var(--chart-1)" },
+				{
+					status: "ok",
+					count: stats.destinations.byStatus.ok,
+					fill: "var(--chart-1)",
+				},
 				{
 					status: "untested",
 					count: stats.destinations.byStatus.untested,
 					fill: "var(--chart-4)",
 				},
-				{ status: "error", count: stats.destinations.byStatus.error, fill: "var(--destructive)" },
+				{
+					status: "error",
+					count: stats.destinations.byStatus.error,
+					fill: "var(--destructive)",
+				},
 			]
 		: [];
 

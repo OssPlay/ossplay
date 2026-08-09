@@ -2,6 +2,7 @@ import { getDb, organizations, type ProjectRules, projects, s3Destinations } fro
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { getOrgManagers, notifyUsers } from "../lib/notifications/notify";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -59,6 +60,7 @@ projectsRoute.post(
 		const parsed = createProjectSchema.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
+		const actor = c.get("user");
 		const db = getDb();
 		const orgId = c.req.param("orgId");
 		// Unlike rename/delete below, there's no existing project row to
@@ -104,6 +106,13 @@ projectsRoute.post(
 				})
 				.returning();
 			if (!project) throw new Error("Project insert did not return the expected row");
+
+			await notifyUsers(await getOrgManagers(orgId, actor.id), {
+				type: "organization.project_created",
+				title: `Project "${project.name}" was created`,
+				href: "/organization/projects",
+				metadata: { orgId, projectId: project.id },
+			});
 
 			return c.json({ project }, 201);
 		} catch (err) {
@@ -172,16 +181,24 @@ projectsRoute.delete(
 	requireAuth,
 	requireOrgPermission("org:delete_projects"),
 	async (c) => {
+		const actor = c.get("user");
+		const orgId = c.req.param("orgId");
 		const db = getDb();
 		const [existing] = await db
-			.select({ id: projects.id })
+			.select({ id: projects.id, name: projects.name })
 			.from(projects)
-			.where(
-				and(eq(projects.id, c.req.param("projectId")), eq(projects.orgId, c.req.param("orgId"))),
-			);
+			.where(and(eq(projects.id, c.req.param("projectId")), eq(projects.orgId, orgId)));
 		if (!existing) return c.json({ error: "Project not found" }, 404);
 
 		await db.delete(projects).where(eq(projects.id, c.req.param("projectId")));
+
+		await notifyUsers(await getOrgManagers(orgId, actor.id), {
+			type: "organization.project_deleted",
+			title: `Project "${existing.name}" was deleted`,
+			href: "/organization/projects",
+			metadata: { orgId, projectId: existing.id },
+		});
+
 		return c.body(null, 204);
 	},
 );

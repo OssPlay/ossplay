@@ -29,6 +29,7 @@ describe("instance-config", () => {
 				autoCheck: false,
 				lastCheckedAt: null,
 				lastCheckResult: null,
+				lastNotifiedVersion: null,
 			},
 		});
 	});

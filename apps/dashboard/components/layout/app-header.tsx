@@ -2,9 +2,10 @@
 
 import { BellIcon, MoonIcon, ServerIcon, SunIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Fragment, useEffect, useState } from "react";
+import useSWR from "swr";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -17,8 +18,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useAction } from "@/hooks/use-action";
+import { apiFetch } from "@/lib/api";
 import { useBreadcrumbs } from "@/lib/nav-store";
-import { cn } from "@/lib/utils";
+import { cn, formatDatetime } from "@/lib/utils";
+import type { NotificationRow, NotificationsResponse } from "@/types/notifications";
 import { useAuth } from "../providers/auth-provider";
 
 function AppBreadcrumbs() {
@@ -50,16 +54,75 @@ function AppBreadcrumbs() {
 	);
 }
 
-// No notifications data model exists anywhere in this codebase yet — a real
-// shell for a feed to slot into later, not a fabricated one.
+// Polling, not a websocket — this app has no real-time push infra elsewhere
+// either, and a 30s interval is plenty responsive for "someone joined my
+// org" / "an update is available" style events.
+const UNREAD_POLL_INTERVAL_MS = 30_000;
+
 function NotificationsButton() {
+	const router = useRouter();
+	const { data: unread } = useSWR<{ count: number }>("/notifications/unread-count", {
+		refreshInterval: UNREAD_POLL_INTERVAL_MS,
+	});
+	const { data, mutate } = useSWR<NotificationsResponse>("/notifications?per_page=5");
+	const markRead = useAction(
+		(id: string) => apiFetch(`/notifications/${id}/read`, { method: "PATCH" }),
+		{ error: null },
+	);
+
+	async function handleClick(notification: NotificationRow) {
+		if (!notification.readAt) {
+			await markRead
+				.trigger(notification.id)
+				.then(() => mutate())
+				.catch(() => {});
+		}
+		if (notification.href) router.push(notification.href);
+	}
+
+	const items = data?.notifications ?? [];
+	const hasUnread = Boolean(unread?.count);
+
 	return (
 		<Popover>
-			<PopoverTrigger render={<Button variant="ghost" size="icon" />}>
+			<PopoverTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
 				<BellIcon className="size-4" />
+				{hasUnread && (
+					<span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive" />
+				)}
 			</PopoverTrigger>
-			<PopoverContent align="end" className="w-64">
-				<p className="text-sm text-muted-foreground">No notifications yet.</p>
+			<PopoverContent align="end" className="w-80 p-0">
+				<div className="px-3 py-2 border-b">
+					<p className="text-sm font-medium">Notifications</p>
+				</div>
+				{items.length === 0 ? (
+					<p className="text-sm text-muted-foreground p-3">No notifications yet.</p>
+				) : (
+					<div className="flex flex-col max-h-80 overflow-y-auto">
+						{items.map((notification) => (
+							<button
+								key={notification.id}
+								type="button"
+								onClick={() => handleClick(notification)}
+								className={cn(
+									"flex flex-col gap-0.5 text-left px-3 py-2 border-b last:border-b-0 hover:bg-muted transition-colors",
+									!notification.readAt && "bg-muted/50",
+								)}
+							>
+								<span className="text-sm line-clamp-2">{notification.title}</span>
+								<span className="text-xs text-muted-foreground">
+									{formatDatetime(notification.createdAt)}
+								</span>
+							</button>
+						))}
+					</div>
+				)}
+				<Link
+					href="/notifications"
+					className="block px-3 py-2 text-sm text-center text-muted-foreground hover:text-foreground border-t"
+				>
+					View all notifications
+				</Link>
 			</PopoverContent>
 		</Popover>
 	);

@@ -1,5 +1,6 @@
 import { app } from "./app";
 import { readInstanceConfig, writeInstanceConfig } from "./lib/config/instance-config";
+import { notifyRootsOfUpdateIfNew } from "./lib/notifications/notify";
 import { checkForUpdates } from "./lib/updates/check";
 
 const port = Number(process.env.PORT ?? 3001);
@@ -29,6 +30,7 @@ async function runAutoCheckIfEnabled(): Promise<void> {
 			},
 		},
 	});
+	await notifyRootsOfUpdateIfNew(result);
 }
 
 void runAutoCheckIfEnabled();

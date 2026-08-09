@@ -15,12 +15,17 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit/log";
 import { getPublicUrl } from "../lib/auth/request-info";
 import { generateToken, hashToken } from "../lib/auth/tokens";
+import { can } from "../lib/authz/permissions";
 import { readInstanceConfig, writeInstanceConfig } from "../lib/config/instance-config";
 import { parseListQuery } from "../lib/http/list-query";
 import { logSystemError } from "../lib/system-log";
 import { requireAuth } from "../middleware/require-auth";
 import { requireInstancePermission } from "../middleware/require-instance-permission";
-import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";
+import {
+	getMembership,
+	requireOrgMembership,
+	requireOrgPermission,
+} from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
 
 export const organizationsRoute = new Hono<AppEnv>();
@@ -111,10 +116,11 @@ organizationsRoute.get("/:orgId", requireAuth, requireOrgMembership, async (c) =
 	return c.json({ organization: org });
 });
 
-// General-purpose org creation, root-only — used by the onboarding "org"
-// step and available for root to create further orgs afterward. There is no
-// non-root org-creation path: organizations are provisioned by whoever runs
-// the instance, not self-served.
+// General-purpose org creation — used by the onboarding "org" step and
+// available for root (or org_creator, whose sole instance-wide grant is
+// exactly this permission — see permissions.ts) to create further orgs
+// afterward. There is no self-serve org-creation path: organizations are
+// provisioned by whoever runs the instance, not by arbitrary members.
 organizationsRoute.post(
 	"/",
 	requireAuth,
@@ -231,6 +237,112 @@ organizationsRoute.get("/:orgId/members", requireAuth, requireOrgMembership, asy
 
 	return c.json({ members });
 });
+
+// Sole-owner count for one org — mirrors instance-users.ts's findSoleOwnerOrgs
+// shape but scoped to a single org (that route needs "which of this user's
+// orgs are they sole owner of" across every org; a role-change/remove here
+// only ever needs "is this org about to lose its last owner").
+async function countOwners(orgId: string): Promise<number> {
+	const [row] = await getDb()
+		.select({ total: count() })
+		.from(organizationMembers)
+		.where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.role, "owner")));
+	return row?.total ?? 0;
+}
+
+const updateMemberRoleSchema = z.object({ role: z.enum(["owner", "admin", "member"]) });
+
+organizationsRoute.put(
+	"/:orgId/members/:userId",
+	requireAuth,
+	requireOrgPermission("org:manage_members"),
+	async (c) => {
+		const parsed = updateMemberRoleSchema.safeParse(await c.req.json().catch(() => null));
+		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+		const orgId = c.req.param("orgId");
+		const targetUserId = c.req.param("userId");
+		const db = getDb();
+		const [existing] = await db
+			.select({ role: organizationMembers.role })
+			.from(organizationMembers)
+			.where(
+				and(eq(organizationMembers.userId, targetUserId), eq(organizationMembers.orgId, orgId)),
+			);
+		if (!existing) return c.json({ error: "Member not found" }, 404);
+
+		// Demoting the sole remaining owner would leave the org ownerless — same
+		// "count before the destructive action" shape as instance-users.ts's
+		// sole-root/sole-owner guards.
+		if (
+			existing.role === "owner" &&
+			parsed.data.role !== "owner" &&
+			(await countOwners(orgId)) <= 1
+		) {
+			return c.json({ error: "This organization must have at least one owner" }, 409);
+		}
+
+		// No logAudit here — per lib/audit/log.ts's own comment, that log is
+		// reserved for root-initiated/instance-level actions, org create/delete,
+		// and invitation lifecycle, deliberately not org-member-level actions
+		// (which would make it balloon with every org's routine member churn).
+		await db
+			.update(organizationMembers)
+			.set({ role: parsed.data.role })
+			.where(
+				and(eq(organizationMembers.userId, targetUserId), eq(organizationMembers.orgId, orgId)),
+			);
+
+		return c.body(null, 204);
+	},
+);
+
+// requireOrgMembership, not requireOrgPermission("org:manage_members") —
+// self-removal ("leave organization") has to work for a plain member, who
+// doesn't hold that permission. Self is always allowed below; removing
+// someone else still requires org:manage_members, checked in the handler.
+organizationsRoute.delete(
+	"/:orgId/members/:userId",
+	requireAuth,
+	requireOrgMembership,
+	async (c) => {
+		const actor = c.get("user");
+		const orgId = c.req.param("orgId");
+		const targetUserId = c.req.param("userId");
+
+		if (targetUserId !== actor.id) {
+			const membership = await getMembership(actor.id, orgId);
+			if (!can(actor, "org:manage_members", membership)) {
+				return c.json({ error: "Forbidden" }, 403);
+			}
+		}
+
+		const db = getDb();
+		const [existing] = await db
+			.select({ role: organizationMembers.role })
+			.from(organizationMembers)
+			.where(
+				and(eq(organizationMembers.userId, targetUserId), eq(organizationMembers.orgId, orgId)),
+			);
+		if (!existing) return c.json({ error: "Member not found" }, 404);
+
+		if (existing.role === "owner" && (await countOwners(orgId)) <= 1) {
+			return c.json(
+				{ error: "This organization must have at least one owner — promote another member first" },
+				409,
+			);
+		}
+
+		// No logAudit here — same reasoning as the role-change route above.
+		await db
+			.delete(organizationMembers)
+			.where(
+				and(eq(organizationMembers.userId, targetUserId), eq(organizationMembers.orgId, orgId)),
+			);
+
+		return c.body(null, 204);
+	},
+);
 
 organizationsRoute.get(
 	"/:orgId/invitations",

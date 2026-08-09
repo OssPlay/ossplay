@@ -8,6 +8,17 @@ import { CopyableLink } from "@/components/copyable-link";
 import { FormError } from "@/components/form-error";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
@@ -65,7 +76,7 @@ const ROLE_LABELS: Record<(typeof ROLES)[number], string> = {
 };
 
 export default function MembersPage() {
-	const { organizations } = useAuth();
+	const { user, organizations } = useAuth();
 	const orgId = useOrgSectionId();
 	const hasMembership = organizations.some((o) => o.id === orgId);
 
@@ -125,6 +136,7 @@ export default function MembersPage() {
 							<TableHead>Email</TableHead>
 							<TableHead>Role</TableHead>
 							<TableHead>Last sign-in</TableHead>
+							<TableHead />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -133,10 +145,26 @@ export default function MembersPage() {
 								<TableCell>{member.name}</TableCell>
 								<TableCell>{member.email}</TableCell>
 								<TableCell>
-									<Badge variant="secondary">{member.role}</Badge>
+									{canManageMembers ? (
+										<MemberRoleSelect orgId={orgId} member={member} onChanged={refresh} />
+									) : (
+										<Badge variant="secondary" className="capitalize">
+											{member.role}
+										</Badge>
+									)}
 								</TableCell>
 								<TableCell className="text-muted-foreground">
 									{member.lastSignInAt ? new Date(member.lastSignInAt).toLocaleString() : "Never"}
+								</TableCell>
+								<TableCell className="text-right">
+									{(canManageMembers || member.userId === user.id) && (
+										<MemberRemoveAction
+											orgId={orgId}
+											member={member}
+											isSelf={member.userId === user.id}
+											onChanged={refresh}
+										/>
+									)}
 								</TableCell>
 							</TableRow>
 						))}
@@ -280,6 +308,110 @@ function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void
 				</div>
 			)}
 		</div>
+	);
+}
+
+function MemberRoleSelect({
+	orgId,
+	member,
+	onChanged,
+}: {
+	orgId: string;
+	member: Member;
+	onChanged: () => void;
+}) {
+	const changeRole = useAction(
+		(role: (typeof ROLES)[number]) =>
+			apiFetch(`/organizations/${orgId}/members/${member.userId}`, {
+				method: "PUT",
+				body: JSON.stringify({ role }),
+			}),
+		{ error: "Could not update member" },
+	);
+
+	async function handleRoleChange(value: string | null) {
+		if (!value || value === member.role) return;
+		await changeRole
+			.trigger(value as (typeof ROLES)[number])
+			.then(onChanged)
+			.catch(() => {});
+	}
+
+	return (
+		<Select value={member.role} onValueChange={handleRoleChange} disabled={changeRole.isLoading}>
+			<SelectTrigger size="sm" className="w-fit">
+				<SelectValue items={ROLE_LABELS} />
+			</SelectTrigger>
+			<SelectContent>
+				{ROLES.map((item) => (
+					<SelectItem key={item} value={item}>
+						{ROLE_LABELS[item]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function MemberRemoveAction({
+	orgId,
+	member,
+	isSelf,
+	onChanged,
+}: {
+	orgId: string;
+	member: Member;
+	isSelf: boolean;
+	onChanged: () => void;
+}) {
+	const [open, setOpen] = useState(false);
+
+	const remove = useAction(
+		() => apiFetch(`/organizations/${orgId}/members/${member.userId}`, { method: "DELETE" }),
+		{
+			success: isSelf ? "You left the organization" : `"${member.name}" removed`,
+			error: isSelf ? "Could not leave the organization" : "Could not remove member",
+		},
+	);
+
+	async function handleRemove() {
+		await remove
+			.trigger()
+			.then(() => {
+				setOpen(false);
+				onChanged();
+			})
+			.catch(() => {});
+	}
+
+	return (
+		<AlertDialog open={open} onOpenChange={setOpen}>
+			<AlertDialogTrigger render={<Button variant="ghost" size="sm" />}>
+				{isSelf ? "Leave" : "Remove"}
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{isSelf ? "Leave this organization?" : `Remove "${member.name}"?`}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{isSelf
+							? "You'll lose access to this organization's projects and settings."
+							: "They'll lose access to this organization immediately."}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogAction
+						variant="destructive"
+						disabled={remove.isLoading}
+						onClick={handleRemove}
+					>
+						{isSelf ? "Leave" : "Remove"}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 

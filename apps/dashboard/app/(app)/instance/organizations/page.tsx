@@ -123,8 +123,15 @@ function CreateOrgDialog({
 		},
 	);
 
+	// Reset on close, not open — the "New organization" button that opens this
+	// dialog calls setCreateOpen(true) directly (bypassing this handler
+	// entirely), so a reset-on-open branch never actually runs on that path.
+	// Every close path (this dialog's own success handler below, Escape,
+	// overlay click) does go through handleOpenChange, so resetting there
+	// covers all of them. Same bug/fix as InviteUserDialog, AddDestinationDialog,
+	// and CreateProjectDialog elsewhere in this codebase.
 	function handleOpenChange(next: boolean) {
-		if (next) {
+		if (!next) {
 			setName("");
 			createOrg.reset();
 		}
@@ -135,7 +142,7 @@ function CreateOrgDialog({
 		await createOrg
 			.trigger()
 			.then((res) => {
-				onOpenChange(false);
+				handleOpenChange(false);
 				onCreated(res.organization.id);
 			})
 			.catch(() => {});

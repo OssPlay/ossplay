@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderIcon, HomeIcon, SettingsIcon, UsersIcon } from "lucide-react";
+import { HomeIcon, SettingsIcon } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { Section } from "@/components/layout/section";
@@ -24,16 +24,6 @@ function DefaultSection({ children }: React.PropsWithChildren) {
 					{
 						title: "Organization",
 						items: [
-							{
-								title: "Members",
-								href: "/organization/members",
-								icon: UsersIcon,
-							},
-							{
-								title: "Projects",
-								href: "/organization/projects",
-								icon: FolderIcon,
-							},
 							{
 								title: "Organization settings",
 								href: "/organization",
