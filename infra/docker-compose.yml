@@ -1,10 +1,14 @@
-# The self-hosted core control plane (PRD.md §2.1). Deliberately does NOT
-# include a worker service — real remote-worker provisioning is a follow-up
-# (PRD.md §4, ARCHITECTURE.md §3), and local Drive-file processing (image/
-# video/audio/pdf) is opt-in via docker-compose.worker.yml, composed as an
-# overlay (`-f docker-compose.yml -f docker-compose.worker.yml`) rather than
-# merged in here — to keep this control plane's default compute cost at
-# zero.
+# The self-hosted core control plane (PRD.md §2.1). Includes `jobs` (every
+# repeatable/scheduled background task — recycle-bin expiry, the daily
+# update-check, S3 destination drift-checking) since those need to run on
+# every instance regardless of what else is configured. Deliberately does
+# NOT include a worker service — real remote-worker provisioning is a
+# follow-up (PRD.md §4, ARCHITECTURE.md §3), and local Drive-file processing
+# (image/video/audio/pdf, materially heavier than anything `jobs` does) is
+# opt-in via docker-compose.worker.yml, composed as an overlay (`-f
+# docker-compose.yml -f docker-compose.worker.yml`) rather than merged in
+# here — to keep this control plane's default compute cost as close to zero
+# as the always-on `jobs` role still allows.
 name: ossplay
 
 services:
@@ -101,6 +105,38 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  # Every repeatable/scheduled background task (recycle-bin expiry, the
+  # daily update-check, S3 destination drift-checking) — always on, unlike
+  # the opt-in `worker` overlay, since these need to run on every instance
+  # regardless of whether Drive processing is configured. No exposed port —
+  # this role has no HTTP server, just BullMQ workers + repeatable-job
+  # producers (see apps/jobs/src/index.ts).
+  jobs:
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}-jobs
+    environment:
+      OSSPLAY_ROLE: jobs
+      DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
+      REDIS_URL: redis://redis:6379
+      # Decrypts S3 destination / SMTP credentials — same var/contract as
+      # the api service below.
+      OSSPLAY_ENCRYPTION_KEY: ${OSSPLAY_ENCRYPTION_KEY:?OSSPLAY_ENCRYPTION_KEY must be set — install.sh generates one into .env}
+      # The update-check reads/writes instance config directly, same file
+      # as the api service — see that service's own comment on this var.
+      OSSPLAY_CONFIG_PATH: /ossplay.yaml
+      OSSPLAY_GITHUB_REPO: ${OSSPLAY_GITHUB_REPO:-OssPlay/ossplay}
+      # Drift-notification email footer links — same no-baked-default
+      # reasoning as the api service below.
+      OSSPLAY_WEBSITE_URL: ${OSSPLAY_WEBSITE_URL:-}
+      OSSPLAY_DOCS_URL: ${OSSPLAY_DOCS_URL:-}
+    volumes:
+      - ./ossplay.yaml:/ossplay.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   dashboard:

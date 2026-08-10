@@ -1,5 +1,5 @@
 # One Dockerfile, one build/publish/version to manage — but NOT one image.
-# Each role (api, dashboard, worker, updater) gets its own final stage below,
+# Each role (api, dashboard, worker, jobs, updater) gets its own final stage below,
 # so ghcr.io/ossplay/ossplay:<version>-api only ever contains apps/api's own
 # code + the shared packages it actually imports, never apps/worker's,
 # apps/dashboard's, or infra/updater's source. A container compromised (or
@@ -30,6 +30,7 @@ FROM base AS deps-base
 COPY package.json bun.lock ./
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
+COPY apps/jobs/package.json apps/jobs/
 COPY apps/dashboard/package.json apps/dashboard/
 COPY apps/templates/package.json apps/templates/
 COPY packages/config/package.json packages/config/
@@ -57,6 +58,9 @@ RUN bun install --frozen-lockfile --filter='@ossplay/api'
 
 FROM deps-base AS deps-worker
 RUN bun install --frozen-lockfile --filter='@ossplay/worker'
+
+FROM deps-base AS deps-jobs
+RUN bun install --frozen-lockfile --filter='@ossplay/jobs'
 
 # Only apps/dashboard has an actual build step (next build); api/worker/
 # updater are plain TS run directly by Bun, no bundling needed. Uses the
@@ -136,6 +140,18 @@ COPY --from=deps-worker /repo/node_modules /repo/node_modules
 COPY --from=deps-worker /repo/apps/worker/node_modules apps/worker/node_modules
 COPY --from=deps-worker /repo/packages/db/node_modules packages/db/node_modules
 COPY --from=deps-worker /repo/packages/core/node_modules packages/core/node_modules
+ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
+
+FROM runner-base AS runner-jobs
+COPY packages/db packages/db
+COPY packages/core packages/core
+COPY packages/mail packages/mail
+COPY apps/jobs apps/jobs
+COPY --from=deps-jobs /repo/node_modules /repo/node_modules
+COPY --from=deps-jobs /repo/apps/jobs/node_modules apps/jobs/node_modules
+COPY --from=deps-jobs /repo/packages/db/node_modules packages/db/node_modules
+COPY --from=deps-jobs /repo/packages/core/node_modules packages/core/node_modules
+COPY --from=deps-jobs /repo/packages/mail/node_modules packages/mail/node_modules
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
 
 FROM runner-base AS runner-updater

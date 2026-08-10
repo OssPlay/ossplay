@@ -59,6 +59,7 @@ interface SmtpConfigsResponse {
 }
 
 export default function InstanceSmtpPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<SmtpConfigsResponse, SmtpConfigRow>({
 		endpoint: "/instance/smtp",
 		items: (response) => response.configs,
@@ -103,6 +104,9 @@ export default function InstanceSmtpPage() {
 					title: "Add config",
 					onClick: () => setDialogOpen(true),
 				},
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/email-smtp` }
+					: undefined,
 			}}
 			size="lg"
 		>

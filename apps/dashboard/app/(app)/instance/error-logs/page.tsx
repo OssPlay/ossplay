@@ -8,6 +8,7 @@ import { TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
 import {
@@ -63,6 +64,7 @@ const columns: DataTableColumn<ErrorLogRow>[] = [
 // its own (a mail send behind a swallowed catch, etc.), not an action
 // someone took — see apps/api/src/lib/system-log.ts.
 export default function InstanceErrorLogsPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<ErrorLogsResponse, ErrorLogRow>({
 		endpoint: "/instance/error-logs",
 		items: (response) => response.logs,
@@ -83,6 +85,9 @@ export default function InstanceErrorLogsPage() {
 				icon: TriangleAlertIcon,
 				title: "Error Logs",
 				description: "Backend failures that don't otherwise surface anywhere else.",
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/error-logs` }
+					: undefined,
 			}}
 			size="lg"
 		>

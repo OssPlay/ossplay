@@ -1,7 +1,11 @@
 /**
- * BullMQ job contracts shared between the API (producer) and the worker
- * (consumer). A change here must land in both apps/api and apps/worker in the
- * same PR — see ARCHITECTURE.md §2 for why they share this repo.
+ * BullMQ job contracts shared between producers (apps/api) and consumers
+ * (apps/worker for the four media-processing queues; apps/jobs for
+ * recycleBinExpiry, updateCheck, and s3DestinationConfigCheck — every
+ * repeatable/scheduled queue, kept in the always-on apps/jobs role rather
+ * than the opt-in apps/worker). A change here must land in both the
+ * producer and consumer app in the same PR — see ARCHITECTURE.md §2 for why
+ * they share this repo.
  */
 
 export const QUEUE_NAMES = {
@@ -11,9 +15,18 @@ export const QUEUE_NAMES = {
 	pdfProcessing: "pdf-processing",
 	// No per-asset payload — each run sweeps every project's trash for
 	// items past the 30-day cutoff (packages/core/src/folders/recycle.ts's
-	// sweepExpiredTrash), scheduled as a BullMQ repeatable job rather than
-	// dispatched per upload.
+	// sweepExpiredTrash). Scheduled as a BullMQ repeatable job by apps/jobs,
+	// not dispatched per upload.
 	recycleBinExpiry: "recycle-bin-expiry",
+	// Replaces the old apps/api setInterval — moved here so it runs from
+	// the always-on apps/jobs role instead of tying background scheduling
+	// to the HTTP-serving process.
+	updateCheck: "update-check",
+	// Re-verifies every s3Destinations row's real bucket permissions
+	// (packages/core/src/s3-config.ts's verifyBucketConfig) against its
+	// declared visibility, catching drift from changes made outside
+	// OSSPlay.
+	s3DestinationConfigCheck: "s3-destination-config-check",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -38,12 +51,20 @@ export type PdfProcessingJob = BaseAssetJob;
 
 export type RecycleBinExpiryJob = Record<string, never>;
 
+// Neither has a per-item payload either — updateCheck checks the one
+// running instance, s3DestinationConfigCheck sweeps every s3Destinations
+// row in one run, same shape as recycleBinExpiry's own trash sweep.
+export type UpdateCheckJob = Record<string, never>;
+export type S3DestinationConfigCheckJob = Record<string, never>;
+
 export type JobPayloadByQueue = {
 	[QUEUE_NAMES.imageProcessing]: ImageProcessingJob;
 	[QUEUE_NAMES.videoProcessing]: VideoProcessingJob;
 	[QUEUE_NAMES.audioProcessing]: AudioProcessingJob;
 	[QUEUE_NAMES.pdfProcessing]: PdfProcessingJob;
 	[QUEUE_NAMES.recycleBinExpiry]: RecycleBinExpiryJob;
+	[QUEUE_NAMES.updateCheck]: UpdateCheckJob;
+	[QUEUE_NAMES.s3DestinationConfigCheck]: S3DestinationConfigCheckJob;
 };
 
 // mimeType -> the queue its confirm-upload processing job goes to, or null

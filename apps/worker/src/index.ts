@@ -1,45 +1,40 @@
 import { QUEUE_NAMES } from "@ossplay/core";
-import { Queue, Worker } from "bullmq";
+import { Worker } from "bullmq";
 import { createRedisConnection } from "./connection";
 import { processAudio } from "./processors/audio";
 import { processImage } from "./processors/image";
 import { processPdf } from "./processors/pdf";
-import { processRecycleBinExpiry } from "./processors/recycle-bin-expiry";
 import { processVideo } from "./processors/video";
 
+// The recycle-bin-expiry sweep (and every other repeatable/scheduled job)
+// lives in apps/jobs, not here — this app is opt-in (the Drive feature's
+// media-processing overlay, see infra/docker-compose.worker.yml) and
+// scheduled housekeeping needs to run on every instance regardless of
+// whether an operator ever opts into Drive processing. See apps/jobs/src/
+// index.ts.
 const connection = createRedisConnection();
 
 const imageWorker = new Worker(QUEUE_NAMES.imageProcessing, processImage, { connection });
 const videoWorker = new Worker(QUEUE_NAMES.videoProcessing, processVideo, { connection });
 const audioWorker = new Worker(QUEUE_NAMES.audioProcessing, processAudio, { connection });
 const pdfWorker = new Worker(QUEUE_NAMES.pdfProcessing, processPdf, { connection });
-const recycleBinWorker = new Worker(QUEUE_NAMES.recycleBinExpiry, processRecycleBinExpiry, { connection });
 
-for (const worker of [imageWorker, videoWorker, audioWorker, pdfWorker, recycleBinWorker]) {
+for (const worker of [imageWorker, videoWorker, audioWorker, pdfWorker]) {
 	worker.on("failed", (job, err) => {
 		console.error(`[${worker.name}] job ${job?.id} failed:`, err);
 	});
 }
 
-// Idempotent: BullMQ dedupes repeatable jobs by their (queue, pattern, jobId)
-// tuple, so re-adding this on every worker boot doesn't create duplicates —
-// it's what makes this survive a restart/redeploy without a separate
-// one-time setup step.
-const recycleBinQueue = new Queue(QUEUE_NAMES.recycleBinExpiry, { connection });
-await recycleBinQueue.add("sweep", {}, { repeat: { pattern: "0 3 * * *" }, jobId: "daily-sweep" });
-
 console.log(
-	`OSSPlay worker listening on ${Object.values(QUEUE_NAMES).join(", ")} — daily recycle-bin sweep scheduled for 03:00`,
+	`OSSPlay worker listening on ${[
+		QUEUE_NAMES.imageProcessing,
+		QUEUE_NAMES.videoProcessing,
+		QUEUE_NAMES.audioProcessing,
+		QUEUE_NAMES.pdfProcessing,
+	].join(", ")}`,
 );
 
 process.on("SIGTERM", async () => {
-	await Promise.all([
-		imageWorker.close(),
-		videoWorker.close(),
-		audioWorker.close(),
-		pdfWorker.close(),
-		recycleBinWorker.close(),
-		recycleBinQueue.close(),
-	]);
+	await Promise.all([imageWorker.close(), videoWorker.close(), audioWorker.close(), pdfWorker.close()]);
 	process.exit(0);
 });

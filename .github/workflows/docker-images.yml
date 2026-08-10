@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        role: [api, dashboard, updater, worker]
+        role: [api, dashboard, updater, worker, jobs]
     steps:
       - uses: actions/checkout@v4
 

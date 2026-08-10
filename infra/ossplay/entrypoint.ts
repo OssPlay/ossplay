@@ -1,15 +1,17 @@
-// Role-dispatch entrypoint shared by all four ghcr.io/ossplay/ossplay:<ver>-*
-// role images (see infra/ossplay/Dockerfile's runner-{api,dashboard,worker,
-// updater} stages) — one build definition/version to manage instead of four
-// in lockstep, even though each stage only bakes in that role's own code.
-// docker-compose sets OSSPLAY_ROLE per service (see infra/docker-compose.yml)
-// to pick which process this execs; a mismatched role (e.g. OSSPLAY_ROLE=
-// worker against the -api image, which has no apps/worker directory) fails
-// fast here rather than the container silently doing nothing useful.
+// Role-dispatch entrypoint shared by every ghcr.io/ossplay/ossplay:<ver>-*
+// role image (see infra/ossplay/Dockerfile's runner-{api,dashboard,worker,
+// jobs,updater} stages) — one build definition/version to manage instead of
+// several in lockstep, even though each stage only bakes in that role's own
+// code. docker-compose sets OSSPLAY_ROLE per service (see infra/docker-
+// compose.yml) to pick which process this execs; a mismatched role (e.g.
+// OSSPLAY_ROLE=worker against the -api image, which has no apps/worker
+// directory) fails fast here rather than the container silently doing
+// nothing useful.
 const ROLE_COMMANDS: Record<string, { cwd: string; cmd: string[] }> = {
 	api: { cwd: "apps/api", cmd: ["bun", "run", "src/index.ts"] },
 	dashboard: { cwd: "apps/dashboard", cmd: ["bun", "run", "server.js"] },
 	worker: { cwd: "apps/worker", cmd: ["bun", "run", "src/index.ts"] },
+	jobs: { cwd: "apps/jobs", cmd: ["bun", "run", "src/index.ts"] },
 	updater: { cwd: "infra/updater", cmd: ["bun", "run", "index.ts"] },
 };
 
@@ -29,11 +31,14 @@ if (!role || !(role in ROLE_COMMANDS)) {
 // flow, so a first boot previously started apps/api against an empty
 // database (every query, including apps/api/src/cli/reset-root.ts, failed
 // until someone ran `bun run migrate` by hand). Running it here instead —
-// unconditionally, before the api role starts serving — covers both cases
-// with one idempotent step (a no-op when there's nothing pending), and
-// only api ever needs it: dashboard/worker/updater don't touch the schema
-// directly, and worker isn't even part of this compose stack (PRD.md §4).
-if (role === "api") {
+// unconditionally, before the api/jobs role starts — covers both cases
+// with one idempotent step (a no-op when there's nothing pending).
+// dashboard/worker/updater don't touch the schema directly so don't need
+// it; jobs does (it queries s3Destinations/systemLogs/etc directly) and,
+// being an always-on service in the default stack same as api, can't rely
+// on compose start-order alone to guarantee api's migration already ran —
+// running it here too removes that ordering dependency entirely.
+if (role === "api" || role === "jobs") {
 	const migrate = Bun.spawnSync(["bun", "run", "migrate"], {
 		cwd: `${import.meta.dir}/packages/db`,
 		stdio: ["inherit", "inherit", "inherit"],

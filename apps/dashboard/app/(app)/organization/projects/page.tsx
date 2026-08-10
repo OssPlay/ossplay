@@ -37,7 +37,7 @@ type Project = {
 // settings page for management" split already used for organizations
 // themselves (org-picker.tsx vs instance/organizations).
 export default function OrganizationProjectsPage() {
-	const { organizations, user } = useAuth();
+	const { organizations, user, instance } = useAuth();
 	const orgId = useOrgSectionId();
 	const membershipOrg = organizations.find((o) => o.id === orgId);
 	const hasMembership = Boolean(membershipOrg);
@@ -79,6 +79,9 @@ export default function OrganizationProjectsPage() {
 					description: "Every project in this organization.",
 					action: canCreate
 						? { icon: FolderPlusIcon, title: "New project", onClick: () => setCreateOpen(true) }
+						: undefined,
+					learnMore: instance?.docsUrl
+						? { href: `${instance.docsUrl}/guides/projects` }
 						: undefined,
 				}}
 				size="lg"

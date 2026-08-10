@@ -71,6 +71,13 @@
       "when": 1786349280081,
       "tag": "0009_lumpy_triathlon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786362074742,
+      "tag": "0010_gigantic_raza",
+      "breakpoints": true
     }
   ]
 }

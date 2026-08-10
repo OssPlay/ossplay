@@ -1,21 +1,20 @@
 {
-	"name": "@ossplay/core",
+	"name": "@ossplay/jobs",
 	"private": true,
 	"version": "0.0.0",
-	"type": "module",
-	"main": "./src/index.ts",
-	"types": "./src/index.ts",
 	"scripts": {
+		"dev": "bun run --hot src/index.ts",
+		"start": "bun run src/index.ts",
 		"typecheck": "tsc --noEmit",
-		"lint": "biome lint .",
-		"test": "bun test"
+		"lint": "biome lint ."
 	},
 	"dependencies": {
-		"@aws-sdk/client-s3": "^3.1106.0",
+		"@ossplay/core": "workspace:*",
 		"@ossplay/db": "workspace:*",
+		"@ossplay/mail": "workspace:*",
+		"bullmq": "^5.81.3",
 		"drizzle-orm": "^0.45.2",
-		"yaml": "^2.9.0",
-		"zod": "^4.4.3"
+		"ioredis": "^5.11.1"
 	},
 	"devDependencies": {
 		"@ossplay/config": "workspace:*",

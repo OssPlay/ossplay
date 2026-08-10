@@ -22,8 +22,6 @@ import { openUpdateDialog } from "@/lib/update-dialog-store";
 import { useAuth } from "../providers/auth-provider";
 import { Button } from "../ui/button";
 
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL;
-
 function initials(name: string): string {
 	return (
 		name
@@ -92,9 +90,9 @@ export function AccountDropdown() {
 							<DropdownMenuItem render={<Link href="/settings/security" />}>
 								<SettingsIcon /> Settings
 							</DropdownMenuItem>
-							{DOCS_URL && (
+							{instance?.docsUrl && (
 								<DropdownMenuItem
-									render={<Link href={DOCS_URL} target="_blank" rel="noreferrer" />}
+									render={<Link href={instance.docsUrl} target="_blank" rel="noreferrer" />}
 								>
 									<BookOpenIcon /> Documentation
 								</DropdownMenuItem>

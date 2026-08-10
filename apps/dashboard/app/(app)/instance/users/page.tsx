@@ -13,6 +13,7 @@ import { FormField } from "@/components/auth/form-field";
 import { CopyableLink } from "@/components/copyable-link";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import Container from "@/components/ui/container";
@@ -68,6 +69,7 @@ interface UsersResponse {
 // from (and more powerful than) anything an org-level Members page does —
 // see ARCHITECTURE.md's Authorization Model section.
 export default function InstanceUsersPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<UsersResponse, InstanceUser>({
 		endpoint: "/instance/users",
 		items: (response) => response.users,
@@ -162,6 +164,9 @@ export default function InstanceUsersPage() {
 						title: "Add user",
 						onClick: () => setInviteOpen(true),
 					},
+					learnMore: instance?.docsUrl
+						? { href: `${instance.docsUrl}/guides/instance-users` }
+						: undefined,
 				}}
 				size="lg"
 			>

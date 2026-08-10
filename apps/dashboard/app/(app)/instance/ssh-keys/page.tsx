@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -71,6 +72,7 @@ const KEY_TYPE_LABELS: Record<SshKeyType, string> = {
 };
 
 export default function InstanceSshKeysPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<SshKeysResponse, SshKeyRow>({
 		endpoint: "/instance/ssh-keys",
 		items: (response) => response.keys,
@@ -138,6 +140,9 @@ export default function InstanceSshKeysPage() {
 					title: "Add key",
 					onClick: () => setDialogOpen(true),
 				},
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/remote-servers` }
+					: undefined,
 			}}
 			size="lg"
 		>

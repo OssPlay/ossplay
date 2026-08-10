@@ -10,6 +10,7 @@ import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -80,6 +81,7 @@ const STATUS_VARIANT: Record<
 };
 
 export default function InstanceServersPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<RemoteServersResponse, RemoteServerRow>({
 		endpoint: "/instance/servers",
 		items: (response) => response.servers,
@@ -130,6 +132,9 @@ export default function InstanceServersPage() {
 				title: "Remote Servers",
 				description: "Register a VPS to run a worker container against.",
 				action: { icon: PlusIcon, title: "Add server", onClick: () => setDialogOpen(true) },
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/remote-servers` }
+					: undefined,
 			}}
 			size="lg"
 		>

@@ -8,6 +8,7 @@ import { ScrollTextIcon } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
 import {
@@ -83,6 +84,7 @@ const columns: DataTableColumn<AuditLogRow>[] = [
 ];
 
 export default function InstanceAuditLogsPage() {
+	const { instance } = useAuth();
 	const table = useServerTable<AuditLogsResponse, AuditLogRow>({
 		endpoint: "/instance/audit-logs",
 		items: (response) => response.logs,
@@ -103,6 +105,9 @@ export default function InstanceAuditLogsPage() {
 				icon: ScrollTextIcon,
 				title: "Audit Logs",
 				description: "A record of instance-level changes.",
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/audit-logs` }
+					: undefined,
 			}}
 			size="lg"
 		>

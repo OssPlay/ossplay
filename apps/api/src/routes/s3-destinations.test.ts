@@ -14,6 +14,8 @@ type Destination = {
 	visibility: string;
 	status: string;
 	lastError: string | null;
+	configStatus: string;
+	configError: string | null;
 };
 
 describe.skipIf(!process.env.DATABASE_URL)("s3 destinations", () => {
@@ -96,6 +98,17 @@ describe.skipIf(!process.env.DATABASE_URL)("s3 destinations", () => {
 		const body = (await res.json()) as { destination: Destination };
 		expect(body.destination.status).toBe("error");
 		expect(body.destination.lastError?.length).toBeGreaterThan(0);
+	});
+
+	it("POST /:orgId/s3-destinations/:id/configure fails clearly against an unreachable endpoint", async () => {
+		const res = await jsonRequest(
+			`/organizations/${orgId}/s3-destinations/${destinationId}/configure`,
+			{ method: "POST", cookie: ownerCookie },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { destination: Destination };
+		expect(body.destination.configStatus).toBe("error");
+		expect(body.destination.configError?.length).toBeGreaterThan(0);
 	});
 
 	let memberCookie: string;

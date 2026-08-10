@@ -1,4 +1,4 @@
-import { createS3Client, decryptSecret, encryptSecret } from "@ossplay/core";
+import { applyBucketConfig, createS3Client, decryptSecret, encryptSecret } from "@ossplay/core";
 import { getDb, projects, type S3Destination, s3Destinations } from "@ossplay/db";
 import { and, count, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -32,6 +32,10 @@ function serialize(destination: S3Destination) {
 		status: destination.status,
 		lastCheckedAt: destination.lastCheckedAt,
 		lastError: destination.lastError,
+		configStatus: destination.configStatus,
+		configuredAt: destination.configuredAt,
+		configCheckedAt: destination.configCheckedAt,
+		configError: destination.configError,
 		createdAt: destination.createdAt,
 	};
 }
@@ -41,7 +45,11 @@ s3DestinationsRoute.get("/:orgId/s3-destinations", ...gate, async (c) => {
 	const orgId = c.req.param("orgId");
 	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [s3Destinations.label, s3Destinations.bucket],
-		filters: { visibility: s3Destinations.visibility, status: s3Destinations.status },
+		filters: {
+			visibility: s3Destinations.visibility,
+			status: s3Destinations.status,
+			configStatus: s3Destinations.configStatus,
+		},
 		defaultPageSize: 25,
 	});
 	const scoped = and(eq(s3Destinations.orgId, orgId), where);
@@ -240,4 +248,53 @@ s3DestinationsRoute.post("/:orgId/s3-destinations/:id/test", ...gate, async (c) 
 	});
 
 	return c.json({ destination: serialize(destination), error });
+});
+
+// Applies (and verifies) real bucket-level permissions matching the
+// destination's visibility — see packages/core/src/s3-config.ts. Same
+// "never a 500 for an S3-side failure" shape as /test above: a failed
+// Configure attempt is a valid, displayable outcome (configStatus: "error"
+// + configError), not a server error.
+s3DestinationsRoute.post("/:orgId/s3-destinations/:id/configure", ...gate, async (c) => {
+	const db = getDb();
+	const [existing] = await db
+		.select()
+		.from(s3Destinations)
+		.where(
+			and(eq(s3Destinations.id, c.req.param("id")), eq(s3Destinations.orgId, c.req.param("orgId"))),
+		);
+	if (!existing) return c.json({ error: "S3 destination not found" }, 404);
+
+	const result = await applyBucketConfig({
+		endpoint: existing.endpoint,
+		bucket: existing.bucket,
+		region: existing.region,
+		accessKeyId: existing.accessKeyId,
+		secretAccessKey: decryptSecret(existing.secretAccessKeyEncrypted),
+		visibility: existing.visibility,
+	}).catch((err) => ({
+		configStatus: "error" as const,
+		configError: err instanceof Error ? err.message : String(err),
+	}));
+
+	const [destination] = await db
+		.update(s3Destinations)
+		.set({
+			configStatus: result.configStatus,
+			configError: result.configError,
+			configCheckedAt: new Date(),
+			...(result.configStatus === "configured" && { configuredAt: new Date() }),
+		})
+		.where(eq(s3Destinations.id, existing.id))
+		.returning();
+	if (!destination) throw new Error("S3 destination update did not return the expected row");
+
+	await logAudit(c, {
+		action: "organization.s3_destination.configure",
+		targetType: "s3_destination",
+		targetId: destination.id,
+		metadata: { configStatus: result.configStatus },
+	});
+
+	return c.json({ destination: serialize(destination) });
 });

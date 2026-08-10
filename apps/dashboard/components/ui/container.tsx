@@ -1,5 +1,6 @@
 import type { VariantProps } from "class-variance-authority";
-import type { LucideIcon } from "lucide-react";
+import { ArrowUpRightIcon, type LucideIcon } from "lucide-react";
+import Link from "next/link";
 import type React from "react";
 import { Button, type buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,8 @@ export interface ContainerHeaderConfig {
 	description?: string;
 	/** A single header-row action (e.g. "Add key") — most list-style pages need exactly one. */
 	action?: ContainerHeaderAction;
+	/** Link out to this page's docs guide, shown under the title/description. Omit when there's no matching guide yet — don't link to a page that doesn't exist. */
+	learnMore?: { href: string; label?: string };
 }
 
 export default function Container({
@@ -63,6 +66,17 @@ export default function Container({
 							<h3 className="text-lg font-bold dark:text-white">{header.title}</h3>
 							{header.description && (
 								<p className="text-sm text-muted-foreground">{header.description}</p>
+							)}
+							{header.learnMore && (
+								<Link
+									href={header.learnMore.href}
+									target="_blank"
+									rel="noreferrer"
+									className="inline-flex items-center gap-1 text-sm text-primary hover:underline w-fit"
+								>
+									{header.learnMore.label ?? "Learn more"}
+									<ArrowUpRightIcon className="size-3.5" />
+								</Link>
 							)}
 						</div>
 						{header.action && (

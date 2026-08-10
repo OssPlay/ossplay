@@ -5,7 +5,9 @@
 		"outDir": "dist",
 		"types": [
 			"bun"
-		]
+		],
+		"jsx": "react-jsx",
+		"jsxImportSource": "react"
 	},
 	"include": [
 		"src"

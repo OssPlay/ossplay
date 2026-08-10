@@ -39,6 +39,21 @@ export const s3Destinations = pgTable(
 			.notNull(),
 		lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
 		lastError: text("last_error"),
+		// Distinct from status/lastCheckedAt/lastError above, which are scoped
+		// only to /test's cheap connectivity check (ListObjectsV2). These
+		// track whether the bucket's real-world permissions (policy + Block
+		// Public Access) actually match `visibility` — set by /configure
+		// (apps/api) and re-verified periodically by apps/jobs's
+		// s3-destination-config-check. "drifted" means it was configured
+		// successfully before but a later check found it no longer matches.
+		configStatus: text("config_status", {
+			enum: ["unconfigured", "configured", "drifted", "error"],
+		})
+			.default("unconfigured")
+			.notNull(),
+		configuredAt: timestamp("configured_at", { withTimezone: true }),
+		configCheckedAt: timestamp("config_checked_at", { withTimezone: true }),
+		configError: text("config_error"),
 		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 		createdByUserId: uuid("created_by_user_id").references(() => users.id, {
 			onDelete: "set null",

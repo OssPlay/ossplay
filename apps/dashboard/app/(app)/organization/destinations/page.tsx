@@ -49,6 +49,7 @@ import { useOrgSectionId } from "@/lib/current-org";
 
 type Visibility = "public" | "private";
 type DestinationStatus = "untested" | "ok" | "error";
+type ConfigStatus = "unconfigured" | "configured" | "drifted" | "error";
 
 interface DestinationRow {
 	id: string;
@@ -62,6 +63,10 @@ interface DestinationRow {
 	status: DestinationStatus;
 	lastCheckedAt: string | null;
 	lastError: string | null;
+	configStatus: ConfigStatus;
+	configuredAt: string | null;
+	configCheckedAt: string | null;
+	configError: string | null;
 	createdAt: string;
 }
 
@@ -81,12 +86,22 @@ const STATUS_VARIANT: Record<
 	error: "destructive",
 };
 
+const CONFIG_STATUS_VARIANT: Record<
+	ConfigStatus,
+	"default" | "secondary" | "destructive" | "outline" | "success" | "warning"
+> = {
+	unconfigured: "outline",
+	configured: "success",
+	drifted: "warning",
+	error: "destructive",
+};
+
 // Org-scoped storage destinations — see s3-destinations.ts's Dockerfile
 // comment for why bucket is fixed at creation (Bun's native S3Client has no
 // account-level "list my buckets" call, only ListObjectsV2 within a bucket
 // you already know), so a destination is one bucket, not an account.
 export default function OrganizationDestinationsPage() {
-	const { organizations, user } = useAuth();
+	const { organizations, user, instance } = useAuth();
 	const orgId = useOrgSectionId();
 	const membershipOrg = organizations.find((o) => o.id === orgId);
 	const hasMembership = Boolean(membershipOrg);
@@ -140,7 +155,7 @@ export default function OrganizationDestinationsPage() {
 		},
 		{
 			key: "status",
-			title: "Status",
+			title: "Connection",
 			cell: (row) => (
 				<div className="flex flex-col gap-1">
 					<Badge variant={STATUS_VARIANT[row.status]} className="w-fit capitalize">
@@ -148,6 +163,20 @@ export default function OrganizationDestinationsPage() {
 					</Badge>
 					{row.status === "error" && row.lastError && (
 						<span className="text-xs text-muted-foreground">{row.lastError}</span>
+					)}
+				</div>
+			),
+		},
+		{
+			key: "configStatus",
+			title: "Configuration",
+			cell: (row) => (
+				<div className="flex flex-col gap-1">
+					<Badge variant={CONFIG_STATUS_VARIANT[row.configStatus]} className="w-fit capitalize">
+						{row.configStatus}
+					</Badge>
+					{row.configError && (
+						<span className="text-xs text-muted-foreground">{row.configError}</span>
 					)}
 				</div>
 			),
@@ -163,6 +192,9 @@ export default function OrganizationDestinationsPage() {
 					description:
 						"Where this organization's projects store their files. A project with no destination assigned — or whose destination was deleted — automatically falls back to this instance's Local Drive, so it's never left without somewhere to store files.",
 					action: { icon: PlusIcon, title: "Add destination", onClick: () => setDialogOpen(true) },
+					learnMore: instance?.docsUrl
+						? { href: `${instance.docsUrl}/guides/s3-destinations` }
+						: undefined,
 				}}
 				size="lg"
 			>
@@ -184,10 +216,20 @@ export default function OrganizationDestinationsPage() {
 						},
 						{
 							key: "status",
-							title: "Status",
+							title: "Connection",
 							options: [
 								{ label: "Untested", value: "untested" },
 								{ label: "OK", value: "ok" },
+								{ label: "Error", value: "error" },
+							],
+						},
+						{
+							key: "configStatus",
+							title: "Configuration",
+							options: [
+								{ label: "Unconfigured", value: "unconfigured" },
+								{ label: "Configured", value: "configured" },
+								{ label: "Drifted", value: "drifted" },
 								{ label: "Error", value: "error" },
 							],
 						},
@@ -225,6 +267,13 @@ function DestinationRowActions({
 			}),
 		{ success: "Connection test triggered", error: "Could not test connection" },
 	);
+	const configure = useAction(
+		() =>
+			apiFetch(`/organizations/${orgId}/s3-destinations/${destination.id}/configure`, {
+				method: "POST",
+			}),
+		{ success: "Configuration applied", error: "Could not apply configuration" },
+	);
 	const remove = useAction(
 		() =>
 			apiFetch(`/organizations/${orgId}/s3-destinations/${destination.id}`, {
@@ -235,6 +284,13 @@ function DestinationRowActions({
 
 	async function handleTest() {
 		await test
+			.trigger()
+			.then(onChange)
+			.catch(() => {});
+	}
+
+	async function handleConfigure() {
+		await configure
 			.trigger()
 			.then(onChange)
 			.catch(() => {});
@@ -254,6 +310,14 @@ function DestinationRowActions({
 		<div className="flex justify-end gap-2">
 			<LoadingButton variant="secondary" size="sm" loading={test.isLoading} onClick={handleTest}>
 				Test
+			</LoadingButton>
+			<LoadingButton
+				variant="secondary"
+				size="sm"
+				loading={configure.isLoading}
+				onClick={handleConfigure}
+			>
+				Configure
 			</LoadingButton>
 			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
 				<AlertDialogTrigger render={<Button variant="secondary" size="sm" />}>

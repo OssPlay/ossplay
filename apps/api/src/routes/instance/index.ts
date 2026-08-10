@@ -18,6 +18,15 @@ instanceRoute.get("/", requireAuth, async (c) => {
 
 	return c.json({
 		version,
+		// Runtime env, read server-side on every request — unlike the
+		// dashboard's build-time NEXT_PUBLIC_* vars, these actually reflect
+		// what an operator sets in their .env, since apps/dashboard's Docker
+		// image is built once and shipped to every self-hoster (see
+		// components/ui/container.tsx and account-dropdown.tsx, which consume
+		// these instead of a NEXT_PUBLIC_DOCS_URL that's always undefined in
+		// the shipped image).
+		docsUrl: process.env.OSSPLAY_DOCS_URL || null,
+		websiteUrl: process.env.OSSPLAY_WEBSITE_URL || null,
 		updates: {
 			forced: result.forced,
 			forcedReason: result.forcedReason,

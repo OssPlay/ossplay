@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { InstanceInviteEmail } from "./templates/instance-invite-email";
 import { InviteEmail } from "./templates/invite-email";
 import { PasswordResetEmail } from "./templates/password-reset-email";
+import { S3DestinationDriftEmail } from "./templates/s3-destination-drift-email";
 
 export type MailMessage = { subject: string; html: string; text: string };
 
@@ -48,6 +49,20 @@ export async function passwordResetEmail(params: { resetUrl: string }): Promise<
 	const element = createElement(PasswordResetEmail, params);
 	return {
 		subject: "Reset your OSSPlay password",
+		html: await render(element),
+		text: await render(element, { plainText: true }),
+	};
+}
+
+export async function s3DestinationDriftEmail(params: {
+	label: string;
+	orgName: string;
+	reason: string;
+	destinationsUrl: string;
+}): Promise<MailMessage> {
+	const element = createElement(S3DestinationDriftEmail, params);
+	return {
+		subject: `"${params.label}" configuration drifted`,
 		html: await render(element),
 		text: await render(element, { plainText: true }),
 	};
