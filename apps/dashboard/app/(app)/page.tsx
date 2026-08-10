@@ -5,7 +5,16 @@
 // `dynamic = "force-dynamic"` comments.
 export const dynamic = "force-dynamic";
 
-import { Building2Icon, DatabaseIcon, FolderIcon, HardDriveIcon, UsersIcon } from "lucide-react";
+import {
+	Building2Icon,
+	DatabaseIcon,
+	DatabaseZapIcon,
+	FolderIcon,
+	HardDriveIcon,
+	HatGlassesIcon,
+	UploadIcon,
+	UsersIcon,
+} from "lucide-react";
 import Link from "next/link";
 import {
 	Area,
@@ -22,7 +31,7 @@ import {
 import useSWR from "swr";
 import { useAuth } from "@/components/providers/auth-provider";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import {
 	type ChartConfig,
 	ChartContainer,
@@ -164,8 +173,8 @@ function StatCard({
 	value: string | number | undefined;
 }) {
 	return (
-		<Card>
-			<CardContent className="flex items-center gap-4 py-2">
+		<Container>
+			<div className="flex items-center gap-4 py-2">
 				<div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted">
 					<Icon className="size-5 text-muted-foreground" />
 				</div>
@@ -173,8 +182,8 @@ function StatCard({
 					<span className="text-2xl font-bold tabular-nums">{value ?? "—"}</span>
 					<span className="text-xs text-muted-foreground">{label}</span>
 				</div>
-			</CardContent>
-		</Card>
+			</div>
+		</Container>
 	);
 }
 
@@ -209,11 +218,13 @@ function ProjectsByVisibilityChart({ stats }: { stats: OrgStats | undefined }) {
 	const total = stats?.projects.total ?? 0;
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Projects by visibility</CardTitle>
-				<CardDescription>Public vs. private across this organization.</CardDescription>
-			</CardHeader>
+		<Container
+			header={{
+				title: "Projects by visibility",
+				description: "Public vs. private across this organization.",
+				icon: HatGlassesIcon,
+			}}
+		>
 			<CardContent>
 				{!stats ? (
 					<ChartEmptyState message="Loading…" />
@@ -238,7 +249,7 @@ function ProjectsByVisibilityChart({ stats }: { stats: OrgStats | undefined }) {
 					</ChartContainer>
 				)}
 			</CardContent>
-		</Card>
+		</Container>
 	);
 }
 
@@ -254,12 +265,14 @@ function StorageByProjectChart({ stats }: { stats: OrgStats | undefined }) {
 	const hasStorage = stats && stats.storage.totalBytes > 0;
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Storage by project</CardTitle>
-				<CardDescription>Bytes stored, summed from each project's assets.</CardDescription>
-			</CardHeader>
-			<CardContent>
+		<Container
+			header={{
+				title: "Storage by project",
+				description: "Bytes stored, summed from each project's assets.",
+				icon: DatabaseIcon,
+			}}
+		>
+			<div>
 				{!stats ? (
 					<ChartEmptyState message="Loading…" />
 				) : !hasStorage ? (
@@ -282,8 +295,8 @@ function StorageByProjectChart({ stats }: { stats: OrgStats | undefined }) {
 						</BarChart>
 					</ChartContainer>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</Container>
 	);
 }
 
@@ -315,12 +328,14 @@ function DestinationHealthChart({ stats }: { stats: OrgStats | undefined }) {
 		: [];
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>S3 destination health</CardTitle>
-				<CardDescription>Connection status of every configured destination.</CardDescription>
-			</CardHeader>
-			<CardContent>
+		<Container
+			header={{
+				title: "S3 destination health",
+				description: "Connection status of every configured destination.",
+				icon: DatabaseZapIcon,
+			}}
+		>
+			<div>
 				{!stats ? (
 					<ChartEmptyState message="Loading…" />
 				) : stats.destinations.total === 0 ? (
@@ -340,8 +355,8 @@ function DestinationHealthChart({ stats }: { stats: OrgStats | undefined }) {
 						</BarChart>
 					</ChartContainer>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</Container>
 	);
 }
 
@@ -353,12 +368,14 @@ function AssetsOverTimeChart({ stats }: { stats: OrgStats | undefined }) {
 	const data = stats?.assets.createdOverTime ?? [];
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Assets uploaded</CardTitle>
-				<CardDescription>Last 30 days, across every project.</CardDescription>
-			</CardHeader>
-			<CardContent>
+		<Container
+			header={{
+				title: "Assets uploaded",
+				description: "Last 30 days, across every project.",
+				icon: UploadIcon,
+			}}
+		>
+			<div>
 				{!stats ? (
 					<ChartEmptyState message="Loading…" />
 				) : stats.assets.total === 0 ? (
@@ -385,7 +402,7 @@ function AssetsOverTimeChart({ stats }: { stats: OrgStats | undefined }) {
 						</AreaChart>
 					</ChartContainer>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</Container>
 	);
 }

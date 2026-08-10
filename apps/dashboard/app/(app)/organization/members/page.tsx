@@ -121,13 +121,58 @@ export default function MembersPage() {
 
 	return (
 		<ApiLoader isLoading={membersLoading || orgLoading}>
+			{canManageMembers && (
+				<>
+					<Container
+						header={{
+							icon: MailPlusIcon,
+							title: "Invite a member",
+							description: "Send an email invitation to join this organization.",
+						}}
+						size="lg"
+					>
+						<InviteForm orgId={orgId} onInvited={refresh} />
+					</Container>
+
+					{pending.length > 0 && (
+						<Container
+							header={{
+								icon: ClockIcon,
+								title: "Pending invitations",
+								description: "Invitations that haven't been accepted yet.",
+							}}
+							size="sm"
+						>
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Email</TableHead>
+										<TableHead>Role</TableHead>
+										<TableHead>Status</TableHead>
+										<TableHead />
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{pending.map((invitation) => (
+										<InvitationRowItem
+											key={invitation.id}
+											invitation={invitation}
+											onRevoked={refresh}
+										/>
+									))}
+								</TableBody>
+							</Table>
+						</Container>
+					)}
+				</>
+			)}
 			<Container
 				header={{
 					icon: UsersIcon,
 					title: "Members",
 					description: "Everyone with access to this organization.",
 				}}
-				size="sm"
+				size="lg"
 			>
 				<Table>
 					<TableHeader>
@@ -171,52 +216,6 @@ export default function MembersPage() {
 					</TableBody>
 				</Table>
 			</Container>
-
-			{canManageMembers && (
-				<>
-					<Container
-						header={{
-							icon: MailPlusIcon,
-							title: "Invite a member",
-							description: "Send an email invitation to join this organization.",
-						}}
-						size="sm"
-					>
-						<InviteForm orgId={orgId} onInvited={refresh} />
-					</Container>
-
-					{pending.length > 0 && (
-						<Container
-							header={{
-								icon: ClockIcon,
-								title: "Pending invitations",
-								description: "Invitations that haven't been accepted yet.",
-							}}
-							size="sm"
-						>
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Email</TableHead>
-										<TableHead>Role</TableHead>
-										<TableHead>Status</TableHead>
-										<TableHead />
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{pending.map((invitation) => (
-										<InvitationRowItem
-											key={invitation.id}
-											invitation={invitation}
-											onRevoked={refresh}
-										/>
-									))}
-								</TableBody>
-							</Table>
-						</Container>
-					)}
-				</>
-			)}
 		</ApiLoader>
 	);
 }
@@ -367,7 +366,10 @@ function MemberRemoveAction({
 	const [open, setOpen] = useState(false);
 
 	const remove = useAction(
-		() => apiFetch(`/organizations/${orgId}/members/${member.userId}`, { method: "DELETE" }),
+		() =>
+			apiFetch(`/organizations/${orgId}/members/${member.userId}`, {
+				method: "DELETE",
+			}),
 		{
 			success: isSelf ? "You left the organization" : `"${member.name}" removed`,
 			error: isSelf ? "Could not leave the organization" : "Could not remove member",
