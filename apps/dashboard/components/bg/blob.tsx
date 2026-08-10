@@ -1,18 +1,20 @@
 import type React from "react";
 
+export interface UiBgBlobProps extends React.SVGProps<SVGSVGElement> {
+	blobColor?: string;
+	backgroundColor?: string;
+	size?: React.CSSProperties["width"] | React.CSSProperties["height"];
+}
+
 export default function UiBgBlob({
 	blobColor = "#BB004B",
 	backgroundColor = "#262626",
 	size = "100%",
 	...props
-}: React.SVGProps<SVGSVGElement> & {
-	blobColor?: string;
-	backgroundColor?: string;
-	size?: React.CSSProperties["width"] | React.CSSProperties["height"];
-}) {
+}: UiBgBlobProps) {
 	return (
 		<svg
-			id="visual"
+			id="visual-blob"
 			viewBox="0 0 675 900"
 			xmlns="http://www.w3.org/2000/svg"
 			xmlnsXlink="http://www.w3.org/1999/xlink"

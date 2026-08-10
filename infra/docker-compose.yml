@@ -1,7 +1,10 @@
 # The self-hosted core control plane (PRD.md §2.1). Deliberately does NOT
-# include a worker service — workers are provisioned separately on the
-# user's own VPS over SSH (PRD.md §4, ARCHITECTURE.md §3) to keep this
-# control plane's compute cost at zero.
+# include a worker service — real remote-worker provisioning is a follow-up
+# (PRD.md §4, ARCHITECTURE.md §3), and local Drive-file processing (image/
+# video/audio/pdf) is opt-in via docker-compose.worker.yml, composed as an
+# overlay (`-f docker-compose.yml -f docker-compose.worker.yml`) rather than
+# merged in here — to keep this control plane's default compute cost at
+# zero.
 name: ossplay
 
 services:
@@ -75,8 +78,19 @@ services:
       # recreation; a SaaS deployment would instead mount a per-tenant
       # file/ConfigMap at this same path.
       OSSPLAY_CONFIG_PATH: /ossplay.yaml
+      # Local disk is a real, always-on storage fallback (packages/core/src/
+      # storage/resolve.ts) — every project with no S3 destination assigned,
+      # or whose destination was deleted, lands here, in every deployment,
+      # not just dev. Must persist across container recreation same as
+      # postgres_data, hence the named volume below (not left as an
+      # anonymous container-local dir). If the opt-in worker overlay
+      # (docker-compose.worker.yml) is running, it mounts this same volume —
+      # a worker processing a local-disk-backed upload needs to read/write
+      # the same files this container serves.
+      OSSPLAY_LOCAL_STORAGE_PATH: /data/drive
     volumes:
       - ./ossplay.yaml:/ossplay.yaml
+      - drive_data:/data/drive
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,3 +176,4 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
+  drive_data:

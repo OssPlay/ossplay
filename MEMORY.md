@@ -6,6 +6,24 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-10 — Project Drive (Google-Drive-like file manager), real worker processing, local-disk as a permanent fallback
+
+**Status:** Decided
+
+The `assets`/`folderClosure` tables had existed since the original scaffold with nothing behind them — no `folders` table, no API routes, `apps/worker`'s processors were `console.log` stubs. This built the real thing: a folder-browsing UI at `/project/:id/:folderId`, upload (file/folder/drag-drop), inline preview, right-click/multi-select actions, a 30-day recycle bin, trigram-ranked search, and a real Sharp/FFmpeg/poppler processing pipeline.
+
+- **Local disk is a permanent, always-on storage fallback in every environment — not a dev-only convenience.** The first pass (mid-session) gated it behind `OSSPLAY_LOCAL_STORAGE_ENABLED` with a hard production guard; corrected explicitly by the user partway through: "if no drive is connected use a local path... If no S3 were added or all were deleted all projects (public or private) will fallback to local drive." Reworked to: `projects.destinationId` nullable with `onDelete: "set null"` (deleting a destination never orphans a project), `packages/core/src/storage/resolve.ts` resolves `S3Storage` when a destination exists and `LocalDiskStorage` otherwise, unconditionally. No env gate, no "storage not configured" error path — every project always has somewhere to store files. See [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-data--service-flow).
+- **Folder URLs carry only the current folder's id** (`/project/:projectId/:folderId`), never a name-based path — breadcrumb ancestry and children are derived server-side from that one id via the closure table on every request. Explicit user choice over path-segment URLs, to avoid the rename-invalidates-every-descendant-link problem a name-based path would have.
+- **Rename/move/trash/restore/upload get a real `assetActivity` table**, not a field stuffed into the existing `metadata` jsonb column — a full per-asset activity feed (all five action types), explicitly requested over the jsonb-history alternative. Deliberately distinct in scope from `logAudit` (root/instance/org-lifecycle only, per that log's own established boundary — see the 2026-08-09 entry above).
+- **Recycle bin is a single-row `deletedAt` write on trash/restore, not a recursive fan-out** to descendants — visibility is computed at read time via a closure-table join (`notUnderTrashedAncestor`), so an item counts as trashed if it or any ancestor has `deletedAt` set. Permanent delete (sweep or explicit) relies on `onDelete: "cascade"` from `folders.parentId`/`assets.folderId` to do the recursive removal in the database, not in application code — one `DELETE FROM folders WHERE id = :id` cascades everything.
+- **Search is Postgres `pg_trgm`, not a new search service.** Confirmed with the user over introducing Elasticsearch/Meilisearch/etc — no new infra dependency for project-scoped filename/foldername search. GIN trigram indexes (`folders.name`, `assets.filename`) plus a `similarity()`-ranked query, `'simple'` tokenization deliberately (not `'english'` — filenames aren't prose, stemming would hurt exact matches like `IMG_2024`).
+- **The real worker is opt-in and local-only this pass** — `docker-compose.worker.yml`, a new overlay (`docker compose -f docker-compose.yml -f docker-compose.worker.yml up -d`), sharing a `drive_data` volume with the `api` container. `worker` also joined `docker-images.yml`'s publish matrix (previously built but deliberately unpublished). Remote, SSH-provisioned workers on a user's own VPS remain explicitly deferred to a follow-up plan — surfaced during planning that it needs a persistent reverse-tunnel manager, a distinct sub-feature; BullMQ's queue model means nothing built this pass needs to change for that to land later, since any worker (local or remote) competes for jobs from the same Redis queue.
+- **PDF gets a first-page thumbnail only, never transcoded** — poppler's `pdftoppm`, per the PRD's explicit "stored and served as-is" rule for non-media types. Video HLS packaging is a single rendition, not an adaptive-bitrate ladder, and has no access-control-on-manifest story yet (flagged in code as `accessControlPending: true`) — both scoped down deliberately rather than half-built.
+
+**Artifacts updated:** `docs` repo — a new Drive/file-manager guide page (per this project's own "docs alongside features" convention).
+
+---
+
 ## 2026-08-09 — org_creator stranded fix, invite session-detection, org member CRUD, first notification system
 
 **Status:** Decided

@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
-import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
-import { setCurrentOrgId, useCurrentOrgId } from "@/lib/current-org";
+import { useProjectContext } from "@/lib/current-project";
 
 type Visibility = "public" | "private";
 type Project = {
@@ -28,30 +27,17 @@ type Project = {
 	name: string;
 	orgId: string;
 	visibility: Visibility;
-	destinationId: string;
+	destinationId: string | null;
 };
 type Destination = { id: string; label: string; visibility: Visibility };
+
+// Same sentinel/reasoning as components/create-project-dialog.tsx.
+const LOCAL_DRIVE_VALUE = "__local__";
 
 export default function ProjectGeneralPage() {
 	const router = useRouter();
 	const { projectId } = useParams<{ projectId: string }>();
-	const { organizations } = useAuth();
-	const orgId = useCurrentOrgId(organizations.map((o) => o.id));
-	// Same fix as the layout one level up: resolve this project's real owning
-	// org from the already-loaded organizations (each carries its own
-	// projects, from /auth/me) rather than trusting the sessionStorage-scoped
-	// "current org" — otherwise a rename/delete fired in the one render
-	// before that org-switch effect settles would hit the wrong org's
-	// endpoint. The layout already guarantees `access` only reaches here once
-	// an owning org exists, so falling back to `orgId` below is just for the
-	// render before the switch effect (if any) has run.
-	const owningOrg = organizations.find((o) => o.projects.some((p) => p.id === projectId));
-	const org = owningOrg ?? organizations.find((o) => o.id === orgId);
-	const effectiveOrgId = owningOrg?.id ?? orgId;
-
-	useEffect(() => {
-		if (owningOrg && owningOrg.id !== orgId) setCurrentOrgId(owningOrg.id);
-	}, [owningOrg, orgId]);
+	const { org, effectiveOrgId } = useProjectContext(projectId);
 
 	const { data: projectsData, mutate } = useSWR<{ projects: Project[] }>(
 		effectiveOrgId ? `/organizations/${effectiveOrgId}/projects` : null,
@@ -81,7 +67,7 @@ export default function ProjectGeneralPage() {
 	useEffect(() => {
 		if (project && !seeded.current) {
 			setName(project.name);
-			setDestinationId(project.destinationId);
+			setDestinationId(project.destinationId ?? LOCAL_DRIVE_VALUE);
 			seeded.current = true;
 		}
 	}, [project]);
@@ -99,7 +85,9 @@ export default function ProjectGeneralPage() {
 		() =>
 			apiFetch<{ project: Project }>(`/organizations/${effectiveOrgId}/projects/${projectId}`, {
 				method: "PUT",
-				body: JSON.stringify({ destinationId }),
+				body: JSON.stringify({
+					destinationId: destinationId === LOCAL_DRIVE_VALUE ? null : destinationId,
+				}),
 			}),
 		{ error: "Could not change destination", success: "Storage destination updated" },
 	);
@@ -175,31 +163,29 @@ export default function ProjectGeneralPage() {
 						<span className="text-xs text-muted-foreground">— permanent, set at creation</span>
 					</div>
 					<div className="flex flex-col gap-1.5 w-full sm:w-80">
-						<Label htmlFor="projectDestination">S3 destination</Label>
-						{matchingDestinations.length === 0 ? (
-							<p className="text-sm text-muted-foreground">
-								No {project.visibility} S3 destination available in this organization.
-							</p>
-						) : (
-							<Select
-								value={destinationId}
-								onValueChange={(value) => setDestinationId(value ?? "")}
-								disabled={changeDestination.isLoading}
-							>
-								<SelectTrigger id="projectDestination" className="w-full">
-									<SelectValue
-										items={matchingDestinations.map((d) => ({ value: d.id, label: d.label }))}
-									/>
-								</SelectTrigger>
-								<SelectContent>
-									{matchingDestinations.map((d) => (
-										<SelectItem key={d.id} value={d.id}>
-											{d.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						)}
+						<Label htmlFor="projectDestination">Storage</Label>
+						<Select
+							value={destinationId}
+							onValueChange={(value) => setDestinationId(value ?? LOCAL_DRIVE_VALUE)}
+							disabled={changeDestination.isLoading}
+						>
+							<SelectTrigger id="projectDestination" className="w-full">
+								<SelectValue
+									items={{
+										[LOCAL_DRIVE_VALUE]: "Local Drive",
+										...Object.fromEntries(matchingDestinations.map((d) => [d.id, d.label])),
+									}}
+								/>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={LOCAL_DRIVE_VALUE}>Local Drive</SelectItem>
+								{matchingDestinations.map((d) => (
+									<SelectItem key={d.id} value={d.id}>
+										{d.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 					<p className="text-xs text-muted-foreground">
 						New files go to whichever destination is current. Files already stored under a previous
@@ -215,7 +201,7 @@ export default function ProjectGeneralPage() {
 					<LoadingButton
 						loading={changeDestination.isLoading}
 						onClick={handleChangeDestination}
-						disabled={!destinationId || destinationId === project.destinationId}
+						disabled={destinationId === (project.destinationId ?? LOCAL_DRIVE_VALUE)}
 					>
 						Save
 					</LoadingButton>

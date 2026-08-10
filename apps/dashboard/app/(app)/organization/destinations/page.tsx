@@ -160,7 +160,8 @@ export default function OrganizationDestinationsPage() {
 				header={{
 					icon: DatabaseIcon,
 					title: "S3 Destinations",
-					description: "Where this organization's projects store their files.",
+					description:
+						"Where this organization's projects store their files. A project with no destination assigned — or whose destination was deleted — automatically falls back to this instance's Local Drive, so it's never left without somewhere to store files.",
 					action: { icon: PlusIcon, title: "Add destination", onClick: () => setDialogOpen(true) },
 				}}
 				size="lg"

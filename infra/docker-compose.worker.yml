@@ -1,0 +1,48 @@
+# Opt-in local/self-hosted worker for the Drive feature's file processing
+# (image/video/audio transcode, PDF thumbnailing, the daily recycle-bin
+# sweep — see apps/worker). Not part of the default stack (see
+# docker-compose.yml's own comment on why) — compose it as an overlay:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.worker.yml up -d
+#
+# For local dev testing against real ffmpeg/sharp/poppler output (the only
+# reason to reach for Docker here at all — see apps/worker/AGENTS.md or
+# CONTRIBUTING.md's "bun dev everything on the host" default):
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.worker.yml up
+#
+# This same file is also the artifact a future SSH-based remote-worker
+# follow-up would deploy onto a remote box unchanged — BullMQ workers
+# compete for jobs from the same Redis queue regardless of where they run,
+# so nothing here needs to change later for that to work.
+services:
+  worker:
+    image: ${OSSPLAY_IMAGE:-ghcr.io/ossplay/ossplay}:${OSSPLAY_VERSION:-latest}-worker
+    environment:
+      OSSPLAY_ROLE: worker
+      DATABASE_URL: postgres://ossplay:${POSTGRES_PASSWORD:-ossplay}@postgres:5432/ossplay
+      REDIS_URL: redis://redis:6379
+      # Decrypts S3 destination credentials (packages/core/src/crypto/
+      # secret-box.ts) for projects backed by real S3 — same var/contract as
+      # the api service in docker-compose.yml, required with no fallback.
+      OSSPLAY_ENCRYPTION_KEY: ${OSSPLAY_ENCRYPTION_KEY:?OSSPLAY_ENCRYPTION_KEY must be set — install.sh generates one into .env}
+      # Must match the api service's own OSSPLAY_LOCAL_STORAGE_PATH exactly
+      # — a local-disk-backed asset is read/written by whichever of these
+      # two containers currently needs it, over the shared drive_data
+      # volume below.
+      OSSPLAY_LOCAL_STORAGE_PATH: /data/drive
+    volumes:
+      - drive_data:/data/drive
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  # Same volume name as docker-compose.yml's `api` service — compose merges
+  # same-named top-level volumes across `-f` files in one project, so this
+  # doesn't create a second, disconnected volume; it's what lets `worker`
+  # see the exact files `api` served/received.
+  drive_data:

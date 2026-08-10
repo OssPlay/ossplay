@@ -12,10 +12,10 @@ name: Docker Image
 # comment for why: exec'ing into, say, the public api container used to also
 # expose infra/updater's privileged docker-compose-control code).
 #
-# `worker` has its own runner-worker target in the Dockerfile (built and
-# smoke-tested locally) but is deliberately NOT in the matrix below yet —
-# it isn't ready to publish. Add it to the matrix once it is; nothing else
-# needs to change.
+# `worker` publishes alongside the other three roles — it's what the opt-in
+# infra/docker-compose.worker.yml overlay (Drive feature's local/self-hosted
+# processing) pulls; infra/docker-compose.yml itself still never runs one by
+# default (see that file's own comment on why).
 #
 # Versioning is tag-derived, never hand-bumped in package.json: pushing
 # `v0.0.1` (or a prerelease like `v0.0.1-rc.1`) is the only release step —
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        role: [api, dashboard, updater]
+        role: [api, dashboard, updater, worker]
     steps:
       - uses: actions/checkout@v4
 
@@ -103,4 +103,5 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             infra/docker-compose.yml
+            infra/docker-compose.worker.yml
             infra/caddy/Caddyfile

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
 import { errorHandler, notFoundHandler } from "./lib/errors";
+import { assetsRoute } from "./routes/assets";
 import { authRoute } from "./routes/auth";
+import { foldersRoute } from "./routes/folders";
 import { healthRoute } from "./routes/health";
 import { instanceRoute } from "./routes/instance";
 import { instanceAuditLogsRoute } from "./routes/instance-audit-logs";
@@ -51,6 +53,8 @@ app.route("/instance/error-logs", instanceErrorLogsRoute);
 app.route("/organizations", organizationsRoute);
 app.route("/organizations", projectsRoute);
 app.route("/organizations", s3DestinationsRoute);
+app.route("/organizations", foldersRoute);
+app.route("/organizations", assetsRoute);
 app.route("/invitations", invitationsRoute);
 app.route("/instance-invitations", instanceInvitationsRoute);
 app.route("/notifications", notificationsRoute);

@@ -125,7 +125,10 @@ EXPOSE 3001
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
 
 FROM runner-base AS runner-worker
-RUN apk add --no-cache ffmpeg
+# ffmpeg: video/audio transcode (processors/video.ts, audio.ts). poppler-utils:
+# pdftoppm for PDF first-page thumbnails only (processors/pdf.ts) — PRD's
+# "stored and served as-is" rule for PDFs means no transcoding, just this.
+RUN apk add --no-cache ffmpeg poppler-utils
 COPY packages/db packages/db
 COPY packages/core packages/core
 COPY apps/worker apps/worker

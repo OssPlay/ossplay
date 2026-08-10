@@ -12,7 +12,9 @@
 		"@ossplay/core": "workspace:*",
 		"@ossplay/db": "workspace:*",
 		"bullmq": "^5.81.3",
-		"ioredis": "^5.11.1"
+		"drizzle-orm": "^0.45.2",
+		"ioredis": "^5.11.1",
+		"sharp": "^0.34.4"
 	},
 	"devDependencies": {
 		"@ossplay/config": "workspace:*",

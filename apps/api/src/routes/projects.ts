@@ -49,7 +49,12 @@ const createProjectSchema = z.object({
 	name: z.string().trim().min(1).max(200),
 	id: z.string().regex(PROJECT_ID_PATTERN, "Use lowercase letters, numbers, and hyphens only"),
 	visibility: z.enum(["public", "private"]),
-	destinationId: z.uuid(),
+	// Nullable: a project with no destination falls back to local-disk
+	// storage, but only where that's been explicitly enabled (dev/testing,
+	// see packages/core/src/storage/resolve.ts) — checked below, not at the
+	// schema level, since whether it's allowed is an environment fact, not
+	// a shape fact.
+	destinationId: z.uuid().nullable(),
 });
 
 projectsRoute.post(
@@ -76,22 +81,28 @@ projectsRoute.post(
 			.where(eq(organizations.id, orgId));
 		if (!org) return c.json({ error: "Organization not found" }, 404);
 
-		// Client-side filtering already narrows the destination picker to the
-		// chosen visibility, but that's UX only — re-validate here rather than
-		// trust it, same as every other cross-entity check in this file.
-		const [destination] = await db
-			.select({ id: s3Destinations.id, visibility: s3Destinations.visibility })
-			.from(s3Destinations)
-			.where(
-				and(eq(s3Destinations.id, parsed.data.destinationId), eq(s3Destinations.orgId, orgId)),
-			);
-		if (!destination) return c.json({ error: "S3 destination not found" }, 400);
-		if (destination.visibility !== parsed.data.visibility) {
-			return c.json(
-				{ error: "The chosen S3 destination's visibility doesn't match the project's" },
-				400,
-			);
+		if (parsed.data.destinationId) {
+			// Client-side filtering already narrows the destination picker to
+			// the chosen visibility, but that's UX only — re-validate here
+			// rather than trust it, same as every other cross-entity check in
+			// this file.
+			const [destination] = await db
+				.select({ id: s3Destinations.id, visibility: s3Destinations.visibility })
+				.from(s3Destinations)
+				.where(
+					and(eq(s3Destinations.id, parsed.data.destinationId), eq(s3Destinations.orgId, orgId)),
+				);
+			if (!destination) return c.json({ error: "S3 destination not found" }, 400);
+			if (destination.visibility !== parsed.data.visibility) {
+				return c.json(
+					{ error: "The chosen S3 destination's visibility doesn't match the project's" },
+					400,
+				);
+			}
 		}
+		// No destinationId: falls back to local-disk storage (packages/core/
+		// src/storage/resolve.ts) — always a valid choice now, not gated on
+		// an env flag, so no extra check needed here.
 
 		try {
 			const [project] = await db
@@ -126,7 +137,11 @@ projectsRoute.post(
 
 const updateProjectSchema = z.object({
 	name: z.string().trim().min(1).max(200).optional(),
-	destinationId: z.uuid().optional(),
+	// Nullable, not just optional: null explicitly switches the project
+	// back to the local-drive fallback (see project.schema.ts's
+	// destinationId comment) — omitting the field entirely leaves the
+	// current destination untouched, same distinction the set-below makes.
+	destinationId: z.uuid().nullable().optional(),
 });
 
 projectsRoute.put(

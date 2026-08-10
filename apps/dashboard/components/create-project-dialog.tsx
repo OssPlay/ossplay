@@ -33,6 +33,13 @@ const VISIBILITY_LABELS: Record<Visibility, string> = {
 	public: "Public — served directly, no auth needed",
 };
 
+// Sentinel for the always-available fallback backend — never a real
+// s3Destinations row, translated to `destinationId: null` on submit (see
+// packages/core/src/storage/resolve.ts). Not filtered by visibility like
+// real destinations are: local disk works the same for public and private
+// projects.
+const LOCAL_DRIVE_VALUE = "__local__";
+
 // Shared by both places a project can be created (organization/projects's
 // full management page and the sidebar's quick-create) — collecting id/
 // visibility/destination in two independently-hand-rolled forms would mean
@@ -62,13 +69,18 @@ export function CreateProjectDialog({
 	);
 	const destinations = destinationsData?.destinations ?? [];
 	const matchingDestinations = destinations.filter((d) => d.visibility === visibility);
-	const [destinationId, setDestinationId] = useState("");
+	const [destinationId, setDestinationId] = useState(LOCAL_DRIVE_VALUE);
 
 	const createProject = useAction(
 		() =>
 			apiFetch<{ project: Project }>(`/organizations/${orgId}/projects`, {
 				method: "POST",
-				body: JSON.stringify({ name, id, visibility, destinationId }),
+				body: JSON.stringify({
+					name,
+					id,
+					visibility,
+					destinationId: destinationId === LOCAL_DRIVE_VALUE ? null : destinationId,
+				}),
 			}),
 		{ success: (res) => `"${res.project.name}" created`, error: "Could not create project" },
 	);
@@ -94,7 +106,7 @@ export function CreateProjectDialog({
 			setId("");
 			setIdTouched(false);
 			setVisibility("private");
-			setDestinationId("");
+			setDestinationId(LOCAL_DRIVE_VALUE);
 			createProject.reset();
 		}
 		onOpenChange(next);
@@ -103,8 +115,9 @@ export function CreateProjectDialog({
 	function handleVisibilityChange(next: Visibility) {
 		setVisibility(next);
 		// The previously-picked destination may not match the new visibility
-		// — clear it rather than silently submitting a stale, now-invalid id.
-		setDestinationId("");
+		// — reset to the always-valid local-drive fallback rather than
+		// silently submitting a stale, now-invalid real destination id.
+		setDestinationId(LOCAL_DRIVE_VALUE);
 	}
 
 	async function handleCreate() {
@@ -166,32 +179,34 @@ export function CreateProjectDialog({
 						<p className="text-xs text-muted-foreground">Permanent — can't be changed later.</p>
 					</div>
 					<div className="flex flex-col gap-1.5">
-						<Label htmlFor="newProjectDestination">S3 destination</Label>
-						{matchingDestinations.length === 0 ? (
-							<p className="text-sm text-muted-foreground">
-								No {visibility} S3 destination configured — add one in Organization → S3
-								Destinations first.
-							</p>
-						) : (
-							<Select
-								value={destinationId}
-								onValueChange={(value) => setDestinationId(value ?? "")}
-								disabled={createProject.isLoading}
-							>
-								<SelectTrigger id="newProjectDestination" className="w-full">
-									<SelectValue
-										items={matchingDestinations.map((d) => ({ value: d.id, label: d.label }))}
-									/>
-								</SelectTrigger>
-								<SelectContent>
-									{matchingDestinations.map((d) => (
-										<SelectItem key={d.id} value={d.id}>
-											{d.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						)}
+						<Label htmlFor="newProjectDestination">Storage</Label>
+						<Select
+							value={destinationId}
+							onValueChange={(value) => setDestinationId(value ?? LOCAL_DRIVE_VALUE)}
+							disabled={createProject.isLoading}
+						>
+							<SelectTrigger id="newProjectDestination" className="w-full">
+								<SelectValue
+									items={{
+										[LOCAL_DRIVE_VALUE]: "Local Drive",
+										...Object.fromEntries(matchingDestinations.map((d) => [d.id, d.label])),
+									}}
+								/>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value={LOCAL_DRIVE_VALUE}>Local Drive</SelectItem>
+								{matchingDestinations.map((d) => (
+									<SelectItem key={d.id} value={d.id}>
+										{d.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							{matchingDestinations.length === 0
+								? `No ${visibility} S3 destination configured yet — files store on the instance's local disk until you add one.`
+								: "Files store on the instance's local disk unless you pick an S3 destination."}
+						</p>
 					</div>
 					<FormError
 						message={

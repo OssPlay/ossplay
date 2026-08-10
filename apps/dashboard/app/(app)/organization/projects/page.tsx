@@ -109,10 +109,10 @@ export default function OrganizationProjectsPage() {
 									</TableCell>
 									<TableCell className="text-right">
 										<Link
-											href={`/project/${project.id}/settings`}
+											href={`/project/${project.id}`}
 											className={buttonVariants({ variant: "secondary", size: "sm" })}
 										>
-											Manage
+											Open
 										</Link>
 									</TableCell>
 								</TableRow>
