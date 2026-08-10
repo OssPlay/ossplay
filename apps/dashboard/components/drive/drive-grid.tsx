@@ -10,7 +10,7 @@ import {
 	Trash2Icon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
 	ContextMenu,
@@ -59,6 +59,17 @@ export function DriveGrid({
 	const [previewAsset, setPreviewAsset] = useState<DriveAsset | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
+
+	// A background revalidation (after trash/move/bulk actions call
+	// onRefresh()) can drop ids that were selected — without this, the "N
+	// selected" bar keeps counting ids no longer in view.
+	useEffect(() => {
+		const liveIds = new Set([...folders.map((f) => f.id), ...assets.map((a) => a.id)]);
+		setSelected((prev) => {
+			const next = new Set([...prev].filter((id) => liveIds.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [folders, assets]);
 
 	const base = `/organizations/${orgId}/projects/${projectId}`;
 
@@ -187,6 +198,9 @@ export function DriveGrid({
 				{assets.map((asset) => {
 					const Icon = iconForMimeType(asset.mimeType);
 					const contentUrl = `/api${base}/assets/${asset.id}/content`;
+					const thumbnailUrl = asset.thumbnailAssetId
+						? `/api${base}/assets/${asset.thumbnailAssetId}/content`
+						: null;
 					return (
 						<ContextMenu key={asset.id}>
 							<ContextMenuTrigger>
@@ -202,7 +216,12 @@ export function DriveGrid({
 										onClick={() => setPreviewAsset(asset)}
 										className="flex flex-col items-center gap-2"
 									>
-										<Icon className="size-10 text-muted-foreground" />
+										{thumbnailUrl ? (
+											// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as preview-overlay.tsx's AssetViewer
+											<img src={thumbnailUrl} alt="" className="size-10 rounded object-cover" />
+										) : (
+											<Icon className="size-10 text-muted-foreground" />
+										)}
 										<span className="max-w-full truncate text-sm">{asset.filename}</span>
 										{asset.status !== "ready" && (
 											<span className="text-[10px] text-muted-foreground capitalize">

@@ -431,6 +431,11 @@ assetsRoute.get("/:orgId/projects/:projectId/search", ...gate, async (c) => {
 			and(
 				eq(assets.projectId, projectId),
 				isNull(assets.deletedAt),
+				// Same exclusion as the folder-browse endpoint (folders.ts) — a
+				// derived variant (HLS segment, thumbnail, format conversion)
+				// shouldn't be independently searchable/navigable, only the
+				// original it was generated from.
+				isNull(assets.parentAssetId),
 				assets.folderId ? notUnderTrashedAncestor(assets.folderId) : undefined,
 				sql`(${assets.filename} % ${q} OR ${assets.filename} ilike ${`%${q}%`})`,
 			),

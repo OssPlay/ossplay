@@ -20,6 +20,11 @@ export interface DriveAsset {
 	deletedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
+	// The worker-generated thumbnail variant's id, if one exists — only
+	// present on the drive-browse response (apps/api/src/routes/folders.ts's
+	// attachThumbnails), null on responses that don't attach it (trash,
+	// single-asset fetch).
+	thumbnailAssetId?: string | null;
 }
 
 export interface DriveBrowseResponse {

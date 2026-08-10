@@ -8,7 +8,7 @@ import {
 	permanentlyDeleteSubtree,
 } from "@ossplay/core";
 import { type Folder, assets, folderClosure, folders, getDb } from "@ossplay/db";
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
@@ -80,6 +80,14 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		eq(assets.projectId, projectId),
 		folderId ? eq(assets.folderId, folderId) : isNull(assets.folderId),
 		isNull(assets.deletedAt),
+		// Derived variants (a thumbnail, an HLS segment/manifest, a
+		// format-converted copy — see apps/worker/src/processors/shared.ts's
+		// createVariant) live in the same folder as the asset they were
+		// generated from, but aren't things a user ever uploaded or should
+		// browse as their own row — excluding them here is what keeps a
+		// single video upload (which can produce dozens of HLS segment rows)
+		// from flooding this folder's listing.
+		isNull(assets.parentAssetId),
 		query.where,
 	);
 	const childAssets = await db
@@ -95,13 +103,40 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		.where(assetWhere);
 	const total = totalRow?.count ?? 0;
 
+	const childAssetsWithThumbnails = await attachThumbnails(db, childAssets);
+
 	return c.json({
 		folder,
 		breadcrumb,
 		childFolders,
-		childAssets: { items: childAssets, total, page: query.page, pageSize: query.pageSize },
+		childAssets: { items: childAssetsWithThumbnails, total, page: query.page, pageSize: query.pageSize },
 	});
 });
+
+// A designated thumbnail variant (image.ts/pdf.ts's `metadata.variant ===
+// "thumbnail"`) is how the dashboard grid shows a real image instead of a
+// generic file icon — batched into one extra query per listing call rather
+// than a per-asset lookup.
+async function attachThumbnails<T extends { id: string }>(
+	db: ReturnType<typeof getDb>,
+	rows: T[],
+): Promise<(T & { thumbnailAssetId: string | null })[]> {
+	if (rows.length === 0) return [];
+	const thumbnails = await db
+		.select({ parentAssetId: assets.parentAssetId, id: assets.id })
+		.from(assets)
+		.where(
+			and(
+				inArray(
+					assets.parentAssetId,
+					rows.map((r) => r.id),
+				),
+				sql`${assets.metadata} ->> 'variant' = 'thumbnail'`,
+			),
+		);
+	const thumbnailByParent = new Map(thumbnails.map((t) => [t.parentAssetId, t.id]));
+	return rows.map((row) => ({ ...row, thumbnailAssetId: thumbnailByParent.get(row.id) ?? null }));
+}
 
 const createFolderSchema = z.object({
 	parentId: z.uuid().nullable(),
@@ -300,7 +335,18 @@ foldersRoute.get("/:orgId/projects/:projectId/trash", ...gate, async (c) => {
 	const trashedAssets = await db
 		.select()
 		.from(assets)
-		.where(and(eq(assets.projectId, projectId), sql`${assets.deletedAt} is not null`))
+		.where(
+			and(
+				eq(assets.projectId, projectId),
+				sql`${assets.deletedAt} is not null`,
+				// Variants never get their own deletedAt (only ever trashed as a
+				// side effect of their original), so this is defensive rather
+				// than load-bearing — kept for the same reason as the browse
+				// endpoint's filter: consistency, not because it's expected to
+				// ever exclude a row in practice.
+				isNull(assets.parentAssetId),
+			),
+		)
 		.orderBy(desc(assets.deletedAt));
 
 	return c.json({ folders: trashedFolders, assets: trashedAssets });

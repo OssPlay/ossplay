@@ -5,19 +5,24 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import { Input } from "@/components/ui/input";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 
-// Plain ilike for now (apps/api/src/routes/assets.ts's GET /search) —
-// upgraded to trigram-ranked matching once Phase 5's pg_trgm migration
-// lands, with no change needed here.
+// Same debounce delay as useServerTable's search input
+// (hooks/use-server-table.ts) — kept local rather than importing that
+// constant since this isn't wired through useServerTable.
+const SEARCH_DEBOUNCE_MS = 300;
+
+// Trigram-ranked (apps/api/src/routes/assets.ts's GET /search).
 export function SearchBar({ orgId, projectId }: { orgId: string; projectId: string }) {
 	const router = useRouter();
 	const [query, setQuery] = useState("");
 	const [focused, setFocused] = useState(false);
+	const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
 
 	const { data } = useSWR<{ folders: DriveFolder[]; assets: DriveAsset[] }>(
-		query.trim()
-			? `/organizations/${orgId}/projects/${projectId}/search?q=${encodeURIComponent(query.trim())}`
+		debouncedQuery.trim()
+			? `/organizations/${orgId}/projects/${projectId}/search?q=${encodeURIComponent(debouncedQuery.trim())}`
 			: null,
 	);
 
