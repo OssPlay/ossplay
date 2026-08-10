@@ -6,7 +6,7 @@ import type { Job } from "bullmq";
 import { type VideoProcessingJob, getProjectWithDestination, resolveStorageDriver } from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
 import { eq } from "drizzle-orm";
-import { createVariant, markAssetStatus } from "./shared";
+import { createVariant, ffprobeJson, markAssetStatus, parseFrameRate } from "./shared";
 import { run } from "./spawn";
 
 // Scoped down from the full `resolutions: string[]` ladder — packages a
@@ -125,9 +125,17 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			metadata: { variant: "hls-manifest", segmentCount: segmentFiles.length },
 		});
 
+		const probe = await ffprobeJson(inputPath);
+		const videoStream = probe.streams?.find((s) => s.codec_type === "video");
 		await markAssetStatus(assetId, "ready", {
 			segmentCount: segmentFiles.length,
 			targetHeight: targetHeight ?? null,
+			width: videoStream?.width ?? null,
+			height: videoStream?.height ?? null,
+			codec: videoStream?.codec_name ?? null,
+			frameRate: parseFrameRate(videoStream?.r_frame_rate),
+			durationSeconds: probe.format?.duration ? Number.parseFloat(probe.format.duration) : null,
+			bitrate: probe.format?.bit_rate ? Number.parseInt(probe.format.bit_rate, 10) : null,
 		});
 	} finally {
 		await rm(workDir, { force: true, recursive: true });

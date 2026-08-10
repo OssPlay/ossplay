@@ -190,7 +190,7 @@ export function DriveGrid({
 					return (
 						<ContextMenu key={asset.id}>
 							<ContextMenuTrigger>
-								<div className="group relative flex flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50">
+								<div className="group relative flex flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 overflow-hidden">
 									<Checkbox
 										checked={selected.has(asset.id)}
 										onCheckedChange={() => toggleSelected(asset.id)}

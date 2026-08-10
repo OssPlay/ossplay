@@ -20,6 +20,10 @@ build/
 ossplay.yaml
 ossplay.test.yaml
 
+# local-disk drive storage fallback (packages/core/src/storage/resolve.ts) —
+# defaults to <repo root>/.data/drive under bare `bun dev`
+.data/
+
 # logs
 *.log
 npm-debug.log*

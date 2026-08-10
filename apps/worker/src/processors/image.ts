@@ -62,7 +62,18 @@ export async function processImage(job: Job<ImageProcessingJob>): Promise<void> 
 		});
 	}
 
-	await markAssetStatus(assetId, "ready", { width: meta.width, height: meta.height, mimeType });
+	await markAssetStatus(assetId, "ready", {
+		width: meta.width,
+		height: meta.height,
+		mimeType,
+		format: meta.format,
+		// Rounded to 1dp — "12.3MP" reads like a camera spec sheet, the raw
+		// division to full float precision doesn't.
+		megapixels:
+			meta.width && meta.height ? Math.round((meta.width * meta.height) / 100_000) / 10 : null,
+		colorSpace: meta.space ?? null,
+		hasAlpha: meta.hasAlpha ?? null,
+	});
 }
 
 function replaceExt(filename: string, ext: string, suffix = ""): string {

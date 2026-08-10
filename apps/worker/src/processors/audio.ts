@@ -5,7 +5,7 @@ import { type AudioProcessingJob, getProjectWithDestination, resolveStorageDrive
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { createVariant, markAssetStatus } from "./shared";
+import { createVariant, ffprobeJson, markAssetStatus } from "./shared";
 import { run } from "./spawn";
 
 // PRD §3 calls for MP3/AAC/OGG transcoding, but ProjectRules has no audio
@@ -45,7 +45,15 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 			metadata: { variant: "converted", bitrate: "128k" },
 		});
 
-		await markAssetStatus(assetId, "ready");
+		const probe = await ffprobeJson(inputPath);
+		const audioStream = probe.streams?.find((s) => s.codec_type === "audio");
+		await markAssetStatus(assetId, "ready", {
+			codec: audioStream?.codec_name ?? null,
+			sampleRate: audioStream?.sample_rate ? Number.parseInt(audioStream.sample_rate, 10) : null,
+			channels: audioStream?.channels ?? null,
+			durationSeconds: probe.format?.duration ? Number.parseFloat(probe.format.duration) : null,
+			bitrate: probe.format?.bit_rate ? Number.parseInt(probe.format.bit_rate, 10) : null,
+		});
 	} finally {
 		await rm(workDir, { force: true, recursive: true });
 	}

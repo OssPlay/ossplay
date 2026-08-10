@@ -33,7 +33,7 @@ export function PreviewOverlay({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-4xl">
+			<DialogContent className="sm:max-w-full">
 				<DialogHeader className="flex-row items-center justify-between">
 					<DialogTitle className="truncate">{asset.filename}</DialogTitle>
 					<a href={downloadUrl} className={buttonVariants({ variant: "outline", size: "sm" })}>

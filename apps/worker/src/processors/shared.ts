@@ -1,6 +1,7 @@
 import { buildAssetKey, type StorageDriver } from "@ossplay/core";
 import { type Asset, assets, getDb } from "@ossplay/db";
 import { eq } from "drizzle-orm";
+import { runCapture } from "./spawn";
 
 // One insert-then-upload helper, reused by every processor (image
 // thumbnail + format conversion, video segments + manifest, pdf
@@ -48,4 +49,48 @@ export async function markAssetStatus(
 		.update(assets)
 		.set({ status, ...(metadata !== undefined && { metadata }) })
 		.where(eq(assets.id, assetId));
+}
+
+export interface FfprobeStream {
+	codec_type?: string;
+	codec_name?: string;
+	width?: number;
+	height?: number;
+	r_frame_rate?: string;
+	sample_rate?: string;
+	channels?: number;
+	bit_rate?: string;
+}
+
+export interface FfprobeOutput {
+	format?: { duration?: string; bit_rate?: string };
+	streams?: FfprobeStream[];
+}
+
+// Shared by video.ts and audio.ts — same ffprobe invocation and JSON shape
+// either way, only which stream (video vs audio) each caller pulls fields
+// from differs. Populates the real source-file metadata (dimensions,
+// codec, duration, bitrate, frame rate) that markAssetStatus persists on
+// the ORIGINAL asset row, distinct from each derived variant's own
+// metadata (thumbnail dimensions, etc).
+export async function ffprobeJson(inputPath: string): Promise<FfprobeOutput> {
+	const stdout = await runCapture("ffprobe", [
+		"-v",
+		"quiet",
+		"-print_format",
+		"json",
+		"-show_format",
+		"-show_streams",
+		inputPath,
+	]);
+	return JSON.parse(stdout) as FfprobeOutput;
+}
+
+// "30000/1001" -> 29.97, "25/1" -> 25 — ffprobe reports frame rate as a
+// rational string, not a plain number.
+export function parseFrameRate(rate: string | undefined): number | null {
+	if (!rate) return null;
+	const [num, den] = rate.split("/").map(Number);
+	if (!num || !den) return null;
+	return Math.round((num / den) * 100) / 100;
 }

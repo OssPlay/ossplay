@@ -6,7 +6,7 @@ import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import { createVariant, markAssetStatus } from "./shared";
-import { run } from "./spawn";
+import { run, runCapture } from "./spawn";
 
 // Thumbnail/preview only — PRD §3 explicitly rules out a PDF transcoding
 // pipeline ("stored and served as-is"). First page only, rendered via
@@ -44,7 +44,11 @@ export async function processPdf(job: Job<PdfProcessingJob>): Promise<void> {
 			metadata: { variant: "thumbnail", page: 1 },
 		});
 
-		await markAssetStatus(assetId, "ready");
+		const info = await runCapture("pdfinfo", [inputPath]);
+		const pagesMatch = info.match(/^Pages:\s+(\d+)/m);
+		await markAssetStatus(assetId, "ready", {
+			pages: pagesMatch?.[1] ? Number.parseInt(pagesMatch[1], 10) : null,
+		});
 	} finally {
 		await rm(workDir, { force: true, recursive: true });
 	}
