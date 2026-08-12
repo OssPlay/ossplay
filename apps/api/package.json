@@ -19,6 +19,7 @@
 		"@ossplay/mail": "workspace:*",
 		"@simplewebauthn/server": "^13.3.2",
 		"bullmq": "^5.81.3",
+		"client-zip": "^2.5.0",
 		"drizzle-orm": "^0.45.2",
 		"hono": "^4.12.32",
 		"ioredis": "^5.11.1",

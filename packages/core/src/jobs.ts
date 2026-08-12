@@ -31,11 +31,49 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
+// The on-demand conversion menu: format+size tiers for images, a single
+// H.264/MP3 target for video/audio (see the plan's "Firm technical
+// decisions" — H.264/MP3 over WebM/VP9 for actually-universal playback,
+// not the more exotic option). Every field is a closed set, not a free
+// `number`/`string`, so a spec can't silently drift from what the
+// worker/UI actually support.
+export type VariantSpec =
+	| {
+			kind: "image-format";
+			format: "webp" | "avif" | "jpeg" | "png" | "original";
+			maxDimension: 1024 | 2048 | 4096 | "original";
+	  }
+	| { kind: "video-transcode"; height: 480 | 720 | 1080 }
+	| { kind: "audio-transcode"; bitrate: "96k" | "128k" | "192k" | "320k" };
+
+// Canonical cache key for a spec — two different requested combos must
+// never collide, and the same combo requested twice must always produce
+// the same key. Colocated with VariantSpec so the API (cache lookup before
+// enqueueing) and worker (cache write via finalizeVariant's metadata) can
+// never derive it differently.
+export function computeSpecKey(spec: VariantSpec): string {
+	switch (spec.kind) {
+		case "image-format":
+			return `${spec.format}-${spec.maxDimension}`;
+		case "video-transcode":
+			return `${spec.height}p-mp4`;
+		case "audio-transcode":
+			return `${spec.bitrate}-mp3`;
+	}
+}
+
 type BaseAssetJob = {
 	assetId: string;
 	projectId: string;
 	s3Path: string;
 	mimeType: string;
+	// Present only for on-demand jobs (enqueued with job name "variant",
+	// vs eager upload-time jobs' "process") — variantAssetId is the
+	// placeholder `assets` row the API route inserts synchronously before
+	// bytes exist (see assets.ts's POST .../variants), which
+	// finalizeVariant (worker/processors/shared.ts) uploads bytes into and
+	// marks ready, rather than createVariant inserting a fresh row.
+	requestedVariant?: { variantAssetId: string; spec: VariantSpec };
 };
 
 export type ImageProcessingJob = BaseAssetJob;

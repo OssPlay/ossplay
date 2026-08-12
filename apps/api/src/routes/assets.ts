@@ -1,20 +1,37 @@
 import {
-	FolderCycleError,
-	LocalDiskStorage,
 	buildAssetKey,
+	collectLiveOriginalAssetsUnderFolders,
+	computeSpecKey,
+	FolderCycleError,
+	findCachedVariant,
 	insertFolderWithAncestors,
+	LocalDiskStorage,
 	moveFolderSubtree,
 	notUnderTrashedAncestor,
 	permanentlyDeleteSubtree,
 	queueForMimeType,
 	resolveStorageDriver,
+	type StorageDriver,
+	type VariantSpec,
 } from "@ossplay/core";
-import { type Asset, assetActivity, assets, folderClosure, folders, getDb, users } from "@ossplay/db";
+import {
+	type Asset,
+	assetActivity,
+	assets,
+	folderClosure,
+	folders,
+	getDb,
+	users,
+} from "@ossplay/db";
+import { downloadZip } from "client-zip";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getProjectWithDestination, type ProjectWithDestination } from "../lib/drive/resolve-project";
-import { getQueue } from "../lib/queue";
+import {
+	getProjectWithDestination,
+	type ProjectWithDestination,
+} from "../lib/drive/resolve-project";
+import { getQueue, getRedisConnection } from "../lib/queue";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -52,12 +69,23 @@ function shouldServeStatic(project: ProjectWithDestination, mimeType: string): b
 	return mimeType.startsWith("image/") && project.rules.image.serving === "static";
 }
 
+// "photo.jpg" -> "photo (copy).jpg" — no collision-avoidance loop needed,
+// assets.filename has no unique constraint (project.schema.ts).
+function appendCopySuffix(filename: string): string {
+	const dot = filename.lastIndexOf(".");
+	const base = dot > 0 ? filename.slice(0, dot) : filename;
+	const ext = dot > 0 ? filename.slice(dot) : "";
+	return `${base} (copy)${ext}`;
+}
+
 async function assertFolderExists(projectId: string, folderId: string | null): Promise<boolean> {
 	if (!folderId) return true;
 	const [folder] = await getDb()
 		.select({ id: folders.id })
 		.from(folders)
-		.where(and(eq(folders.id, folderId), eq(folders.projectId, projectId), isNull(folders.deletedAt)));
+		.where(
+			and(eq(folders.id, folderId), eq(folders.projectId, projectId), isNull(folders.deletedAt)),
+		);
 	return Boolean(folder);
 }
 
@@ -106,7 +134,14 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads", ...gate, async (c) => {
 		size: parsed.data.size,
 	});
 
-	return c.json({ assetId, key, uploadTarget: storage.createUploadTarget(key, { mimeType: parsed.data.mimeType }) }, 201);
+	return c.json(
+		{
+			assetId,
+			key,
+			uploadTarget: storage.createUploadTarget(key, { mimeType: parsed.data.mimeType }),
+		},
+		201,
+	);
 });
 
 const batchItemSchema = z.object({
@@ -176,7 +211,13 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads/batch", ...gate, async (c)
 		return created.id;
 	}
 
-	const results: Array<{ relativePath: string; filename: string; assetId: string; key: string; uploadTarget: string }> = [];
+	const results: Array<{
+		relativePath: string;
+		filename: string;
+		assetId: string;
+		key: string;
+		uploadTarget: string;
+	}> = [];
 	for (const item of parsed.data.items) {
 		const folderId = await resolveFolderPath(item.relativePath);
 		const assetId = crypto.randomUUID();
@@ -211,7 +252,8 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/confirm", ...gate,
 
 	const storage = resolveStorageDriver(project);
 	const stat = await storage.statObject(asset.s3Path);
-	if (!stat) return c.json({ error: "Upload not found — the file was never actually received" }, 400);
+	if (!stat)
+		return c.json({ error: "Upload not found — the file was never actually received" }, 400);
 
 	const actor = c.get("user");
 	const queueName = queueForMimeType(asset.mimeType);
@@ -344,6 +386,174 @@ assetsRoute.patch("/:orgId/projects/:projectId/assets/:assetId", ...gate, async 
 	return c.json({ asset: updated });
 });
 
+// Duplicates a single asset in place — a copy is its own original
+// (parentAssetId: null), not a derived variant, so it goes through the same
+// enqueue-for-processing path /confirm uses and gets its own thumbnail for
+// free. Folder duplication is explicitly out of scope (files only).
+assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gate, async (c) => {
+	const { orgId, projectId, assetId } = c.req.param();
+	const project = await requireProject(orgId, projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const original = await requireAsset(projectId, assetId);
+	if (!original || original.deletedAt) return c.json({ error: "Asset not found" }, 404);
+
+	const storage = resolveStorageDriver(project);
+	const bytes = await storage.downloadObject(original.s3Path);
+
+	const actor = c.get("user");
+	const newId = crypto.randomUUID();
+	const key = buildAssetKey(projectId, newId, original.filename);
+	await storage.uploadObject(key, bytes, { mimeType: original.mimeType });
+
+	const queueName = queueForMimeType(original.mimeType);
+	await getDb()
+		.insert(assets)
+		.values({
+			id: newId,
+			projectId,
+			folderId: original.folderId,
+			filename: appendCopySuffix(original.filename),
+			mimeType: original.mimeType,
+			s3Path: key,
+			size: bytes.byteLength,
+			status: queueName ? "processing" : "ready",
+		});
+	await logActivity(newId, "uploaded", actor.id);
+
+	if (queueName) {
+		await getQueue(queueName).add("process", {
+			assetId: newId,
+			projectId,
+			s3Path: key,
+			mimeType: original.mimeType,
+		});
+	}
+
+	const created = await requireAsset(projectId, newId);
+	return c.json({ asset: created }, 201);
+});
+
+const variantSpecSchema = z.discriminatedUnion("kind", [
+	z.object({
+		kind: z.literal("image-format"),
+		format: z.enum(["webp", "avif", "jpeg", "png", "original"]),
+		maxDimension: z.union([
+			z.literal(1024),
+			z.literal(2048),
+			z.literal(4096),
+			z.literal("original"),
+		]),
+	}),
+	z.object({
+		kind: z.literal("video-transcode"),
+		height: z.union([z.literal(480), z.literal(720), z.literal(1080)]),
+	}),
+	z.object({
+		kind: z.literal("audio-transcode"),
+		bitrate: z.enum(["96k", "128k", "192k", "320k"]),
+	}),
+]);
+const requestVariantSchema = z.object({ spec: variantSpecSchema });
+
+// mimeType/filename the placeholder row gets — must match what each
+// worker processor's requestedVariant branch actually produces
+// (image.ts/video.ts/audio.ts), since finalizeVariant uploads bytes back
+// to this row's already-decided s3Path/mimeType rather than the worker
+// deciding either.
+function outputForSpec(spec: VariantSpec, originalFilename: string, originalMimeType: string) {
+	const base = originalFilename.replace(/\.[^.]+$/, "");
+	switch (spec.kind) {
+		case "image-format":
+			return spec.format === "original"
+				? { filename: originalFilename, mimeType: originalMimeType }
+				: { filename: `${base}.${spec.format}`, mimeType: `image/${spec.format}` };
+		case "video-transcode":
+			return { filename: `${base}.mp4`, mimeType: "video/mp4" };
+		case "audio-transcode":
+			return { filename: `${base}.mp3`, mimeType: "audio/mpeg" };
+	}
+}
+
+// A variant spec is only meaningful for the mimetype family it targets —
+// requesting a video-transcode of an image asset (or vice versa) is a
+// client bug, not a 404/500.
+function specMatchesMimeType(spec: VariantSpec, mimeType: string): boolean {
+	if (spec.kind === "image-format") return mimeType.startsWith("image/");
+	if (spec.kind === "video-transcode") return mimeType.startsWith("video/");
+	return mimeType.startsWith("audio/");
+}
+
+// On-demand conversion: check the cache first (an identical spec requested
+// twice is an instant hit, no new job — see the plan's Phase 8 verify
+// step), else insert a placeholder `assets` row synchronously (so this
+// call can return an id/key immediately) and enqueue a "variant"-named job
+// for the worker's requestedVariant branch to fill in. PDF has no
+// on-demand path this pass — specMatchesMimeType naturally 400s it, since
+// no VariantSpec kind targets application/pdf.
+assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate, async (c) => {
+	const { orgId, projectId, assetId } = c.req.param();
+	const project = await requireProject(orgId, projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const original = await requireAsset(projectId, assetId);
+	if (!original || original.deletedAt) return c.json({ error: "Asset not found" }, 404);
+
+	const parsed = requestVariantSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+	const { spec } = parsed.data;
+
+	if (!specMatchesMimeType(spec, original.mimeType)) {
+		return c.json({ error: "This variant type doesn't apply to this asset's file type" }, 400);
+	}
+	// Same read as the file itself — nothing to generate or cache.
+	if (
+		spec.kind === "image-format" &&
+		spec.format === "original" &&
+		spec.maxDimension === "original"
+	) {
+		return c.json(
+			{ error: "That combination is just the original file — download it directly" },
+			400,
+		);
+	}
+
+	const specKey = computeSpecKey(spec);
+	const db = getDb();
+	const cached = await findCachedVariant(db, assetId, specKey);
+	if (cached && cached.status !== "failed") {
+		return c.json({ asset: cached }, cached.status === "ready" ? 200 : 202);
+	}
+
+	const variantId = crypto.randomUUID();
+	const { filename, mimeType } = outputForSpec(spec, original.filename, original.mimeType);
+	const key = buildAssetKey(projectId, variantId, filename);
+	await db.insert(assets).values({
+		id: variantId,
+		projectId,
+		folderId: original.folderId,
+		filename,
+		mimeType,
+		s3Path: key,
+		parentAssetId: assetId,
+		status: "processing",
+		metadata: { variant: "on-demand", specKey },
+	});
+
+	// Guaranteed non-null: specMatchesMimeType already ruled out any
+	// mimetype (like application/pdf) that queueForMimeType routes to null.
+	const queueName = queueForMimeType(original.mimeType);
+	if (!queueName) throw new Error(`No processing queue for mimetype ${original.mimeType}`);
+	await getQueue(queueName).add("variant", {
+		assetId,
+		projectId,
+		s3Path: original.s3Path,
+		mimeType: original.mimeType,
+		requestedVariant: { variantAssetId: variantId, spec },
+	});
+
+	const created = await requireAsset(projectId, variantId);
+	return c.json({ asset: created }, 202);
+});
+
 assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/trash", ...gate, async (c) => {
 	const { orgId, projectId, assetId } = c.req.param();
 	const project = await requireProject(orgId, projectId);
@@ -372,7 +582,10 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/restore", ...gate,
 			.from(folders)
 			.where(and(eq(folders.id, existing.folderId), notUnderTrashedAncestor(folders.id)));
 		if (!visible) {
-			return c.json({ error: "The containing folder is also trashed — restore that one first" }, 409);
+			return c.json(
+				{ error: "The containing folder is also trashed — restore that one first" },
+				409,
+			);
 		}
 	}
 
@@ -388,7 +601,8 @@ assetsRoute.delete("/:orgId/projects/:projectId/assets/:assetId", ...gate, async
 	if (!project) return c.json({ error: "Project not found" }, 404);
 	const existing = await requireAsset(projectId, assetId);
 	if (!existing) return c.json({ error: "Asset not found" }, 404);
-	if (!existing.deletedAt) return c.json({ error: "Move this asset to the recycle bin first" }, 400);
+	if (!existing.deletedAt)
+		return c.json({ error: "Move this asset to the recycle bin first" }, 400);
 
 	await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: assetId });
 	return c.body(null, 204);
@@ -471,7 +685,10 @@ assetsRoute.post("/:orgId/projects/:projectId/bulk/trash", ...gate, async (c) =>
 	}
 	for (const assetId of parsed.data.assetIds) {
 		try {
-			await db.update(assets).set({ deletedAt: new Date() }).where(and(eq(assets.id, assetId), eq(assets.projectId, projectId)));
+			await db
+				.update(assets)
+				.set({ deletedAt: new Date() })
+				.where(and(eq(assets.id, assetId), eq(assets.projectId, projectId)));
 			await logActivity(assetId, "trashed", actor.id);
 			results[assetId] = true;
 		} catch {
@@ -571,12 +788,18 @@ assetsRoute.post("/:orgId/projects/:projectId/bulk/move", ...gate, async (c) => 
 	}
 	for (const assetId of parsed.data.assetIds) {
 		try {
-			const [asset] = await db.select({ folderId: assets.folderId }).from(assets).where(eq(assets.id, assetId));
+			const [asset] = await db
+				.select({ folderId: assets.folderId })
+				.from(assets)
+				.where(eq(assets.id, assetId));
 			if (!asset) {
 				results[assetId] = false;
 				continue;
 			}
-			await db.update(assets).set({ folderId: parsed.data.targetFolderId }).where(eq(assets.id, assetId));
+			await db
+				.update(assets)
+				.set({ folderId: parsed.data.targetFolderId })
+				.where(eq(assets.id, assetId));
 			await logActivity(assetId, "moved", actor.id, asset.folderId, parsed.data.targetFolderId);
 			results[assetId] = true;
 		} catch {
@@ -615,4 +838,130 @@ assetsRoute.post("/:orgId/projects/:projectId/bulk/delete", ...gate, async (c) =
 	}
 
 	return c.json({ results });
+});
+
+// Matches uploads/batch's cap precedent (413 past a size/count ceiling) —
+// a bulk zip of everything in a huge project would otherwise tie up a
+// request indefinitely and risk OOMing the process building the file list.
+const BULK_DOWNLOAD_MAX_ITEMS = 500;
+const BULK_DOWNLOAD_MAX_BYTES = 5 * 1024 * 1024 * 1024;
+const BULK_DOWNLOAD_TICKET_TTL_SECONDS = 300;
+
+function bulkDownloadTicketKey(ticket: string): string {
+	return `bulk-download:${ticket}`;
+}
+
+// Resolves the selection into a concrete, capped file list and parks it in
+// Redis under a random ticket (see decision #8 — reusing getQueue()'s
+// connection rather than opening a second one) instead of returning the
+// zip directly: a `POST` response can't be the target of a plain browser
+// navigation, but `GET .../bulk/download/:downloadId` (below) can, which is
+// what gives the actual download real browser progress UI instead of a
+// `fetch()`-then-blob dance that double-buffers a multi-GB zip in tab
+// memory.
+assetsRoute.post("/:orgId/projects/:projectId/bulk/download", ...gate, async (c) => {
+	const { orgId, projectId } = c.req.param();
+	const project = await requireProject(orgId, projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const parsed = bulkTargetSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+	const db = getDb();
+	const selectedAssets =
+		parsed.data.assetIds.length > 0
+			? await db
+					.select({
+						id: assets.id,
+						s3Path: assets.s3Path,
+						filename: assets.filename,
+						size: assets.size,
+					})
+					.from(assets)
+					.where(
+						and(
+							inArray(assets.id, parsed.data.assetIds),
+							eq(assets.projectId, projectId),
+							isNull(assets.deletedAt),
+							isNull(assets.parentAssetId),
+						),
+					)
+			: [];
+	const folderAssets = await collectLiveOriginalAssetsUnderFolders(db, parsed.data.folderIds);
+
+	const byId = new Map<string, { s3Path: string; filename: string; size: number | null }>();
+	for (const item of [...selectedAssets, ...folderAssets]) {
+		byId.set(item.id, { s3Path: item.s3Path, filename: item.filename, size: item.size });
+	}
+	const items = [...byId.values()];
+
+	if (items.length === 0) return c.json({ error: "Nothing to download" }, 400);
+	const totalBytes = items.reduce((sum, item) => sum + (item.size ?? 0), 0);
+	if (items.length > BULK_DOWNLOAD_MAX_ITEMS || totalBytes > BULK_DOWNLOAD_MAX_BYTES) {
+		return c.json({ error: "That selection is too large to download as a zip" }, 413);
+	}
+
+	const ticket = crypto.randomUUID();
+	await getRedisConnection().set(
+		bulkDownloadTicketKey(ticket),
+		JSON.stringify(items.map(({ s3Path, filename }) => ({ s3Path, filename }))),
+		"EX",
+		BULK_DOWNLOAD_TICKET_TTL_SECONDS,
+	);
+
+	return c.json({ downloadId: ticket }, 201);
+});
+
+// "photo.jpg" collides with another "photo.jpg" from a different source
+// folder once flattened into one zip — appended a "(n)" suffix the same
+// way appendCopySuffix disambiguates a duplicate, rather than silently
+// overwriting one entry with another inside the archive.
+function uniqueZipName(used: Set<string>, filename: string): string {
+	if (!used.has(filename)) {
+		used.add(filename);
+		return filename;
+	}
+	const dot = filename.lastIndexOf(".");
+	const base = dot > 0 ? filename.slice(0, dot) : filename;
+	const ext = dot > 0 ? filename.slice(dot) : "";
+	let n = 2;
+	let candidate = `${base} (${n})${ext}`;
+	while (used.has(candidate)) {
+		n += 1;
+		candidate = `${base} (${n})${ext}`;
+	}
+	used.add(candidate);
+	return candidate;
+}
+
+// One file downloaded (and hashed into the zip) at a time — bounds memory
+// to roughly one file's size, not the whole selection, same reasoning as
+// recycle.ts's deleteKeys but for reads instead of writes. A single
+// storage failure skips that entry rather than aborting the whole
+// already-streaming response (a partial zip is far more useful to the user
+// than a hard-failed download for a bucket hiccup on one of 200 files).
+async function* zipEntries(storage: StorageDriver, items: { s3Path: string; filename: string }[]) {
+	const usedNames = new Set<string>();
+	for (const item of items) {
+		let bytes: Uint8Array;
+		try {
+			bytes = await storage.downloadObject(item.s3Path);
+		} catch (err) {
+			console.error(`[bulk-download] skipping ${item.s3Path}:`, err);
+			continue;
+		}
+		yield { name: uniqueZipName(usedNames, item.filename), input: bytes };
+	}
+}
+
+assetsRoute.get("/:orgId/projects/:projectId/bulk/download/:downloadId", ...gate, async (c) => {
+	const { orgId, projectId, downloadId } = c.req.param();
+	const project = await requireProject(orgId, projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+
+	const raw = await getRedisConnection().get(bulkDownloadTicketKey(downloadId));
+	if (!raw) return c.json({ error: "This download link has expired — request a new one" }, 410);
+	const items = JSON.parse(raw) as { s3Path: string; filename: string }[];
+
+	const storage = resolveStorageDriver(project);
+	return downloadZip(zipEntries(storage, items));
 });

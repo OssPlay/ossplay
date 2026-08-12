@@ -1,20 +1,25 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AudioProcessingJob, getProjectWithDestination, resolveStorageDriver } from "@ossplay/core";
+import {
+	type AudioProcessingJob,
+	getProjectWithDestination,
+	resolveStorageDriver,
+} from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { createVariant, ffprobeJson, markAssetStatus } from "./shared";
+import { createVariant, ffprobeJson, finalizeVariant, markAssetStatus } from "./shared";
 import { run } from "./spawn";
 
-// PRD §3 calls for MP3/AAC/OGG transcoding, but ProjectRules has no audio
-// section yet (no per-project format choice exists in the schema today) —
-// a gap in the current rule surface, not something this processor invents
-// around. Produces one broadly-compatible MP3 128kbps variant as a sane
-// default until a real per-project audio rule exists.
+// Upload-time processing is thumbnail-only by design (see the plan's
+// per-mimetype variant matrix) — the eager 128kbps MP3 transcode this used
+// to do is gone; on-demand MP3 transcoding at a requested bitrate (the
+// `requestedVariant` branch below) replaces it. The "thumbnail" for audio
+// is embedded cover art, if the source has any — silently producing no
+// thumbnail row otherwise (thumbnailAssetId is nullable), not a failure.
 export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> {
-	const { assetId, projectId } = job.data;
+	const { assetId, projectId, requestedVariant } = job.data;
 
 	const project = await getProjectWithDestination(projectId);
 	if (!project) throw new Error(`Project ${projectId} not found`);
@@ -28,22 +33,51 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 	const workDir = await mkdtemp(join(tmpdir(), "ossplay-audio-"));
 	try {
 		const inputPath = join(workDir, "input");
-		const outputPath = join(workDir, "output.mp3");
 		await writeFile(inputPath, bytes);
 
-		await run("ffmpeg", ["-y", "-i", inputPath, "-codec:a", "libmp3lame", "-b:a", "128k", outputPath]);
+		if (requestedVariant) {
+			if (requestedVariant.spec.kind !== "audio-transcode") {
+				throw new Error(`Unexpected variant kind for audio asset: ${requestedVariant.spec.kind}`);
+			}
+			const outputPath = join(workDir, "output.mp3");
+			await run("ffmpeg", [
+				"-y",
+				"-i",
+				inputPath,
+				"-codec:a",
+				"libmp3lame",
+				"-b:a",
+				requestedVariant.spec.bitrate,
+				outputPath,
+			]);
+			const output = await readFile(outputPath);
+			await finalizeVariant(requestedVariant.variantAssetId, storage, new Uint8Array(output));
+			return;
+		}
 
-		const output = await readFile(outputPath);
-		await createVariant({
-			projectId,
-			folderId: original.folderId,
-			parentAssetId: assetId,
-			filename: replaceExt(original.filename, "mp3"),
-			mimeType: "audio/mpeg",
-			storage,
-			data: new Uint8Array(output),
-			metadata: { variant: "converted", bitrate: "128k" },
-		});
+		// No embedded art is a normal, common case (not every file has a
+		// cover) — swallow ffmpeg's failure rather than failing the whole
+		// job over a missing optional thumbnail.
+		const coverPath = join(workDir, "cover.webp");
+		let hasCover = true;
+		try {
+			await run("ffmpeg", ["-y", "-i", inputPath, "-an", "-vcodec", "libwebp", coverPath]);
+		} catch {
+			hasCover = false;
+		}
+		if (hasCover) {
+			const coverBytes = await readFile(coverPath);
+			await createVariant({
+				projectId,
+				folderId: original.folderId,
+				parentAssetId: assetId,
+				filename: replaceExt(original.filename, "webp", "-thumb"),
+				mimeType: "image/webp",
+				storage,
+				data: new Uint8Array(coverBytes),
+				metadata: { variant: "thumbnail" },
+			});
+		}
 
 		const probe = await ffprobeJson(inputPath);
 		const audioStream = probe.streams?.find((s) => s.codec_type === "audio");
@@ -53,12 +87,13 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 			channels: audioStream?.channels ?? null,
 			durationSeconds: probe.format?.duration ? Number.parseFloat(probe.format.duration) : null,
 			bitrate: probe.format?.bit_rate ? Number.parseInt(probe.format.bit_rate, 10) : null,
+			hasCoverArt: hasCover,
 		});
 	} finally {
 		await rm(workDir, { force: true, recursive: true });
 	}
 }
 
-function replaceExt(filename: string, ext: string): string {
-	return `${filename.replace(/\.[^.]+$/, "")}.${ext}`;
+function replaceExt(filename: string, ext: string, suffix = ""): string {
+	return `${filename.replace(/\.[^.]+$/, "")}${suffix}.${ext}`;
 }

@@ -1,7 +1,7 @@
-import { rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { bootstrapAdmin, jsonRequest, truncateAllTables } from "../test-support";
+import { rmSync } from "node:fs";
 import { app } from "../app";
+import { bootstrapAdmin, jsonRequest, truncateAllTables } from "../test-support";
 
 // Local-disk mode, not S3 — lets this file exercise the real upload/
 // confirm/content round trip without needing network access or a real
@@ -221,5 +221,153 @@ describe.skipIf(!process.env.DATABASE_URL)("assets", () => {
 		};
 		expect(docsBody.childFolders.map((f) => f.name)).toEqual(["2024"]);
 		expect(docsBody.childAssets.items.map((a) => a.filename)).toEqual(["a.txt"]);
+	});
+
+	// These two only exercise the request-validation branches of POST
+	// .../variants, which return before any BullMQ enqueue — every other
+	// test in this file deliberately stays on text/plain assets (no
+	// processing queue) so this file can run without a real Redis/worker
+	// present; a happy-path variant request would need both.
+	it("POST .../assets/:id/variants rejects a spec that doesn't match the asset's mimetype", async () => {
+		const uploadRes = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/uploads`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ folderId: null, filename: "note.txt", mimeType: "text/plain" }),
+		});
+		const { assetId: textAssetId } = (await uploadRes.json()) as { assetId: string };
+
+		const res = await jsonRequest(
+			`/organizations/${orgId}/projects/${projectId}/assets/${textAssetId}/variants`,
+			{
+				method: "POST",
+				cookie: ownerCookie,
+				body: JSON.stringify({ spec: { kind: "video-transcode", height: 720 } }),
+			},
+		);
+		expect(res.status).toBe(400);
+	});
+
+	it("POST .../assets/:id/variants rejects the original+original combo as a no-op", async () => {
+		const uploadRes = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/uploads`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ folderId: null, filename: "photo.jpg", mimeType: "image/jpeg" }),
+		});
+		const { assetId: imageAssetId } = (await uploadRes.json()) as { assetId: string };
+
+		const res = await jsonRequest(
+			`/organizations/${orgId}/projects/${projectId}/assets/${imageAssetId}/variants`,
+			{
+				method: "POST",
+				cookie: ownerCookie,
+				body: JSON.stringify({
+					spec: { kind: "image-format", format: "original", maxDimension: "original" },
+				}),
+			},
+		);
+		expect(res.status).toBe(400);
+	});
+
+	async function createTextAsset(
+		folderId: string | null,
+		filename: string,
+		content: string,
+	): Promise<string> {
+		const uploadRes = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/uploads`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ folderId, filename, mimeType: "text/plain" }),
+		});
+		const { assetId, uploadTarget } = (await uploadRes.json()) as {
+			assetId: string;
+			uploadTarget: string;
+		};
+		await rawRequest(uploadTarget, {
+			method: "PUT",
+			cookie: ownerCookie,
+			headers: { "content-type": "application/octet-stream" },
+			body: content,
+		});
+		await jsonRequest(`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/confirm`, {
+			method: "POST",
+			cookie: ownerCookie,
+		});
+		return assetId;
+	}
+
+	async function createFolder(parentId: string | null, name: string): Promise<string> {
+		const res = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/folders`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ parentId, name }),
+		});
+		const body = (await res.json()) as { folder: { id: string } };
+		return body.folder.id;
+	}
+
+	// Reads the classic (non-zip64) End Of Central Directory record's total
+	// entry count — enough to confirm dedupe/exclusion behavior without
+	// pulling in a zip-reading dependency just for this test.
+	function zipEntryCount(bytes: Uint8Array): number {
+		const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		for (let i = bytes.length - 22; i >= 0; i--) {
+			if (view.getUint32(i, true) === 0x06054b50) return view.getUint16(i + 10, true);
+		}
+		throw new Error("EOCD record not found in zip response");
+	}
+
+	it("bulk/download zips a mixed selection, deduping an already-covered asset and excluding trashed rows", async () => {
+		const folderId = await createFolder(null, "ZipFolder");
+		const a = await createTextAsset(folderId, "a.txt", "aaa");
+		const b = await createTextAsset(folderId, "b.txt", "bbb");
+		const nestedId = await createFolder(folderId, "Nested");
+		await createTextAsset(nestedId, "c.txt", "ccc");
+		const outside = await createTextAsset(null, "outside.txt", "ooo");
+
+		await jsonRequest(`/organizations/${orgId}/projects/${projectId}/assets/${b}/trash`, {
+			method: "POST",
+			cookie: ownerCookie,
+		});
+
+		// folderId covers a.txt/b.txt/c.txt; `a` is passed again directly and
+		// must not be double-counted; `b` is trashed and must be excluded.
+		const postRes = await jsonRequest(
+			`/organizations/${orgId}/projects/${projectId}/bulk/download`,
+			{
+				method: "POST",
+				cookie: ownerCookie,
+				body: JSON.stringify({ folderIds: [folderId], assetIds: [a, outside] }),
+			},
+		);
+		expect(postRes.status).toBe(201);
+		const { downloadId } = (await postRes.json()) as { downloadId: string };
+
+		const getRes = await rawRequest(
+			`/organizations/${orgId}/projects/${projectId}/bulk/download/${downloadId}`,
+			{ cookie: ownerCookie },
+		);
+		expect(getRes.status).toBe(200);
+		expect(getRes.headers.get("content-type")).toBe("application/zip");
+
+		const zipBytes = new Uint8Array(await getRes.arrayBuffer());
+		// a.txt, c.txt, outside.txt — b.txt trashed, `a` not duplicated.
+		expect(zipEntryCount(zipBytes)).toBe(3);
+	});
+
+	it("bulk/download 400s when the selection resolves to nothing", async () => {
+		const res = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/bulk/download`, {
+			method: "POST",
+			cookie: ownerCookie,
+			body: JSON.stringify({ folderIds: [], assetIds: [] }),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("bulk/download GET 410s for an unknown or expired ticket", async () => {
+		const res = await rawRequest(
+			`/organizations/${orgId}/projects/${projectId}/bulk/download/${crypto.randomUUID()}`,
+			{ cookie: ownerCookie },
+		);
+		expect(res.status).toBe(410);
 	});
 });

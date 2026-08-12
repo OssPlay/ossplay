@@ -7,6 +7,8 @@ const config = {
 	searchable: [sshKeys.label],
 	filters: { type: sshKeys.keyType },
 	dateRanges: { created_at: sshKeys.createdAt },
+	sortable: { label: sshKeys.label, created_at: sshKeys.createdAt },
+	defaultSort: { key: "label", order: "asc" as const },
 };
 
 async function parse(query: string) {
@@ -71,5 +73,41 @@ describe("parseListQuery", () => {
 	it("combines q, filters, and date bounds into one where clause", async () => {
 		const result = await parse("?q=prod&filter_type=ssh-rsa&created_at_gt=2026-01-01");
 		expect(result.where).toBeDefined();
+	});
+
+	it("falls back to defaultSort when sort is missing", async () => {
+		const result = await parse("");
+		expect(result.orderBy).toBeDefined();
+	});
+
+	it("falls back to defaultSort when sort is not a recognized key — never trusts the raw string as a column name", async () => {
+		const fallback = (await parse("")).orderBy;
+		const invalid = (await parse("?sort=drop table sshKeys;--")).orderBy;
+		expect(invalid).toEqual(fallback);
+	});
+
+	it("honors a recognized sort key and order", async () => {
+		const asc = await parse("?sort=created_at&order=asc");
+		const desc = await parse("?sort=created_at&order=desc");
+		expect(asc.orderBy).toBeDefined();
+		expect(desc.orderBy).toBeDefined();
+		expect(asc.orderBy).not.toEqual(desc.orderBy);
+	});
+
+	it("defaults order to asc when order is missing or invalid", async () => {
+		const noOrder = await parse("?sort=created_at");
+		const ascOrder = await parse("?sort=created_at&order=asc");
+		expect(noOrder.orderBy).toEqual(ascOrder.orderBy);
+	});
+
+	it("leaves orderBy undefined when the config has no sortable map", async () => {
+		let result: ReturnType<typeof parseListQuery> | undefined;
+		const app = new Hono().get("/", (c) => {
+			result = parseListQuery(c, { searchable: [sshKeys.label] });
+			return c.body(null);
+		});
+		await app.request("/?sort=label");
+		if (!result) throw new Error("handler did not run");
+		expect(result.orderBy).toBeUndefined();
 	});
 });

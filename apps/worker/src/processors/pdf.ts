@@ -1,10 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type PdfProcessingJob, getProjectWithDestination, resolveStorageDriver } from "@ossplay/core";
+import {
+	getProjectWithDestination,
+	type PdfProcessingJob,
+	resolveStorageDriver,
+} from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { createVariant, markAssetStatus } from "./shared";
 import { run, runCapture } from "./spawn";
 
@@ -30,17 +35,32 @@ export async function processPdf(job: Job<PdfProcessingJob>): Promise<void> {
 		const outputPrefix = join(workDir, "thumb");
 		await writeFile(inputPath, bytes);
 
-		await run("pdftoppm", ["-png", "-singlefile", "-r", "150", "-f", "1", "-l", "1", inputPath, outputPrefix]);
+		await run("pdftoppm", [
+			"-png",
+			"-singlefile",
+			"-r",
+			"150",
+			"-f",
+			"1",
+			"-l",
+			"1",
+			inputPath,
+			outputPrefix,
+		]);
 
-		const output = await readFile(`${outputPrefix}.png`);
+		// Converted to webp for consistency with every other mimetype's
+		// thumbnail (image/video/audio all produce webp) — pdftoppm itself
+		// has no webp output mode, only ppm/png/jpeg.
+		const rendered = await readFile(`${outputPrefix}.png`);
+		const webp = await sharp(rendered).webp().toBuffer();
 		await createVariant({
 			projectId,
 			folderId: original.folderId,
 			parentAssetId: assetId,
-			filename: replaceExt(original.filename, "png", "-thumb"),
-			mimeType: "image/png",
+			filename: replaceExt(original.filename, "webp", "-thumb"),
+			mimeType: "image/webp",
 			storage,
-			data: new Uint8Array(output),
+			data: webp,
 			metadata: { variant: "thumbnail", page: 1 },
 		});
 

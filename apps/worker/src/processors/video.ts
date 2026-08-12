@@ -1,22 +1,33 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import type { Job } from "bullmq";
-import { type VideoProcessingJob, getProjectWithDestination, resolveStorageDriver } from "@ossplay/core";
+import {
+	getProjectWithDestination,
+	resolveStorageDriver,
+	type VideoProcessingJob,
+} from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
+import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { createVariant, ffprobeJson, markAssetStatus, parseFrameRate } from "./shared";
+import {
+	createVariant,
+	ffprobeJson,
+	finalizeVariant,
+	markAssetStatus,
+	parseFrameRate,
+} from "./shared";
 import { run } from "./spawn";
 
-// Scoped down from the full `resolutions: string[]` ladder — packages a
-// single rendition (the first configured resolution, or source resolution
-// if none configured) rather than a full adaptive-bitrate multi-rendition
-// set. A real multi-rendition master playlist is a meaningfully bigger
-// feature (per-rendition segment sets, a master .m3u8 selecting between
-// them); flagged as a follow-up, not silently dropped.
+// Upload-time processing is thumbnail-only by design (see the plan's
+// per-mimetype variant matrix) — the eager HLS packaging this used to do
+// (segments/manifest/key per upload) is gone; on-demand MP4 transcoding
+// (the `requestedVariant` branch below) replaces it. ProjectRules'
+// `hlsSegmentDuration`/`drmAes128` fields are left in the schema but are
+// now unreachable — a deliberate, flagged gap (see the plan's Phase 7
+// note), not a silent removal; a real multi-rendition HLS feature is a
+// follow-up decision, not something this pass repurposes them for.
 export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> {
-	const { assetId, projectId } = job.data;
+	const { assetId, projectId, requestedVariant } = job.data;
 
 	const project = await getProjectWithDestination(projectId);
 	if (!project) throw new Error(`Project ${projectId} not found`);
@@ -32,109 +43,73 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 		const inputPath = join(workDir, "input");
 		await writeFile(inputPath, bytes);
 
-		const rules = project.rules.video;
-		const targetHeight = parseResolutionHeight(rules.resolutions[0]);
-		const playlistPath = join(workDir, "stream.m3u8");
-		const segmentPattern = join(workDir, "segment_%05d.ts");
-
-		const args = ["-y", "-i", inputPath];
-		if (targetHeight) args.push("-vf", `scale=-2:${targetHeight}`);
-		args.push(
-			"-hls_time",
-			String(rules.hlsSegmentDuration),
-			"-hls_playlist_type",
-			"vod",
-			"-hls_segment_filename",
-			segmentPattern,
-		);
-
-		let keyInfoPath: string | null = null;
-		let keyBytes: Uint8Array | null = null;
-		if (rules.drmAes128) {
-			keyBytes = randomBytes(16);
-			const iv = randomBytes(16).toString("hex");
-			const keyPath = join(workDir, "key.bin");
-			await writeFile(keyPath, keyBytes);
-			keyInfoPath = join(workDir, "key.keyinfo");
-			// ffmpeg's hls_key_info_file format: key URI (written into the
-			// manifest as-is), local key file path (for ffmpeg to read the
-			// actual key bytes), IV. The URI here is a placeholder rewritten
-			// below, same as segment filenames — the real key asset's URL
-			// isn't known until after upload.
-			await writeFile(keyInfoPath, `KEY_URI_PLACEHOLDER\n${keyPath}\n${iv}\n`);
-			args.push("-hls_key_info_file", keyInfoPath);
-		}
-		args.push(playlistPath);
-
-		await run("ffmpeg", args);
-
-		const files = await readdir(workDir);
-		const segmentFiles = files.filter((f) => f.endsWith(".ts")).sort();
-		const segmentKeyByFilename = new Map<string, string>();
-
-		for (const segmentFile of segmentFiles) {
-			const segmentBytes = await readFile(join(workDir, segmentFile));
-			const variant = await createVariant({
-				projectId,
-				folderId: original.folderId,
-				parentAssetId: assetId,
-				filename: segmentFile,
-				mimeType: "video/mp2t",
-				storage,
-				data: new Uint8Array(segmentBytes),
-				metadata: { variant: "hls-segment" },
-			});
-			segmentKeyByFilename.set(segmentFile, variant.s3Path);
+		if (requestedVariant) {
+			if (requestedVariant.spec.kind !== "video-transcode") {
+				throw new Error(`Unexpected variant kind for video asset: ${requestedVariant.spec.kind}`);
+			}
+			const outputPath = join(workDir, "output.mp4");
+			await run("ffmpeg", [
+				"-y",
+				"-i",
+				inputPath,
+				"-vf",
+				`scale=-2:min(${requestedVariant.spec.height}\\,ih)`,
+				"-c:v",
+				"libx264",
+				"-crf",
+				"23",
+				"-c:a",
+				"aac",
+				"-movflags",
+				"+faststart",
+				outputPath,
+			]);
+			const output = await readFile(outputPath);
+			await finalizeVariant(requestedVariant.variantAssetId, storage, new Uint8Array(output));
+			return;
 		}
 
-		let keyUrl: string | null = null;
-		if (rules.drmAes128 && keyBytes) {
-			const keyVariant = await createVariant({
-				projectId,
-				folderId: original.folderId,
-				parentAssetId: assetId,
-				filename: "key.bin",
-				mimeType: "application/octet-stream",
-				storage,
-				data: keyBytes,
-				// The key object itself is stored like any other variant, but
-				// unlike segments/manifest it must NOT be handed out through the
-				// same unauthenticated-by-mimeType content route — real access
-				// control for this key (short-lived signed URL per viewer, not a
-				// stable public link) is follow-up work, not yet wired.
-				metadata: { variant: "hls-key", accessControlPending: true },
-			});
-			keyUrl = storage.createDownloadUrl(keyVariant.s3Path, { static: false });
-		}
+		const probe = await ffprobeJson(inputPath);
+		const videoStream = probe.streams?.find((s) => s.codec_type === "video");
+		const durationSeconds = probe.format?.duration
+			? Number.parseFloat(probe.format.duration)
+			: null;
+		// Avoids grabbing a black/title-card frame at 0 — halfway into the
+		// clip (capped at 3s for anything short) is a much more
+		// representative preview.
+		const frameTimestamp = durationSeconds ? Math.min(3, durationSeconds / 2) : 0;
 
-		let playlistText = await readFile(playlistPath, "utf8");
-		for (const [filename, key] of segmentKeyByFilename) {
-			const url = storage.createDownloadUrl(key, { static: false });
-			playlistText = playlistText.replaceAll(filename, url);
-		}
-		if (keyUrl) playlistText = playlistText.replace("KEY_URI_PLACEHOLDER", keyUrl);
-
+		const thumbPath = join(workDir, "thumb.webp");
+		await run("ffmpeg", [
+			"-y",
+			"-ss",
+			String(frameTimestamp),
+			"-i",
+			inputPath,
+			"-frames:v",
+			"1",
+			"-vf",
+			"scale=512:-1",
+			thumbPath,
+		]);
+		const thumbBytes = await readFile(thumbPath);
 		await createVariant({
 			projectId,
 			folderId: original.folderId,
 			parentAssetId: assetId,
-			filename: "stream.m3u8",
-			mimeType: "application/vnd.apple.mpegurl",
+			filename: replaceExt(original.filename, "webp", "-thumb"),
+			mimeType: "image/webp",
 			storage,
-			data: new TextEncoder().encode(playlistText),
-			metadata: { variant: "hls-manifest", segmentCount: segmentFiles.length },
+			data: new Uint8Array(thumbBytes),
+			metadata: { variant: "thumbnail", frameTimestamp },
 		});
 
-		const probe = await ffprobeJson(inputPath);
-		const videoStream = probe.streams?.find((s) => s.codec_type === "video");
 		await markAssetStatus(assetId, "ready", {
-			segmentCount: segmentFiles.length,
-			targetHeight: targetHeight ?? null,
 			width: videoStream?.width ?? null,
 			height: videoStream?.height ?? null,
 			codec: videoStream?.codec_name ?? null,
 			frameRate: parseFrameRate(videoStream?.r_frame_rate),
-			durationSeconds: probe.format?.duration ? Number.parseFloat(probe.format.duration) : null,
+			durationSeconds,
 			bitrate: probe.format?.bit_rate ? Number.parseInt(probe.format.bit_rate, 10) : null,
 		});
 	} finally {
@@ -142,8 +117,7 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 	}
 }
 
-function parseResolutionHeight(resolution: string | undefined): number | null {
-	if (!resolution) return null;
-	const match = resolution.match(/(\d+)p?$/i);
-	return match?.[1] ? Number.parseInt(match[1], 10) : null;
+function replaceExt(filename: string, ext: string, suffix = ""): string {
+	const base = filename.replace(/\.[^.]+$/, "");
+	return `${base}${suffix}.${ext}`;
 }

@@ -1,12 +1,13 @@
-import { type AnyColumn, and, gt, ilike, inArray, lt, or, type SQL } from "drizzle-orm";
+import { type AnyColumn, and, asc, desc, gt, ilike, inArray, lt, or, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
 
 // The shared query-param contract every paginated list endpoint speaks, FE
 // and BE alike: `q` (free-text search), `filter_<key>=a,b,c` (multi-value
-// column filter), `<key>_gt` / `<key>_lt` (date-range bounds), `page` /
-// `per_page`. One parser here means one contract, not a slightly-different
-// reimplementation per route (instance-users.ts and instance-audit-logs.ts
-// each hand-rolled their own version of this before ssh-keys made it a 3rd).
+// column filter), `<key>_gt` / `<key>_lt` (date-range bounds), `sort` /
+// `order`, `page` / `per_page`. One parser here means one contract, not a
+// slightly-different reimplementation per route (instance-users.ts and
+// instance-audit-logs.ts each hand-rolled their own version of this before
+// ssh-keys made it a 3rd).
 export interface ListQueryConfig {
 	/** Columns ORed together against `q`. */
 	searchable?: AnyColumn[];
@@ -14,12 +15,22 @@ export interface ListQueryConfig {
 	filters?: Record<string, AnyColumn>;
 	/** `<key>_gt` / `<key>_lt` → date-range bounds, keyed by the `<key>_` prefix. */
 	dateRanges?: Record<string, AnyColumn>;
+	/**
+	 * `sort=<key>` → `orderBy(column)`, keyed by the sort key a caller may
+	 * pass. Never trust the raw query string as a column name — only keys
+	 * present in this map are honored, same indirection `filters`/
+	 * `dateRanges` already use.
+	 */
+	sortable?: Record<string, AnyColumn>;
+	/** Falls back to this when `sort` is missing or not a recognized key. */
+	defaultSort?: { key: string; order: "asc" | "desc" };
 	defaultPageSize?: number;
 	maxPageSize?: number;
 }
 
 export interface ParsedListQuery {
 	where: SQL | undefined;
+	orderBy: SQL | undefined;
 	page: number;
 	pageSize: number;
 	limit: number;
@@ -69,8 +80,20 @@ export function parseListQuery(c: Context, config: ListQueryConfig): ParsedListQ
 		Math.max(1, Number.parseInt(c.req.query("per_page") ?? "", 10) || defaultPageSize),
 	);
 
+	let orderBy: SQL | undefined;
+	if (config.sortable) {
+		const requestedKey = c.req.query("sort");
+		const requestedOrder = c.req.query("order") === "desc" ? "desc" : "asc";
+		const sortKey = requestedKey && requestedKey in config.sortable ? requestedKey : undefined;
+		const key = sortKey ?? config.defaultSort?.key;
+		const order = sortKey ? requestedOrder : (config.defaultSort?.order ?? "asc");
+		const column = key ? config.sortable[key] : undefined;
+		if (column) orderBy = order === "desc" ? desc(column) : asc(column);
+	}
+
 	return {
 		where: conditions.length > 0 ? and(...conditions) : undefined,
+		orderBy,
 		page,
 		pageSize,
 		limit: pageSize,

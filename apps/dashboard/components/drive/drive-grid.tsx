@@ -10,25 +10,23 @@ import {
 	Trash2Icon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { type DragEvent, useState } from "react";
 import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useAction } from "@/hooks/use-action";
-import { apiFetch } from "@/lib/api";
+import { type RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
+import type { DriveSelection } from "@/hooks/use-drive-selection";
+import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
+import { DownloadAsDialog } from "./download-as-dialog";
+import { MoveToDialog } from "./move-to-dialog";
 import { PreviewOverlay } from "./preview-overlay";
 import { RenameDialog } from "./rename-dialog";
 
-interface RenameTarget {
-	name: string;
-	endpoint: string;
-	bodyKey: "name" | "filename";
-}
+const DRAG_MIME = "application/x-drive-items";
 
 function iconForMimeType(mimeType: string) {
 	if (mimeType.startsWith("image/")) return ImageIcon;
@@ -38,78 +36,85 @@ function iconForMimeType(mimeType: string) {
 	return FileIcon;
 }
 
+// Only image/video/audio have an on-demand conversion path (see the
+// plan's per-mimetype variant matrix) — PDFs and everything else only
+// ever get their original file back, so "Download as…" isn't offered.
+function hasOnDemandVariants(mimeType: string) {
+	return (
+		mimeType.startsWith("image/") || mimeType.startsWith("video/") || mimeType.startsWith("audio/")
+	);
+}
+
 // Bespoke grid, not DataTable — spatial folder/file mixing, thumbnails, and
 // right-click actions don't fit a row-oriented table well (trash/page.tsx
 // uses DataTable instead, since a flat restore/delete-forever list fits it
 // better).
+//
+// `selection` is owned by DriveView (not built here) so it survives a
+// grid/list view-mode toggle instead of resetting each time.
 export function DriveGrid({
 	orgId,
 	projectId,
 	folders,
 	assets,
+	selection,
 	onRefresh,
 }: {
 	orgId: string;
 	projectId: string;
 	folders: DriveFolder[];
 	assets: DriveAsset[];
+	selection: DriveSelection;
 	onRefresh: () => void;
 }) {
 	const router = useRouter();
 	const [previewAsset, setPreviewAsset] = useState<DriveAsset | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
-	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [moveToOpen, setMoveToOpen] = useState(false);
+	const [downloadAsTarget, setDownloadAsTarget] = useState<DriveAsset | null>(null);
 
-	// A background revalidation (after trash/move/bulk actions call
-	// onRefresh()) can drop ids that were selected — without this, the "N
-	// selected" bar keeps counting ids no longer in view.
-	useEffect(() => {
-		const liveIds = new Set([...folders.map((f) => f.id), ...assets.map((a) => a.id)]);
-		setSelected((prev) => {
-			const next = new Set([...prev].filter((id) => liveIds.has(id)));
-			return next.size === prev.size ? prev : next;
-		});
-	}, [folders, assets]);
-
-	const base = `/organizations/${orgId}/projects/${projectId}`;
-
-	const trashFolder = useAction(
-		(folderId: string) => apiFetch(`${base}/folders/${folderId}/trash`, { method: "POST" }),
-		{ success: "Moved to trash", error: "Could not move to trash" },
-	);
-	const trashAsset = useAction(
-		(assetId: string) => apiFetch(`${base}/assets/${assetId}/trash`, { method: "POST" }),
-		{ success: "Moved to trash", error: "Could not move to trash" },
-	);
-	const bulkTrash = useAction(
-		() =>
-			apiFetch(`${base}/bulk/trash`, {
-				method: "POST",
-				body: JSON.stringify({
-					folderIds: folders.filter((f) => selected.has(f.id)).map((f) => f.id),
-					assetIds: assets.filter((a) => selected.has(a.id)).map((a) => a.id),
-				}),
-			}),
-		{ success: "Moved to trash", error: "Could not move selection to trash" },
-	);
-
-	function toggleSelected(id: string) {
-		setSelected((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	}
+	const {
+		base,
+		bulkTrash,
+		trashFolderAndRefresh,
+		trashAssetAndRefresh,
+		moveItemsAndRefresh,
+		duplicateAssetAndRefresh,
+		bulkDownload,
+		downloadSelectionAndOpen,
+		copyLink,
+	} = useDriveActions({
+		orgId,
+		projectId,
+		folders,
+		assets,
+		selected: selection.selected,
+		onRefresh,
+	});
 
 	async function handleBulkTrash() {
 		await bulkTrash
 			.trigger()
 			.then(() => {
-				setSelected(new Set());
+				selection.clear();
 				onRefresh();
 			})
 			.catch(() => {});
+	}
+
+	function handleDragStart(id: string, e: DragEvent) {
+		const ids = selection.isSelected(id) ? selection.selected : new Set([id]);
+		e.dataTransfer.setData(DRAG_MIME, JSON.stringify([...ids]));
+		e.dataTransfer.effectAllowed = "move";
+	}
+
+	function handleDropOnFolder(targetFolderId: string, e: DragEvent) {
+		e.preventDefault();
+		const raw = e.dataTransfer.getData(DRAG_MIME);
+		if (!raw) return;
+		const ids = new Set<string>(JSON.parse(raw));
+		if (ids.has(targetFolderId)) return;
+		moveItemsAndRefresh(ids, targetFolderId);
 	}
 
 	if (folders.length === 0 && assets.length === 0) {
@@ -125,40 +130,66 @@ export function DriveGrid({
 
 	return (
 		<div className="flex flex-col gap-3">
-			{selected.size > 0 && (
+			{selection.selected.size > 0 && (
 				<div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-					<span className="text-sm">{selected.size} selected</span>
+					<span className="text-sm">{selection.selected.size} selected</span>
+					<button
+						type="button"
+						onClick={() => downloadSelectionAndOpen(selection.selected)}
+						disabled={bulkDownload.isLoading}
+						className="ml-auto text-sm text-muted-foreground hover:text-foreground hover:underline"
+					>
+						Download
+					</button>
+					<button
+						type="button"
+						onClick={() => setMoveToOpen(true)}
+						className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+					>
+						Move to…
+					</button>
 					<button
 						type="button"
 						onClick={handleBulkTrash}
 						disabled={bulkTrash.isLoading}
-						className="ml-auto flex items-center gap-1 text-sm text-destructive hover:underline"
+						className="flex items-center gap-1 text-sm text-destructive hover:underline"
 					>
 						<Trash2Icon className="size-3.5" /> Move to trash
 					</button>
 				</div>
 			)}
 
-			<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+			<div
+				ref={selection.containerRef}
+				{...selection.containerHandlers}
+				className="relative grid select-none grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+			>
 				{folders.map((folder) => (
 					<ContextMenu key={folder.id}>
 						<ContextMenuTrigger>
-							<div className="group relative flex flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50">
-								<Checkbox
-									checked={selected.has(folder.id)}
-									onCheckedChange={() => toggleSelected(folder.id)}
-									onClick={(e) => e.stopPropagation()}
-									className="absolute left-2 top-2 opacity-0 group-hover:opacity-100 data-[state=checked]:opacity-100"
-								/>
-								<button
-									type="button"
-									onClick={() => router.push(`/project/${projectId}/${folder.id}`)}
-									className="flex flex-col items-center gap-2"
-								>
-									<FolderIcon className="size-10 text-muted-foreground" />
-									<span className="max-w-full truncate text-sm">{folder.name}</span>
-								</button>
-							</div>
+							<button
+								type="button"
+								ref={selection.registerItemRef(folder.id)}
+								draggable
+								onDragStart={(e) => handleDragStart(folder.id, e)}
+								onDragOver={(e) => e.preventDefault()}
+								onDrop={(e) => handleDropOnFolder(folder.id, e)}
+								onPointerDown={(e) => selection.handleItemPointerDown(folder.id, e)}
+								onClick={(e) => selection.handleItemClick(folder.id, e)}
+								onDoubleClick={() => router.push(`/project/${projectId}/${folder.id}`)}
+								onContextMenu={() => selection.ensureSelectedForContextMenu(folder.id)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") router.push(`/project/${projectId}/${folder.id}`);
+								}}
+								className={cn(
+									"flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50",
+									selection.isSelected(folder.id) &&
+										"border-primary bg-primary/5 ring-1 ring-primary",
+								)}
+							>
+								<FolderIcon className="size-10 text-muted-foreground" />
+								<span className="max-w-full truncate text-sm">{folder.name}</span>
+							</button>
 						</ContextMenuTrigger>
 						<ContextMenuContent>
 							<ContextMenuItem onClick={() => router.push(`/project/${projectId}/${folder.id}`)}>
@@ -180,14 +211,13 @@ export function DriveGrid({
 							>
 								Rename
 							</ContextMenuItem>
+							<ContextMenuItem onClick={() => downloadSelectionAndOpen(new Set([folder.id]))}>
+								Download as zip
+							</ContextMenuItem>
+							<ContextMenuItem onClick={() => setMoveToOpen(true)}>Move to…</ContextMenuItem>
 							<ContextMenuItem
 								variant="destructive"
-								onClick={() =>
-									trashFolder
-										.trigger(folder.id)
-										.then(onRefresh)
-										.catch(() => {})
-								}
+								onClick={() => trashFolderAndRefresh(folder.id)}
 							>
 								Move to trash
 							</ContextMenuItem>
@@ -204,32 +234,37 @@ export function DriveGrid({
 					return (
 						<ContextMenu key={asset.id}>
 							<ContextMenuTrigger>
-								<div className="group relative flex flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50 overflow-hidden">
-									<Checkbox
-										checked={selected.has(asset.id)}
-										onCheckedChange={() => toggleSelected(asset.id)}
-										onClick={(e) => e.stopPropagation()}
-										className="absolute left-2 top-2 opacity-0 group-hover:opacity-100 data-[state=checked]:opacity-100"
-									/>
-									<button
-										type="button"
-										onClick={() => setPreviewAsset(asset)}
-										className="flex flex-col items-center gap-2"
-									>
-										{thumbnailUrl ? (
-											// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as preview-overlay.tsx's AssetViewer
-											<img src={thumbnailUrl} alt="" className="size-10 rounded object-cover" />
-										) : (
-											<Icon className="size-10 text-muted-foreground" />
-										)}
-										<span className="max-w-full truncate text-sm">{asset.filename}</span>
-										{asset.status !== "ready" && (
-											<span className="text-[10px] text-muted-foreground capitalize">
-												{asset.status}
-											</span>
-										)}
-									</button>
-								</div>
+								<button
+									type="button"
+									ref={selection.registerItemRef(asset.id)}
+									draggable
+									onDragStart={(e) => handleDragStart(asset.id, e)}
+									onPointerDown={(e) => selection.handleItemPointerDown(asset.id, e)}
+									onClick={(e) => selection.handleItemClick(asset.id, e)}
+									onDoubleClick={() => setPreviewAsset(asset)}
+									onContextMenu={() => selection.ensureSelectedForContextMenu(asset.id)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") setPreviewAsset(asset);
+									}}
+									className={cn(
+										"flex w-full cursor-pointer flex-col items-center gap-2 overflow-hidden rounded-lg border p-3 hover:bg-muted/50",
+										selection.isSelected(asset.id) &&
+											"border-primary bg-primary/5 ring-1 ring-primary",
+									)}
+								>
+									{thumbnailUrl ? (
+										// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as preview-overlay.tsx's AssetViewer
+										<img src={thumbnailUrl} alt="" className="size-10 rounded object-cover" />
+									) : (
+										<Icon className="size-10 text-muted-foreground" />
+									)}
+									<span className="max-w-full truncate text-sm">{asset.filename}</span>
+									{asset.status !== "ready" && (
+										<span className="text-[10px] text-muted-foreground capitalize">
+											{asset.status}
+										</span>
+									)}
+								</button>
 							</ContextMenuTrigger>
 							<ContextMenuContent>
 								<ContextMenuItem onClick={() => setPreviewAsset(asset)}>Open</ContextMenuItem>
@@ -247,14 +282,19 @@ export function DriveGrid({
 								>
 									Rename
 								</ContextMenuItem>
+								{hasOnDemandVariants(asset.mimeType) && (
+									<ContextMenuItem onClick={() => setDownloadAsTarget(asset)}>
+										Download as…
+									</ContextMenuItem>
+								)}
+								<ContextMenuItem onClick={() => copyLink(asset.id)}>Copy link</ContextMenuItem>
+								<ContextMenuItem onClick={() => duplicateAssetAndRefresh(asset.id)}>
+									Make a copy
+								</ContextMenuItem>
+								<ContextMenuItem onClick={() => setMoveToOpen(true)}>Move to…</ContextMenuItem>
 								<ContextMenuItem
 									variant="destructive"
-									onClick={() =>
-										trashAsset
-											.trigger(asset.id)
-											.then(onRefresh)
-											.catch(() => {})
-									}
+									onClick={() => trashAssetAndRefresh(asset.id)}
 								>
 									Move to trash
 								</ContextMenuItem>
@@ -262,6 +302,18 @@ export function DriveGrid({
 						</ContextMenu>
 					);
 				})}
+
+				{selection.marqueeRect && (
+					<div
+						className="pointer-events-none absolute z-10 rounded-sm border border-primary bg-primary/10"
+						style={{
+							left: selection.marqueeRect.left,
+							top: selection.marqueeRect.top,
+							width: selection.marqueeRect.width,
+							height: selection.marqueeRect.height,
+						}}
+					/>
+				)}
 			</div>
 
 			{previewAsset && (
@@ -286,6 +338,26 @@ export function DriveGrid({
 					endpoint={renameTarget.endpoint}
 					bodyKey={renameTarget.bodyKey}
 					onRenamed={onRefresh}
+				/>
+			)}
+
+			<MoveToDialog
+				orgId={orgId}
+				projectId={projectId}
+				open={moveToOpen}
+				onOpenChange={setMoveToOpen}
+				onSelectFolder={(target) => moveItemsAndRefresh(selection.selected, target)}
+			/>
+
+			{downloadAsTarget && (
+				<DownloadAsDialog
+					orgId={orgId}
+					projectId={projectId}
+					asset={downloadAsTarget}
+					open={Boolean(downloadAsTarget)}
+					onOpenChange={(open) => {
+						if (!open) setDownloadAsTarget(null);
+					}}
 				/>
 			)}
 		</div>

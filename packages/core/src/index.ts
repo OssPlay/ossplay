@@ -1,6 +1,7 @@
 export * from "./config/instance-config";
 export * from "./crypto/secret-box";
 export * from "./folders/closure";
+export * from "./folders/collect";
 export * from "./folders/recycle";
 export * from "./jobs";
 export * from "./notifications/notify";
@@ -15,3 +16,4 @@ export * from "./storage/resolve";
 export * from "./storage/s3-storage";
 export * from "./storage/types";
 export * from "./updates/check";
+export * from "./variants";

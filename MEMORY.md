@@ -6,6 +6,23 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-12 — Drive overhaul: real multi-select/DnD/grid-list UI, on-demand variant pipeline, bulk zip download
+
+**Status:** Decided
+
+The Drive feature shipped 2026-08-10 covered the basics (grid, single-select, right-click rename/trash) but was missing what makes a drive product actually usable day to day: proper multi-select, drag-and-drop, a list view, real sort/filter, infinite scroll, and — the largest piece — a way to get a file in a format/quality other than whatever upload-time processing happened to produce. This pass rebuilt all of it across 9 phases.
+
+- **Upload-time processing is now thumbnail-only by design; everything else moved on-demand.** Previously: images got an eager format conversion (webp/avif) per a project-wide rule, video got a full eager HLS package (segments/manifest/key) per upload, audio got a hardcoded 128kbps MP3 — none of it user-requested, all of it multiplying `assets` rows. Now every mimetype's `process` job produces exactly one derived row (a webp thumbnail — image resize, video frame-grab, PDF page-1 raster, audio embedded cover art if present) and nothing else. A user picks a specific format/size/resolution/bitrate from the download UI, which is what triggers real transcoding via a new `POST .../assets/:assetId/variants` route — cached as its own `assets` row (`metadata.variant: "on-demand"`, keyed by `computeSpecKey`) so an identical repeat request is an instant cache hit, not a new job. See [ARCHITECTURE.md §3](./ARCHITECTURE.md#3-data--service-flow).
+- **On-demand jobs reuse the existing 4 mimetype queues, not a 5th.** `queueForMimeType()` already routes by the original's mimetype, which is exactly right for on-demand work too — an on-demand webp conversion is still image work. Distinguished from an eager job only by an optional `requestedVariant` field on the job payload (`packages/core/src/jobs.ts`) and the BullMQ job name (`"process"` vs `"variant"`). The eager HLS packaging this replaced is gone from `video.ts`; `ProjectRules`' `hlsSegmentDuration`/`drmAes128` fields stay in the schema but are now unreachable — flagged explicitly rather than repurposed or silently deleted, since a real multi-rendition HLS feature is a separate follow-up decision.
+- **Selection state is lifted to `DriveView`, not owned by the grid or list component.** Caught via live testing: owning `useDriveSelection` inside `DriveGrid`/`DriveList` individually reset the selection every time a user toggled between grid and list view. Both view components now take `selection` as a prop instead.
+- **Bulk zip download uses a Redis ticket, not a direct streamed response from the `POST`.** `POST bulk/download` resolves + dedupes + caps the selection (500 items / 5GB, matching the existing `uploads/batch` cap precedent) and parks the resolved file list in Redis under a random ticket (`EX 300`), returning `{downloadId}`. The browser then does a plain `GET bulk/download/:downloadId` (`window.location.href`) — a real streamed download with native browser progress, not a `fetch()`-then-blob dance that double-buffers a multi-GB zip in tab memory. Zipping itself streams one file at a time via `client-zip`'s `downloadZip()`, bounding memory to roughly one file's size regardless of selection size, and skips any single storage failure rather than aborting the whole response.
+- **Drag-and-drop is native HTML5 DnD, no new library** — the upload zone already established the `onDragOver`/`onDrop` idiom for external-file drops in this exact directory; internal item-to-folder drags reuse the same pattern. Marquee/rectangle-select is a separate hand-rolled pointer-event mechanism, no library needed there either.
+- **Sort extends the shared `list-query.ts` helper** (a real gap in an already-4x-reused abstraction), but the mimetype-family filter (`filter_type=image`) stays a local helper in `folders.ts` — it needs `ILIKE` prefix matching, a shape the shared `filters` map's exact-value `inArray` doesn't support, and this was the first time anything needed that shape.
+
+**Artifacts updated:** `docs` repo — Drive guide page updated for multi-select/DnD/grid-list/sort-filter/download-as/bulk-zip (per this project's "docs alongside features" convention).
+
+---
+
 ## 2026-08-10 — Project Drive (Google-Drive-like file manager), real worker processing, local-disk as a permanent fallback
 
 **Status:** Decided

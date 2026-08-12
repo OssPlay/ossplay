@@ -40,6 +40,25 @@ export async function createVariant(opts: {
 	return asset;
 }
 
+// The on-demand counterpart to createVariant: the `assets` row already
+// exists (a placeholder the API route inserted synchronously so it has an
+// id/key to return before bytes exist — see assets.ts's POST
+// .../variants), so this uploads bytes to that row's already-known key
+// and flips it to ready, rather than inserting a fresh row.
+export async function finalizeVariant(
+	variantAssetId: string,
+	storage: StorageDriver,
+	data: Uint8Array,
+): Promise<void> {
+	const [existing] = await getDb().select().from(assets).where(eq(assets.id, variantAssetId));
+	if (!existing) throw new Error(`Variant asset ${variantAssetId} not found`);
+	await storage.uploadObject(existing.s3Path, data, { mimeType: existing.mimeType });
+	await getDb()
+		.update(assets)
+		.set({ size: data.byteLength, status: "ready" })
+		.where(eq(assets.id, variantAssetId));
+}
+
 export async function markAssetStatus(
 	assetId: string,
 	status: "ready" | "failed",

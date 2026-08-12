@@ -7,9 +7,9 @@ import {
 	notUnderTrashedAncestor,
 	permanentlyDeleteSubtree,
 } from "@ossplay/core";
-import { type Folder, assets, folderClosure, folders, getDb } from "@ossplay/db";
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { assets, type Folder, folderClosure, folders, getDb } from "@ossplay/db";
+import { and, desc, eq, ilike, inArray, isNull, ne, sql } from "drizzle-orm";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
 import { parseListQuery } from "../lib/http/list-query";
@@ -32,6 +32,24 @@ function isUniqueViolation(err: unknown): boolean {
 async function requireProject(orgId: string, projectId: string) {
 	const project = await getProjectWithDestination(orgId, projectId);
 	return project;
+}
+
+// `filter_type=image|video|audio|pdf` for the Drive grid's type filter.
+// Kept local rather than folded into list-query.ts's generic `filters` map:
+// that map only does exact-value inArray, but a mimetype family needs
+// prefix matching (`mimeType ILIKE 'image/%'`), a shape nothing else needs
+// yet.
+const MIME_FAMILY_PATTERNS: Record<string, string> = {
+	image: "image/%",
+	video: "video/%",
+	audio: "audio/%",
+	pdf: "application/pdf",
+};
+
+function mimeTypeFamilyCondition(c: Context) {
+	const raw = c.req.query("filter_type");
+	const pattern = raw ? MIME_FAMILY_PATTERNS[raw] : undefined;
+	return pattern ? ilike(assets.mimeType, pattern) : undefined;
 }
 
 // The single browse endpoint backing the whole drive UI. `folderId`
@@ -75,7 +93,17 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		)
 		.orderBy(folders.name);
 
-	const query = parseListQuery(c, { searchable: [assets.filename], defaultPageSize: 60 });
+	const query = parseListQuery(c, {
+		searchable: [assets.filename],
+		defaultPageSize: 60,
+		sortable: {
+			name: assets.filename,
+			size: assets.size,
+			updatedAt: assets.updatedAt,
+			createdAt: assets.createdAt,
+		},
+		defaultSort: { key: "name", order: "asc" },
+	});
 	const assetWhere = and(
 		eq(assets.projectId, projectId),
 		folderId ? eq(assets.folderId, folderId) : isNull(assets.folderId),
@@ -89,12 +117,13 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		// from flooding this folder's listing.
 		isNull(assets.parentAssetId),
 		query.where,
+		mimeTypeFamilyCondition(c),
 	);
 	const childAssets = await db
 		.select()
 		.from(assets)
 		.where(assetWhere)
-		.orderBy(assets.filename)
+		.orderBy(query.orderBy ?? assets.filename)
 		.limit(query.limit)
 		.offset(query.offset);
 	const [totalRow] = await db
@@ -109,7 +138,12 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		folder,
 		breadcrumb,
 		childFolders,
-		childAssets: { items: childAssetsWithThumbnails, total, page: query.page, pageSize: query.pageSize },
+		childAssets: {
+			items: childAssetsWithThumbnails,
+			total,
+			page: query.page,
+			pageSize: query.pageSize,
+		},
 	});
 });
 
@@ -173,7 +207,9 @@ foldersRoute.post("/:orgId/projects/:projectId/folders", ...gate, async (c) => {
 		.where(
 			and(
 				eq(folders.projectId, projectId),
-				parsed.data.parentId ? eq(folders.parentId, parsed.data.parentId) : isNull(folders.parentId),
+				parsed.data.parentId
+					? eq(folders.parentId, parsed.data.parentId)
+					: isNull(folders.parentId),
 				eq(folders.name, parsed.data.name),
 				isNull(folders.deletedAt),
 			),

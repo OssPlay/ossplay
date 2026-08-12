@@ -1,6 +1,6 @@
 import type { JobPayloadByQueue, QueueName } from "@ossplay/core";
-import IORedis from "ioredis";
 import { Queue } from "bullmq";
+import IORedis from "ioredis";
 
 // Same REDIS_URL/maxRetriesPerRequest convention as apps/worker/src/
 // connection.ts (BullMQ requires that option on the underlying connection)
@@ -27,4 +27,13 @@ export function getQueue<Name extends QueueName>(name: Name): Queue<JobPayloadBy
 		queues.set(name, queue);
 	}
 	return queue as Queue<JobPayloadByQueue[Name]>;
+}
+
+// The same memoized connection getQueue() uses — exposed for the bulk zip
+// download ticket flow (assets.ts's POST/GET .../bulk/download), which
+// needs a plain Redis SET/GET/EXPIRE, not a BullMQ queue. Reusing this
+// connection avoids opening a second one just for that.
+export function getRedisConnection(): IORedis {
+	connection ??= createRedisConnection();
+	return connection;
 }
