@@ -1,9 +1,10 @@
 "use client";
 
-import { FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon } from "lucide-react";
+import { FolderPlusIcon, LayoutGridIcon, ListIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWRInfinite from "swr/infinite";
 import ContainerSkeleton from "@/components/layout/container-skeleton";
+import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
 import { Tippy } from "@/components/ui/tooltip";
 import { useDriveSelection } from "@/hooks/use-drive-selection";
@@ -147,69 +148,56 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	if (!effectiveOrgId) return null;
 
 	if (isLoading) {
-		return <ContainerSkeleton size="lg" rows={5} />;
+		return <ContainerSkeleton size="lg" header={false} rows={5} />;
 	}
 
 	const breadcrumb = firstPage?.breadcrumb ?? [];
 
 	return (
-		<Container
-			header={{
-				icon: FolderIcon,
-				title: "Drive",
-				description: "Browse, upload, and manage this project's files.",
-				extra: (
-					<UploadMenuButton
-						onUploadFiles={() => uploadRef.current?.openFilePicker()}
-						onUploadFolder={() => uploadRef.current?.openFolderPicker()}
-					/>
-				),
-				action: {
-					icon: FolderPlusIcon,
-					title: "New folder",
-					onClick: () => setCreateFolderOpen(true),
-				},
-			}}
-			size="lg"
-		>
+		<Container size="lg">
 			<div className="flex flex-col gap-4">
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					{breadcrumb.length > 0 ? (
-						<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
-					) : (
-						<div />
-					)}
+				<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+					<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
 					<div className="flex flex-wrap items-center gap-2">
-						<SearchBar orgId={effectiveOrgId} projectId={projectId} />
-						<DriveToolbar />
-						<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
-							<Tippy content="Grid view">
-								<button
-									type="button"
-									aria-label="Grid view"
-									onClick={() => url.setQueryParams({ view: null })}
-									className={cn(
-										"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-										view === "grid" && "bg-muted text-foreground",
-									)}
-								>
-									<LayoutGridIcon className="size-4" />
-								</button>
-							</Tippy>
-							<Tippy content="List view">
-								<button
-									type="button"
-									aria-label="List view"
-									onClick={() => url.setQueryParams({ view: "list" })}
-									className={cn(
-										"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-										view === "list" && "bg-muted text-foreground",
-									)}
-								>
-									<ListIcon className="size-4" />
-								</button>
-							</Tippy>
-						</div>
+						<UploadMenuButton
+							onUploadFiles={() => uploadRef.current?.openFilePicker()}
+							onUploadFolder={() => uploadRef.current?.openFolderPicker()}
+						/>
+						<Button size="sm" onClick={() => setCreateFolderOpen(true)}>
+							<FolderPlusIcon /> New folder
+						</Button>
+					</div>
+				</div>
+				<div className="flex flex-wrap items-center justify-end gap-2">
+					<SearchBar orgId={effectiveOrgId} projectId={projectId} />
+					<DriveToolbar />
+					<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
+						<Tippy content="Grid view">
+							<button
+								type="button"
+								aria-label="Grid view"
+								onClick={() => url.setQueryParams({ view: null })}
+								className={cn(
+									"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+									view === "grid" && "bg-muted text-foreground",
+								)}
+							>
+								<LayoutGridIcon className="size-4" />
+							</button>
+						</Tippy>
+						<Tippy content="List view">
+							<button
+								type="button"
+								aria-label="List view"
+								onClick={() => url.setQueryParams({ view: "list" })}
+								className={cn(
+									"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+									view === "list" && "bg-muted text-foreground",
+								)}
+							>
+								<ListIcon className="size-4" />
+							</button>
+						</Tippy>
 					</div>
 				</div>
 				<UploadZone
