@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FormError } from "@/components/form-error";
+import { useTransfer } from "@/components/providers/transfer-provider";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -104,6 +105,8 @@ export function DownloadAsDialog({
 	const [height, setHeight] = useState("720");
 	const [bitrate, setBitrate] = useState("192k");
 	const [requestedAssetId, setRequestedAssetId] = useState<string | null>(null);
+	const transfer = useTransfer();
+	const taskIdRef = useRef<string | null>(null);
 
 	const polled = usePolledAsset(requestedAssetId ? orgId : null, projectId, requestedAssetId);
 	const variant = polled.data?.asset;
@@ -117,6 +120,35 @@ export function DownloadAsDialog({
 		{ error: "Could not prepare that download" },
 	);
 
+	// Surfaces this conversion in the transfer popover too, with retry — only
+	// while this dialog stays open (the poll it depends on is scoped to this
+	// component), so the task is removed rather than left stuck if the user
+	// closes the dialog before it resolves.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally only re-runs on variant?.status — handlePrepare/transfer are stable enough that including them would just cause redundant task-recreation on every dialog re-render.
+	useEffect(() => {
+		if (!requestedAssetId) return;
+		if (!taskIdRef.current) {
+			taskIdRef.current = crypto.randomUUID();
+			transfer.addTask({
+				id: taskIdRef.current,
+				kind: "download",
+				label: `${asset.filename} (converting)`,
+				status: "active",
+				retry: () => void handlePrepare(),
+			});
+		}
+		const taskId = taskIdRef.current;
+		if (variant?.status === "ready") {
+			transfer.updateTask(taskId, { status: "done" });
+		} else if (variant?.status === "failed") {
+			transfer.updateTask(taskId, {
+				status: "error",
+				error: "That conversion failed",
+				retry: () => void handlePrepare(),
+			});
+		}
+	}, [requestedAssetId, variant?.status]);
+
 	if (!family) return null;
 
 	async function handlePrepare() {
@@ -125,6 +157,12 @@ export function DownloadAsDialog({
 				specFromSelection(family as Family, format, size, height, bitrate),
 			);
 			setRequestedAssetId(created.id);
+			// A retry after a failed conversion re-runs this from scratch — reset
+			// the existing task back to active instead of leaving it showing the
+			// old error while the new attempt is still processing.
+			if (taskIdRef.current) {
+				transfer.updateTask(taskIdRef.current, { status: "active", error: undefined });
+			}
 		} catch {
 			// toast already shown by useAction
 		}
@@ -132,6 +170,10 @@ export function DownloadAsDialog({
 
 	function handleOpenChange(next: boolean) {
 		if (!next) {
+			if (taskIdRef.current) {
+				transfer.removeTask(taskIdRef.current);
+				taskIdRef.current = null;
+			}
 			setRequestedAssetId(null);
 			request.reset();
 		}

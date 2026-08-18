@@ -11,7 +11,7 @@ import { useDriveSelection } from "@/hooks/use-drive-selection";
 import useURL from "@/hooks/use-url";
 import { useProjectContext } from "@/lib/current-project";
 import { cn } from "@/lib/utils";
-import type { DriveBrowseResponse } from "@/types/drive";
+import type { DriveAsset, DriveBrowseResponse, DriveFolder } from "@/types/drive";
 import { BreadcrumbNav } from "./breadcrumb-nav";
 import { CreateFolderDialog } from "./create-folder-dialog";
 import { DriveBulkActionBar } from "./drive-bulk-action-bar";
@@ -32,7 +32,25 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	const [moveToOpen, setMoveToOpen] = useState(false);
 	const uploadRef = useRef<UploadZoneHandle>(null);
 	const url = useURL();
-	const view = url.getQueryParam("view") === "list" ? "list" : "grid";
+
+	// The URL param wins when present (deep links keep working); otherwise
+	// fall back to the last view this browser used for this project, instead
+	// of always defaulting to grid.
+	const viewStorageKey = `drive-view:${projectId}`;
+	const urlView = url.getQueryParam("view");
+	const view: "grid" | "list" =
+		urlView === "list"
+			? "list"
+			: urlView === "grid"
+				? "grid"
+				: typeof window !== "undefined" && localStorage.getItem(viewStorageKey) === "list"
+					? "list"
+					: "grid";
+
+	function setView(next: "grid" | "list") {
+		if (typeof window !== "undefined") localStorage.setItem(viewStorageKey, next);
+		url.setQueryParams({ view: next === "list" ? "list" : null });
+	}
 
 	// Drive keeps its own SWR key (rather than adopting useServerTable
 	// wholesale) since the browse response isn't a single-item-type
@@ -83,11 +101,34 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	const hasMore = lastPage
 		? lastPage.childAssets.items.length >= lastPage.childAssets.pageSize
 		: false;
-	const assetItems = useMemo(
+	const liveAssetItems = useMemo(
 		() => loadedPages.flatMap((page) => page.childAssets.items),
 		[loadedPages],
 	);
-	const folders = firstPage?.childFolders ?? [];
+	const liveFolders = firstPage?.childFolders ?? [];
+	const liveBreadcrumb = firstPage?.breadcrumb ?? [];
+
+	// A sort/filter/search change swaps in a page-key sequence with no cached
+	// data yet, which would otherwise flip `isLoading` true again and unmount
+	// the whole tree (breadcrumb/toolbar included) for the skeleton. Keep
+	// showing the last real snapshot until the next one is ready — only the
+	// item area dims (see `isRefreshing` below), nothing else moves.
+	const snapshotRef = useRef<{
+		folders: DriveFolder[];
+		assetItems: DriveAsset[];
+		breadcrumb: DriveFolder[];
+	} | null>(null);
+	if (loadedPages.length > 0) {
+		snapshotRef.current = {
+			folders: liveFolders,
+			assetItems: liveAssetItems,
+			breadcrumb: liveBreadcrumb,
+		};
+	}
+	const folders = snapshotRef.current?.folders ?? liveFolders;
+	const assetItems = snapshotRef.current?.assetItems ?? liveAssetItems;
+	const breadcrumb = snapshotRef.current?.breadcrumb ?? liveBreadcrumb;
+	const isRefreshing = isValidating;
 
 	// A bare `IntersectionObserver` fires immediately on `observe()` if the
 	// node already satisfies the threshold — since the sentinel is often
@@ -172,14 +213,16 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 
 	if (!effectiveOrgId) return null;
 
-	if (isLoading) {
+	if (!snapshotRef.current && isLoading) {
 		return <DriveSkeleton />;
 	}
 
-	const breadcrumb = firstPage?.breadcrumb ?? [];
-
 	return (
-		<Container size="lg">
+		<Container
+			size="lg"
+			onKeyDown={selection.handleContainerKeyDown}
+			className={cn("transition-shadow", selection.selected.size > 0 && "ring-1 ring-primary/40")}
+		>
 			<div className="flex flex-col gap-4">
 				<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
 					<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
@@ -193,10 +236,12 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 						</Button>
 					</div>
 				</div>
-				<div className="flex flex-wrap items-center justify-end gap-2">
+				<div className="flex flex-wrap items-center justify-between gap-2">
 					{selection.selected.size > 0 ? (
 						<DriveBulkActionBar
 							count={selection.selected.size}
+							hasMore={hasMore}
+							onClear={() => selection.setSelected(new Set())}
 							onDownload={() => driveActions.downloadSelectionAndOpen(selection.selected)}
 							downloadLoading={driveActions.bulkDownload.isLoading}
 							onMoveTo={() => setMoveToOpen(true)}
@@ -205,35 +250,41 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 						/>
 					) : (
 						<>
-							<SearchBar orgId={effectiveOrgId} projectId={projectId} />
-							<DriveToolbar />
-							<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
-								<Tippy content="Grid view">
-									<button
-										type="button"
-										aria-label="Grid view"
-										onClick={() => url.setQueryParams({ view: null })}
-										className={cn(
-											"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-											view === "grid" && "bg-muted text-foreground",
-										)}
-									>
-										<LayoutGridIcon className="size-4" />
-									</button>
-								</Tippy>
-								<Tippy content="List view">
-									<button
-										type="button"
-										aria-label="List view"
-										onClick={() => url.setQueryParams({ view: "list" })}
-										className={cn(
-											"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-											view === "list" && "bg-muted text-foreground",
-										)}
-									>
-										<ListIcon className="size-4" />
-									</button>
-								</Tippy>
+							<span className="text-sm text-muted-foreground">
+								{folders.length} folder{folders.length === 1 ? "" : "s"} · {assetItems.length}
+								{hasMore ? "+" : ""} file{assetItems.length === 1 ? "" : "s"}
+							</span>
+							<div className="flex flex-wrap items-center gap-2">
+								<SearchBar orgId={effectiveOrgId} projectId={projectId} />
+								<DriveToolbar view={view} />
+								<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
+									<Tippy content="Grid view">
+										<button
+											type="button"
+											aria-label="Grid view"
+											onClick={() => setView("grid")}
+											className={cn(
+												"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+												view === "grid" && "bg-muted text-foreground",
+											)}
+										>
+											<LayoutGridIcon className="size-4" />
+										</button>
+									</Tippy>
+									<Tippy content="List view">
+										<button
+											type="button"
+											aria-label="List view"
+											onClick={() => setView("list")}
+											className={cn(
+												"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+												view === "list" && "bg-muted text-foreground",
+											)}
+										>
+											<ListIcon className="size-4" />
+										</button>
+									</Tippy>
+								</div>
 							</div>
 						</>
 					)}
@@ -245,29 +296,31 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 					folderId={folderId}
 					onUploaded={() => mutate()}
 				>
-					{view === "list" ? (
-						<DriveList
-							orgId={effectiveOrgId}
-							projectId={projectId}
-							folders={folders}
-							assets={assetItems}
-							selection={selection}
-							driveActions={driveActions}
-							onMoveTo={() => setMoveToOpen(true)}
-							onRefresh={() => mutate()}
-						/>
-					) : (
-						<DriveGrid
-							orgId={effectiveOrgId}
-							projectId={projectId}
-							folders={folders}
-							assets={assetItems}
-							selection={selection}
-							driveActions={driveActions}
-							onMoveTo={() => setMoveToOpen(true)}
-							onRefresh={() => mutate()}
-						/>
-					)}
+					<div className={cn("transition-opacity", isRefreshing && "opacity-60")}>
+						{view === "list" ? (
+							<DriveList
+								orgId={effectiveOrgId}
+								projectId={projectId}
+								folders={folders}
+								assets={assetItems}
+								selection={selection}
+								driveActions={driveActions}
+								onMoveTo={() => setMoveToOpen(true)}
+								onRefresh={() => mutate()}
+							/>
+						) : (
+							<DriveGrid
+								orgId={effectiveOrgId}
+								projectId={projectId}
+								folders={folders}
+								assets={assetItems}
+								selection={selection}
+								driveActions={driveActions}
+								onMoveTo={() => setMoveToOpen(true)}
+								onRefresh={() => mutate()}
+							/>
+						)}
+					</div>
 					{hasMore && (
 						<div ref={sentinelRef} className="flex justify-center py-4">
 							{loadingMore && <p className="text-sm text-muted-foreground">Loading more…</p>}

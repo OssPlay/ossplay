@@ -32,7 +32,7 @@ const TYPE_FILTERS = [
 // Sort/filter apply to the assets list only — folders stay eagerly loaded
 // and alphabetical (no size/mimeType column to sort by, and a folder count
 // per directory is typically small enough that pagination doesn't matter).
-export function DriveToolbar() {
+export function DriveToolbar({ view }: { view: "grid" | "list" }) {
 	const url = useURL();
 	const sort = url.getQueryParam("sort") ?? "name";
 	const order = url.getQueryParam("order") === "desc" ? "desc" : "asc";
@@ -41,44 +41,46 @@ export function DriveToolbar() {
 
 	return (
 		<div className="flex flex-wrap items-center gap-2">
-			<DropdownMenu>
-				<DropdownMenuTrigger
-					render={
-						<Button variant="outline" size="sm">
-							{order === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
-							{sortLabel}
-							<ChevronDownIcon />
-						</Button>
-					}
-				/>
-				<DropdownMenuContent align="end">
-					<DropdownMenuGroup>
-						<DropdownMenuLabel>Sort by</DropdownMenuLabel>
-					</DropdownMenuGroup>
-					<DropdownMenuRadioGroup
-						value={sort}
-						onValueChange={(value) =>
-							url.setQueryParams({ sort: value === "name" ? null : String(value), page: null })
+			{view === "grid" && (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button variant="outline" size="sm">
+								{order === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
+								{sortLabel}
+								<ChevronDownIcon />
+							</Button>
 						}
-					>
-						{SORT_OPTIONS.map((option) => (
-							<DropdownMenuRadioItem key={option.key} value={option.key}>
-								{option.label}
-							</DropdownMenuRadioItem>
-						))}
-					</DropdownMenuRadioGroup>
-					<DropdownMenuSeparator />
-					<DropdownMenuRadioGroup
-						value={order}
-						onValueChange={(value) =>
-							url.setQueryParams({ order: value === "asc" ? null : String(value), page: null })
-						}
-					>
-						<DropdownMenuRadioItem value="asc">Ascending</DropdownMenuRadioItem>
-						<DropdownMenuRadioItem value="desc">Descending</DropdownMenuRadioItem>
-					</DropdownMenuRadioGroup>
-				</DropdownMenuContent>
-			</DropdownMenu>
+					/>
+					<DropdownMenuContent align="end">
+						<DropdownMenuGroup>
+							<DropdownMenuLabel>Sort by</DropdownMenuLabel>
+						</DropdownMenuGroup>
+						<DropdownMenuRadioGroup
+							value={sort}
+							onValueChange={(value) =>
+								url.setQueryParams({ sort: value === "name" ? null : String(value), page: null })
+							}
+						>
+							{SORT_OPTIONS.map((option) => (
+								<DropdownMenuRadioItem key={option.key} value={option.key}>
+									{option.label}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+						<DropdownMenuSeparator />
+						<DropdownMenuRadioGroup
+							value={order}
+							onValueChange={(value) =>
+								url.setQueryParams({ order: value === "asc" ? null : String(value), page: null })
+							}
+						>
+							<DropdownMenuRadioItem value="asc">Ascending</DropdownMenuRadioItem>
+							<DropdownMenuRadioItem value="desc">Descending</DropdownMenuRadioItem>
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
 
 			<DataTableFacetedFilter
 				title="Type"

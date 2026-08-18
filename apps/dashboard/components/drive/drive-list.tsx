@@ -1,6 +1,8 @@
 "use client";
 
 import {
+	ArrowDownIcon,
+	ArrowUpIcon,
 	CopyIcon,
 	DownloadIcon,
 	ExternalLinkIcon,
@@ -35,6 +37,7 @@ import {
 } from "@/components/ui/table";
 import type { RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
 import type { DriveSelection } from "@/hooks/use-drive-selection";
+import useURL from "@/hooks/use-url";
 import { formatBytes } from "@/lib/format-bytes";
 import { cn, formatDatetime } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
@@ -43,6 +46,50 @@ import { PreviewOverlay } from "./preview-overlay";
 import { RenameDialog } from "./rename-dialog";
 
 const DRAG_MIME = "application/x-drive-items";
+
+// Same `sort`/`order` URL params DriveToolbar's dropdown writes for grid
+// view — list view exposes them via clickable column headers instead, same
+// indicator pattern as every other sortable DataTable in the app.
+function SortableHead({
+	sortKey,
+	className,
+	children,
+}: {
+	sortKey: string;
+	className?: string;
+	children: React.ReactNode;
+}) {
+	const url = useURL();
+	const sort = url.getQueryParam("sort") ?? "name";
+	const order = url.getQueryParam("order") === "desc" ? "desc" : "asc";
+	const active = sort === sortKey;
+
+	function handleClick() {
+		if (active) {
+			url.setQueryParams({ order: order === "asc" ? "desc" : null, page: null });
+		} else {
+			url.setQueryParams({ sort: sortKey === "name" ? null : sortKey, order: null, page: null });
+		}
+	}
+
+	return (
+		<TableHead className={className}>
+			<button
+				type="button"
+				onClick={handleClick}
+				className="inline-flex items-center gap-1 hover:text-foreground"
+			>
+				{children}
+				{active &&
+					(order === "desc" ? (
+						<ArrowDownIcon className="size-3.5" />
+					) : (
+						<ArrowUpIcon className="size-3.5" />
+					))}
+			</button>
+		</TableHead>
+	);
+}
 
 function iconForMimeType(mimeType: string) {
 	if (mimeType.startsWith("image/")) return ImageIcon;
@@ -143,9 +190,13 @@ export function DriveList({
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead>Name</TableHead>
-							<TableHead className="text-right">Size</TableHead>
-							<TableHead className="text-right">Modified</TableHead>
+							<SortableHead sortKey="name">Name</SortableHead>
+							<SortableHead sortKey="size" className="text-right">
+								Size
+							</SortableHead>
+							<SortableHead sortKey="updatedAt" className="text-right">
+								Modified
+							</SortableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -169,7 +220,7 @@ export function DriveList({
 											tabIndex={0}
 											className={cn(
 												"cursor-pointer",
-												selection.isSelected(folder.id) && "bg-primary/5",
+												selection.isSelected(folder.id) && "bg-primary/15",
 											)}
 										/>
 									}
@@ -245,7 +296,7 @@ export function DriveList({
 												tabIndex={0}
 												className={cn(
 													"cursor-pointer",
-													selection.isSelected(asset.id) && "bg-primary/5",
+													selection.isSelected(asset.id) && "bg-primary/15",
 												)}
 											/>
 										}

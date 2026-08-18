@@ -1,6 +1,13 @@
 "use client";
 
-import { type MouseEvent, type PointerEvent, useCallback, useRef, useState } from "react";
+import {
+	type KeyboardEvent,
+	type MouseEvent,
+	type PointerEvent,
+	useCallback,
+	useRef,
+	useState,
+} from "react";
 
 export interface DriveSelectableItem {
 	id: string;
@@ -20,6 +27,7 @@ export interface MarqueeRect {
 // last plain selection and the shift-clicked item.
 export function useDriveSelection(items: DriveSelectableItem[]) {
 	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [focusedId, setFocusedId] = useState<string | null>(null);
 	const lastIndexRef = useRef<number | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const itemElements = useRef(new Map<string, HTMLElement>());
@@ -70,6 +78,7 @@ export function useDriveSelection(items: DriveSelectableItem[]) {
 	// (below), which never fires if a native HTML5 drag intervened.
 	function handleItemPointerDown(id: string, e: PointerEvent) {
 		if (e.button !== 0) return;
+		setFocusedId(id);
 		if (e.shiftKey) {
 			selectRange(id);
 			return;
@@ -88,6 +97,92 @@ export function useDriveSelection(items: DriveSelectableItem[]) {
 		if (e.shiftKey || e.metaKey || e.ctrlKey) return;
 		setSelected(new Set([id]));
 		lastIndexRef.current = indexOf(id);
+		setFocusedId(id);
+	}
+
+	// Geometry-based (not column-count-based) so it stays correct across the
+	// grid's responsive breakpoints without hardcoding them — reuses the same
+	// `itemElements` ref map the marquee hit-testing already populates. Finds
+	// the closest row in the given direction, then the closest item within
+	// that row by horizontal center — works for the single-column list too
+	// (every "row" is one item).
+	function nearestInDirection(fromId: string, direction: "up" | "down") {
+		const fromEl = itemElements.current.get(fromId);
+		if (!fromEl) return null;
+		const fromRect = fromEl.getBoundingClientRect();
+		const fromCenterX = fromRect.left + fromRect.width / 2;
+		const candidates: { id: string; top: number; dx: number }[] = [];
+		for (const [id, el] of itemElements.current) {
+			if (id === fromId) continue;
+			const rect = el.getBoundingClientRect();
+			const isPast =
+				direction === "down" ? rect.top > fromRect.top + 1 : rect.top < fromRect.top - 1;
+			if (!isPast) continue;
+			candidates.push({
+				id,
+				top: rect.top,
+				dx: Math.abs(rect.left + rect.width / 2 - fromCenterX),
+			});
+		}
+		if (candidates.length === 0) return null;
+		const targetTop =
+			direction === "down"
+				? Math.min(...candidates.map((c) => c.top))
+				: Math.max(...candidates.map((c) => c.top));
+		const sameRow = candidates.filter((c) => Math.abs(c.top - targetTop) < 2);
+		sameRow.sort((a, b) => a.dx - b.dx);
+		return sameRow[0]?.id ?? null;
+	}
+
+	function adjacentInOrder(fromId: string, step: 1 | -1) {
+		const idx = indexOf(fromId);
+		if (idx === -1) return null;
+		return items[idx + step]?.id ?? null;
+	}
+
+	function focusItem(id: string) {
+		setFocusedId(id);
+		itemElements.current.get(id)?.focus();
+	}
+
+	// Attached to the whole Container (not just the grid/list wrapper) so
+	// Escape/Cmd+A work no matter where focus landed inside it — Container
+	// already forwards arbitrary props to its root element, so no shared
+	// component change was needed for this to reach the whole card.
+	function handleContainerKeyDown(e: KeyboardEvent) {
+		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+			e.preventDefault();
+			setSelected(new Set(items.map((item) => item.id)));
+			return;
+		}
+		if (e.key === "Escape") {
+			if (selected.size === 0) return;
+			e.preventDefault();
+			setSelected(new Set());
+			return;
+		}
+		const isArrow =
+			e.key === "ArrowUp" ||
+			e.key === "ArrowDown" ||
+			e.key === "ArrowLeft" ||
+			e.key === "ArrowRight";
+		if (!isArrow) return;
+		const currentId = focusedId ?? [...selected][0] ?? items[0]?.id ?? null;
+		if (!currentId || !itemElements.current.has(currentId)) return;
+		let targetId: string | null = null;
+		if (e.key === "ArrowDown") targetId = nearestInDirection(currentId, "down");
+		else if (e.key === "ArrowUp") targetId = nearestInDirection(currentId, "up");
+		else if (e.key === "ArrowRight") targetId = adjacentInOrder(currentId, 1);
+		else targetId = adjacentInOrder(currentId, -1);
+		if (!targetId) return;
+		e.preventDefault();
+		if (e.shiftKey) {
+			selectRange(targetId);
+		} else {
+			setSelected(new Set([targetId]));
+			lastIndexRef.current = indexOf(targetId);
+		}
+		focusItem(targetId);
 	}
 
 	// Right-clicking an item that's part of the current multi-selection
@@ -155,6 +250,8 @@ export function useDriveSelection(items: DriveSelectableItem[]) {
 			onPointerMove: handleContainerPointerMove,
 			onPointerUp: handleContainerPointerUp,
 		},
+		focusedId,
+		handleContainerKeyDown,
 	};
 }
 

@@ -6,6 +6,8 @@ import { AppHeader } from "@/components/layout/app-header";
 import { Section } from "@/components/layout/section";
 import AuthProvider, { useAuth } from "@/components/providers/auth-provider";
 import { RenderErrorBoundary } from "@/components/providers/render-error-boundary";
+import { TransferProvider, useTransfer } from "@/components/providers/transfer-provider";
+import { TransferPopover } from "@/components/transfer-popover";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { Sidepanel } from "@/lib/nav-types";
 
@@ -39,25 +41,42 @@ function DefaultSection({ children }: React.PropsWithChildren) {
 	return <Section sidepanel={sidepanel}>{children}</Section>;
 }
 
+// Reads useTransfer() to reserve room for the transfer popover, so a
+// scrolled-to-the-bottom list is never hidden behind it — applies here
+// (not per-page) so it covers every route, not just Drive.
+function ScrollContent({ children }: React.PropsWithChildren) {
+	const { popoverHeight } = useTransfer();
+
+	return (
+		<div
+			className="flex flex-1 flex-col gap-y-4 min-w-0 p-4 transition-[padding-bottom]"
+			style={popoverHeight > 0 ? { paddingBottom: popoverHeight + 32 } : undefined}
+		>
+			<DefaultSection>{children}</DefaultSection>
+		</div>
+	);
+}
+
 export default function Layout({ children }: React.PropsWithChildren) {
 	return (
 		<RenderErrorBoundary>
 			<AuthProvider>
-				<SidebarProvider
-					style={
-						{
-							"--sidebar-width": "19rem",
-						} as React.CSSProperties
-					}
-				>
-					<AppSidebar />
-					<SidebarInset>
-						<AppHeader />
-						<div className="flex flex-col flex-1 gap-y-4 min-w-0 p-4">
-							<DefaultSection>{children}</DefaultSection>
-						</div>
-					</SidebarInset>
-				</SidebarProvider>
+				<TransferProvider>
+					<SidebarProvider
+						style={
+							{
+								"--sidebar-width": "19rem",
+							} as React.CSSProperties
+						}
+					>
+						<AppSidebar />
+						<SidebarInset>
+							<AppHeader />
+							<ScrollContent>{children}</ScrollContent>
+						</SidebarInset>
+					</SidebarProvider>
+					<TransferPopover />
+				</TransferProvider>
 			</AuthProvider>
 		</RenderErrorBoundary>
 	);

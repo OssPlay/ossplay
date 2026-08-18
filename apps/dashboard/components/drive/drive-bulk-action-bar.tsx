@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadIcon, FolderInputIcon, Trash2Icon } from "lucide-react";
+import { DownloadIcon, FolderInputIcon, Trash2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tippy } from "@/components/ui/tooltip";
 
@@ -10,6 +10,8 @@ import { Tippy } from "@/components/ui/tooltip";
 // down.
 export function DriveBulkActionBar({
 	count,
+	hasMore,
+	onClear,
 	onDownload,
 	downloadLoading,
 	onMoveTo,
@@ -17,6 +19,8 @@ export function DriveBulkActionBar({
 	trashLoading,
 }: {
 	count: number;
+	hasMore?: boolean;
+	onClear: () => void;
 	onDownload: () => void;
 	downloadLoading: boolean;
 	onMoveTo: () => void;
@@ -25,7 +29,15 @@ export function DriveBulkActionBar({
 }) {
 	return (
 		<div className="flex w-full items-center gap-2">
-			<span className="text-sm text-muted-foreground">{count} selected</span>
+			<Tippy content="Clear selection">
+				<Button variant="ghost" size="icon-sm" onClick={onClear} aria-label="Clear selection">
+					<XIcon />
+				</Button>
+			</Tippy>
+			<span className="text-sm text-muted-foreground">
+				{count} selected
+				{hasMore && <span className="ml-1 text-xs">(not all items are loaded)</span>}
+			</span>
 			<div className="ml-auto flex items-center gap-1">
 				<Tippy content="Download">
 					<Button

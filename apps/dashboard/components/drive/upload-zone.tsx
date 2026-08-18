@@ -1,21 +1,11 @@
 "use client";
 
-import { XIcon } from "lucide-react";
 import { type DragEvent, forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Tippy } from "@/components/ui/tooltip";
+import { useTransfer } from "@/components/providers/transfer-provider";
 import { beginAction, endAction } from "@/lib/action-store";
 import { apiFetch } from "@/lib/api";
 import { uploadToTarget } from "@/lib/drive-upload";
-
-interface UploadTask {
-	id: string;
-	filename: string;
-	progress: number;
-	error?: string;
-}
 
 type FileWithRelativePath = File & { webkitRelativePath?: string };
 
@@ -56,71 +46,95 @@ export const UploadZone = forwardRef<
 >(function UploadZone({ orgId, projectId, folderId, onUploaded, children }, ref) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
-	const [tasks, setTasks] = useState<UploadTask[]>([]);
 	const [dragActive, setDragActive] = useState(false);
+	const transfer = useTransfer();
 
 	useImperativeHandle(ref, () => ({
 		openFilePicker: () => fileInputRef.current?.click(),
 		openFolderPicker: () => folderInputRef.current?.click(),
 	}));
 
-	function addTask(filename: string): string {
-		const id = crypto.randomUUID();
-		setTasks((prev) => [...prev, { id, filename, progress: 0 }]);
-		return id;
-	}
-	function updateTask(id: string, patch: Partial<UploadTask>) {
-		setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-	}
-	function removeTask(id: string) {
-		setTasks((prev) => prev.filter((t) => t.id !== id));
+	// Tracked in the global transfer popover (not local state) so progress
+	// survives navigating away from this view entirely — the request/
+	// upload/confirm sequence itself is unchanged, just reusable for retry.
+	async function runFlatUpload(taskId: string, file: File) {
+		transfer.updateTask(taskId, { status: "active", progress: 0, error: undefined });
+		try {
+			const { assetId, uploadTarget } = await apiFetch<{
+				assetId: string;
+				uploadTarget: string;
+			}>(`/organizations/${orgId}/projects/${projectId}/uploads`, {
+				method: "POST",
+				body: JSON.stringify({
+					folderId,
+					filename: file.name,
+					mimeType: file.type || "application/octet-stream",
+					size: file.size,
+				}),
+			});
+			await uploadToTarget(uploadTarget, file, (fraction) =>
+				transfer.updateTask(taskId, { progress: fraction }),
+			);
+			await apiFetch(`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/confirm`, {
+				method: "POST",
+			});
+			transfer.updateTask(taskId, { status: "done", progress: 1 });
+			onUploaded();
+		} catch (err) {
+			transfer.updateTask(taskId, {
+				status: "error",
+				error: err instanceof Error ? err.message : "Upload failed",
+			});
+		}
 	}
 
 	async function uploadFlatFiles(files: File[]) {
 		if (files.length === 0) return;
 		// Not routed through useAction — it models one mutation with one
 		// loading/error slot, but this is N concurrent uploads each with its
-		// own progress/error UI (the `tasks` state above). Still joins the
-		// same action-lock useAction uses internally, so an in-flight upload
-		// blocks logout/tab-close like any other mutation.
+		// own progress/error UI (tracked via the transfer popover). Still joins
+		// the same action-lock useAction uses internally, so an in-flight
+		// upload blocks logout/tab-close like any other mutation.
 		const lockId = crypto.randomUUID();
 		beginAction(lockId, "Uploading files");
 		try {
 			await Promise.all(
-				files.map(async (file) => {
-					const taskId = addTask(file.name);
-					try {
-						const { assetId, uploadTarget } = await apiFetch<{
-							assetId: string;
-							uploadTarget: string;
-						}>(`/organizations/${orgId}/projects/${projectId}/uploads`, {
-							method: "POST",
-							body: JSON.stringify({
-								folderId,
-								filename: file.name,
-								mimeType: file.type || "application/octet-stream",
-								size: file.size,
-							}),
-						});
-						await uploadToTarget(uploadTarget, file, (fraction) =>
-							updateTask(taskId, { progress: fraction }),
-						);
-						await apiFetch(
-							`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/confirm`,
-							{
-								method: "POST",
-							},
-						);
-						removeTask(taskId);
-					} catch (err) {
-						updateTask(taskId, { error: err instanceof Error ? err.message : "Upload failed" });
-					}
+				files.map((file) => {
+					const taskId = crypto.randomUUID();
+					transfer.addTask({
+						id: taskId,
+						kind: "upload",
+						label: file.name,
+						status: "active",
+						progress: 0,
+						retry: () => runFlatUpload(taskId, file),
+					});
+					return runFlatUpload(taskId, file);
 				}),
 			);
 		} finally {
 			endAction(lockId);
 		}
-		onUploaded();
+	}
+
+	async function runFolderUpload(taskId: string, file: File, createdItem: CreatedUploadItem) {
+		transfer.updateTask(taskId, { status: "active", progress: 0, error: undefined });
+		try {
+			await uploadToTarget(createdItem.uploadTarget, file, (fraction) =>
+				transfer.updateTask(taskId, { progress: fraction }),
+			);
+			await apiFetch(
+				`/organizations/${orgId}/projects/${projectId}/assets/${createdItem.assetId}/confirm`,
+				{ method: "POST" },
+			);
+			transfer.updateTask(taskId, { status: "done", progress: 1 });
+			onUploaded();
+		} catch (err) {
+			transfer.updateTask(taskId, {
+				status: "error",
+				error: err instanceof Error ? err.message : "Upload failed",
+			});
+		}
 	}
 
 	async function uploadFolderFiles(fileList: FileList) {
@@ -137,9 +151,9 @@ export const UploadZone = forwardRef<
 			};
 		});
 
-		// No per-task row exists yet at this point (they're created below, one
-		// per item this call returns) — a failure here has nothing to attach
-		// an inline error to, so it surfaces as a toast instead, the same way
+		// No transfer task exists yet at this point (they're created below,
+		// one per item this call returns) — a failure here has nothing to
+		// attach a retry to, so it surfaces as a toast instead, the same way
 		// any other standalone mutation in this app reports failure.
 		let created: CreatedUploadItem[];
 		try {
@@ -165,25 +179,21 @@ export const UploadZone = forwardRef<
 		}
 
 		await Promise.all(
-			created.map(async (createdItem, index) => {
+			created.flatMap((createdItem, index) => {
 				const file = items[index]?.file;
-				if (!file) return;
-				const taskId = addTask(`${createdItem.relativePath}/${createdItem.filename}`);
-				try {
-					await uploadToTarget(createdItem.uploadTarget, file, (fraction) =>
-						updateTask(taskId, { progress: fraction }),
-					);
-					await apiFetch(
-						`/organizations/${orgId}/projects/${projectId}/assets/${createdItem.assetId}/confirm`,
-						{ method: "POST" },
-					);
-					removeTask(taskId);
-				} catch (err) {
-					updateTask(taskId, { error: err instanceof Error ? err.message : "Upload failed" });
-				}
+				if (!file) return [];
+				const taskId = crypto.randomUUID();
+				transfer.addTask({
+					id: taskId,
+					kind: "upload",
+					label: `${createdItem.relativePath}/${createdItem.filename}`,
+					status: "active",
+					progress: 0,
+					retry: () => runFolderUpload(taskId, file, createdItem),
+				});
+				return [runFolderUpload(taskId, file, createdItem)];
 			}),
 		);
-		onUploaded();
 	}
 
 	function handleDrop(e: DragEvent<HTMLDivElement>) {
@@ -228,25 +238,6 @@ export const UploadZone = forwardRef<
 					e.target.value = "";
 				}}
 			/>
-			{tasks.length > 0 && (
-				<div className="mb-3 flex flex-col gap-2">
-					{tasks.map((task) => (
-						<div key={task.id} className="flex items-center gap-2 text-sm">
-							<span className="w-48 truncate">{task.filename}</span>
-							{task.error ? (
-								<span className="text-destructive text-xs">{task.error}</span>
-							) : (
-								<Progress value={task.progress * 100} className="h-1.5 flex-1" />
-							)}
-							<Tippy content="Remove">
-								<Button variant="ghost" size="icon-sm" onClick={() => removeTask(task.id)}>
-									<XIcon className="size-3.5" />
-								</Button>
-							</Tippy>
-						</div>
-					))}
-				</div>
-			)}
 			{children}
 		</div>
 	);

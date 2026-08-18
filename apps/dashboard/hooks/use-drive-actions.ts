@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { useTransfer } from "@/components/providers/transfer-provider";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch } from "@/lib/api";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
@@ -30,6 +31,7 @@ export function useDriveActions({
 	onRefresh: () => void;
 }) {
 	const base = `/organizations/${orgId}/projects/${projectId}`;
+	const transfer = useTransfer();
 
 	const trashFolder = useAction(
 		(folderId: string) => apiFetch(`${base}/folders/${folderId}/trash`, { method: "POST" }),
@@ -138,17 +140,38 @@ export function useDriveActions({
 	// The zip itself streams back via a plain GET (window navigation gives
 	// real browser download progress, no fetch()-then-blob double-buffer —
 	// see the plan's decision #8), so this only needs to resolve the
-	// selection into a ticket and hand off.
+	// selection into a ticket and hand off. Only the ticket-creation step is
+	// tracked in the transfer popover (with retry) — per the confirmed scope,
+	// the actual transfer stays a native browser download with no in-app
+	// byte progress, to avoid buffering potentially large zips in memory.
 	async function downloadSelectionAndOpen(ids: Set<string>) {
 		const folderIds = folders.filter((f) => ids.has(f.id)).map((f) => f.id);
 		const assetIds = assets.filter((a) => ids.has(a.id)).map((a) => a.id);
-		if (folderIds.length + assetIds.length === 0) return;
-		try {
-			const { downloadId } = await bulkDownload.trigger({ folderIds, assetIds });
-			window.location.href = `/api${base}/bulk/download/${downloadId}`;
-		} catch {
-			// toast already shown by useAction
+		const total = folderIds.length + assetIds.length;
+		if (total === 0) return;
+
+		const taskId = crypto.randomUUID();
+		async function run() {
+			transfer.updateTask(taskId, { status: "active", error: undefined });
+			try {
+				const { downloadId } = await bulkDownload.trigger({ folderIds, assetIds });
+				transfer.updateTask(taskId, { status: "done" });
+				window.location.href = `/api${base}/bulk/download/${downloadId}`;
+			} catch {
+				transfer.updateTask(taskId, {
+					status: "error",
+					error: "Could not prepare that download",
+				});
+			}
 		}
+		transfer.addTask({
+			id: taskId,
+			kind: "download",
+			label: total === 1 ? "Preparing 1 item" : `Preparing ${total} items`,
+			status: "active",
+			retry: run,
+		});
+		await run();
 	}
 
 	async function copyLink(assetId: string) {
