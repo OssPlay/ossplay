@@ -21,14 +21,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { useOrgSectionId } from "@/lib/current-org";
 import { formatDatetime } from "@/lib/utils";
-
-type Project = {
-	id: string;
-	name: string;
-	orgId: string;
-	visibility: "public" | "private";
-	createdAt: string;
-};
+import type { Project } from "@/types/projects";
 
 // The org's canonical projects list — the sidebar's project-list.tsx is a
 // fast quick-switch nav (and its own quick-create), this is the full

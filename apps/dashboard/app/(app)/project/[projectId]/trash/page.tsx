@@ -1,20 +1,10 @@
 "use client";
 
-import { FileIcon, FolderIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
+import { FileIcon, FolderIcon, Trash2Icon } from "lucide-react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { TrashRowActions } from "@/components/drive/trash-row-actions";
+import ContainerSkeleton from "@/components/layout/container-skeleton";
 import Container from "@/components/ui/container";
 import {
 	Table,
@@ -64,9 +54,11 @@ export default function ProjectTrashPage() {
 	});
 
 	if (!effectiveOrgId) return null;
+	if (isLoading) return <ContainerSkeleton size="lg" rows={4} />;
+
 	const folders = data?.folders ?? [];
 	const assets = data?.assets ?? [];
-	const isEmpty = !isLoading && folders.length === 0 && assets.length === 0;
+	const isEmpty = folders.length === 0 && assets.length === 0;
 
 	return (
 		<Container
@@ -163,42 +155,5 @@ export default function ProjectTrashPage() {
 				</Table>
 			)}
 		</Container>
-	);
-}
-
-function TrashRowActions({
-	onRestore,
-	onDeleteForever,
-	label,
-}: {
-	onRestore: () => void;
-	onDeleteForever: () => void;
-	label: string;
-}) {
-	return (
-		<div className="flex justify-end gap-1">
-			<Button variant="ghost" size="icon-sm" title="Restore" onClick={onRestore}>
-				<RotateCcwIcon className="size-3.5" />
-			</Button>
-			<AlertDialog>
-				<AlertDialogTrigger
-					render={<Button variant="ghost" size="icon-sm" title="Delete forever" />}
-				>
-					<Trash2Icon className="size-3.5" />
-				</AlertDialogTrigger>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Delete "{label}" forever?</AlertDialogTitle>
-						<AlertDialogDescription>This can't be undone.</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction variant="destructive" onClick={onDeleteForever}>
-							Delete forever
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</div>
 	);
 }

@@ -18,6 +18,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Tippy } from "@/components/ui/tooltip";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch } from "@/lib/api";
 import { useBreadcrumbs } from "@/lib/nav-store";
@@ -85,12 +86,14 @@ function NotificationsButton() {
 
 	return (
 		<Popover>
-			<PopoverTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
-				<BellIcon className="size-4" />
-				{hasUnread && (
-					<span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive" />
-				)}
-			</PopoverTrigger>
+			<Tippy content="Notifications">
+				<PopoverTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
+					<BellIcon className="size-4" />
+					{hasUnread && (
+						<span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive" />
+					)}
+				</PopoverTrigger>
+			</Tippy>
 			<PopoverContent align="end" className="w-80 p-0">
 				<div className="px-3 py-2 border-b">
 					<p className="text-sm font-medium">Notifications</p>
@@ -138,17 +141,21 @@ function ThemeToggle() {
 	useEffect(() => setMounted(true), []);
 
 	return (
-		<Button
-			variant="ghost"
-			size="icon"
-			onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+		<Tippy
+			content={mounted && resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
 		>
-			{mounted && resolvedTheme === "dark" ? (
-				<SunIcon className="size-4" />
-			) : (
-				<MoonIcon className="size-4" />
-			)}
-		</Button>
+			<Button
+				variant="ghost"
+				size="icon"
+				onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+			>
+				{mounted && resolvedTheme === "dark" ? (
+					<SunIcon className="size-4" />
+				) : (
+					<MoonIcon className="size-4" />
+				)}
+			</Button>
+		</Tippy>
 	);
 }
 

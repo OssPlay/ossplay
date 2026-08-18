@@ -4,6 +4,16 @@ import type { VariantProps } from "class-variance-authority";
 import type { LucideIcon } from "lucide-react";
 import { SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button, type buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -50,6 +60,8 @@ export interface DataTableBulkAction<TItem> {
 	icon?: LucideIcon;
 	variant?: VariantProps<typeof buttonVariants>["variant"];
 	onClick: (selected: TItem[]) => void | Promise<void>;
+	/** When set, clicking the action opens a confirm dialog instead of firing `onClick` immediately. */
+	confirm?: { title: string; description: string };
 }
 
 export interface DataTableProps<TItem> {
@@ -85,6 +97,7 @@ export function DataTable<TItem>({
 }: DataTableProps<TItem>) {
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [bulkActionLoading, setBulkActionLoading] = useState(false);
+	const [confirmAction, setConfirmAction] = useState<DataTableBulkAction<TItem> | null>(null);
 	const rowIds = useMemo(() => table.items.map(rowId), [table.items, rowId]);
 	const rowIdsKey = rowIds.join(",");
 
@@ -122,6 +135,20 @@ export function DataTable<TItem>({
 		} finally {
 			setBulkActionLoading(false);
 		}
+	}
+
+	function handleBulkActionClick(action: DataTableBulkAction<TItem>) {
+		if (action.confirm) {
+			setConfirmAction(action);
+			return;
+		}
+		runBulkAction(action);
+	}
+
+	async function handleConfirm() {
+		if (!confirmAction) return;
+		await runBulkAction(confirmAction);
+		setConfirmAction(null);
 	}
 
 	const columnCount = columns.length + (bulkActions.length > 0 ? 1 : 0) + (rowActions ? 1 : 0);
@@ -164,7 +191,7 @@ export function DataTable<TItem>({
 							size="sm"
 							variant={action.variant ?? "secondary"}
 							disabled={bulkActionLoading}
-							onClick={() => runBulkAction(action)}
+							onClick={() => handleBulkActionClick(action)}
 						>
 							{action.icon && <action.icon />}
 							{action.label}
@@ -172,6 +199,32 @@ export function DataTable<TItem>({
 					))}
 				</div>
 			)}
+
+			<AlertDialog
+				open={confirmAction !== null}
+				onOpenChange={(open) => {
+					if (!open) setConfirmAction(null);
+				}}
+			>
+				{confirmAction?.confirm && (
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>{confirmAction.confirm.title}</AlertDialogTitle>
+							<AlertDialogDescription>{confirmAction.confirm.description}</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								variant={confirmAction.variant ?? "secondary"}
+								disabled={bulkActionLoading}
+								onClick={handleConfirm}
+							>
+								{confirmAction.label}
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				)}
+			</AlertDialog>
 
 			<div className="overflow-hidden border rounded-md">
 				<Table>

@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 
 import { ArrowLeftIcon, Building2Icon, FolderIcon, SettingsIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { notFound, useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
+import ContainerSkeleton from "@/components/layout/container-skeleton";
 import { Section } from "@/components/layout/section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,18 +16,7 @@ import Container from "@/components/ui/container";
 import { ApiError } from "@/lib/api";
 import { setCurrentOrgId } from "@/lib/current-org";
 import { formatDatetime } from "@/lib/utils";
-
-interface OrganizationDetail {
-	id: string;
-	name: string;
-	createdAt: string;
-}
-interface Member {
-	userId: string;
-}
-interface Project {
-	id: string;
-}
+import type { InstanceOrgMember, InstanceOrgProject, OrganizationDetail } from "@/types/instance";
 
 // A summary, not a second copy of Members/Projects — root manages an
 // organization through its own real settings pages (organization/*), same
@@ -35,21 +25,20 @@ interface Project {
 export default function InstanceOrganizationDetailPage() {
 	const params = useParams<{ id: string }>();
 	const router = useRouter();
-	const { data: orgData, error: orgError } = useSWR<{ organization: OrganizationDetail }>(
-		`/organizations/${params.id}`,
-	);
-	const { data: membersData } = useSWR<{ members: Member[] }>(
+	const {
+		data: orgData,
+		error: orgError,
+		isLoading: orgLoading,
+	} = useSWR<{ organization: OrganizationDetail }>(`/organizations/${params.id}`);
+	const { data: membersData } = useSWR<{ members: InstanceOrgMember[] }>(
 		`/organizations/${params.id}/members`,
 	);
-	const { data: projectsData } = useSWR<{ projects: Project[] }>(
+	const { data: projectsData } = useSWR<{ projects: InstanceOrgProject[] }>(
 		`/organizations/${params.id}/projects`,
 	);
 
-	const notFound = orgError instanceof ApiError && orgError.status === 404;
-
-	if (notFound) {
-		return <p className="text-sm text-muted-foreground">Organization not found.</p>;
-	}
+	if (orgError instanceof ApiError && orgError.status === 404) notFound();
+	if (orgLoading) return <ContainerSkeleton rows={3} />;
 	if (!orgData) return null;
 
 	const { organization } = orgData;

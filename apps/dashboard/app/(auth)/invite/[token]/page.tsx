@@ -1,5 +1,6 @@
 "use client";
 
+import { LoaderCircleIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { type SubmitEvent, useState } from "react";
@@ -101,7 +102,13 @@ export default function InvitePage() {
 	// Only block on the session check when it's actually needed (an existing
 	// account, where which-user-if-any changes what's shown below) — the
 	// new-account signup form doesn't depend on it.
-	if (!details || (details.accountExists && meLoading)) return null;
+	if (!details || (details.accountExists && meLoading)) {
+		return (
+			<div className="flex flex-1 items-center justify-center bg-card">
+				<LoaderCircleIcon className="animate-spin size-8" />
+			</div>
+		);
+	}
 
 	const loggedInAsCorrectUser =
 		details.accountExists && me?.user.email.toLowerCase() === details.email.toLowerCase();

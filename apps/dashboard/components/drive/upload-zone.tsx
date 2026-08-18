@@ -2,8 +2,11 @@
 
 import { FolderUpIcon, UploadIcon, XIcon } from "lucide-react";
 import { type DragEvent, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Tippy } from "@/components/ui/tooltip";
+import { beginAction, endAction } from "@/lib/action-store";
 import { apiFetch } from "@/lib/api";
 import { uploadToTarget } from "@/lib/drive-upload";
 
@@ -15,6 +18,13 @@ interface UploadTask {
 }
 
 type FileWithRelativePath = File & { webkitRelativePath?: string };
+
+interface CreatedUploadItem {
+	relativePath: string;
+	filename: string;
+	assetId: string;
+	uploadTarget: string;
+}
 
 // Drag-drop only handles flat files (no recursive directory traversal via
 // DataTransferItem.webkitGetAsEntry) — "Upload folder" below is the
@@ -52,37 +62,48 @@ export function UploadZone({
 
 	async function uploadFlatFiles(files: File[]) {
 		if (files.length === 0) return;
-		await Promise.all(
-			files.map(async (file) => {
-				const taskId = addTask(file.name);
-				try {
-					const { assetId, uploadTarget } = await apiFetch<{
-						assetId: string;
-						uploadTarget: string;
-					}>(`/organizations/${orgId}/projects/${projectId}/uploads`, {
-						method: "POST",
-						body: JSON.stringify({
-							folderId,
-							filename: file.name,
-							mimeType: file.type || "application/octet-stream",
-							size: file.size,
-						}),
-					});
-					await uploadToTarget(uploadTarget, file, (fraction) =>
-						updateTask(taskId, { progress: fraction }),
-					);
-					await apiFetch(
-						`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/confirm`,
-						{
+		// Not routed through useAction — it models one mutation with one
+		// loading/error slot, but this is N concurrent uploads each with its
+		// own progress/error UI (the `tasks` state above). Still joins the
+		// same action-lock useAction uses internally, so an in-flight upload
+		// blocks logout/tab-close like any other mutation.
+		const lockId = crypto.randomUUID();
+		beginAction(lockId, "Uploading files");
+		try {
+			await Promise.all(
+				files.map(async (file) => {
+					const taskId = addTask(file.name);
+					try {
+						const { assetId, uploadTarget } = await apiFetch<{
+							assetId: string;
+							uploadTarget: string;
+						}>(`/organizations/${orgId}/projects/${projectId}/uploads`, {
 							method: "POST",
-						},
-					);
-					removeTask(taskId);
-				} catch (err) {
-					updateTask(taskId, { error: err instanceof Error ? err.message : "Upload failed" });
-				}
-			}),
-		);
+							body: JSON.stringify({
+								folderId,
+								filename: file.name,
+								mimeType: file.type || "application/octet-stream",
+								size: file.size,
+							}),
+						});
+						await uploadToTarget(uploadTarget, file, (fraction) =>
+							updateTask(taskId, { progress: fraction }),
+						);
+						await apiFetch(
+							`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/confirm`,
+							{
+								method: "POST",
+							},
+						);
+						removeTask(taskId);
+					} catch (err) {
+						updateTask(taskId, { error: err instanceof Error ? err.message : "Upload failed" });
+					}
+				}),
+			);
+		} finally {
+			endAction(lockId);
+		}
 		onUploaded();
 	}
 
@@ -100,25 +121,32 @@ export function UploadZone({
 			};
 		});
 
-		const { items: created } = await apiFetch<{
-			items: Array<{
-				relativePath: string;
-				filename: string;
-				assetId: string;
-				uploadTarget: string;
-			}>;
-		}>(`/organizations/${orgId}/projects/${projectId}/uploads/batch`, {
-			method: "POST",
-			body: JSON.stringify({
-				folderId,
-				items: items.map(({ file, relativePath, filename }) => ({
-					relativePath,
-					filename,
-					mimeType: file.type || "application/octet-stream",
-					size: file.size,
-				})),
-			}),
-		});
+		// No per-task row exists yet at this point (they're created below, one
+		// per item this call returns) — a failure here has nothing to attach
+		// an inline error to, so it surfaces as a toast instead, the same way
+		// any other standalone mutation in this app reports failure.
+		let created: CreatedUploadItem[];
+		try {
+			const response = await apiFetch<{ items: CreatedUploadItem[] }>(
+				`/organizations/${orgId}/projects/${projectId}/uploads/batch`,
+				{
+					method: "POST",
+					body: JSON.stringify({
+						folderId,
+						items: items.map(({ file, relativePath, filename }) => ({
+							relativePath,
+							filename,
+							mimeType: file.type || "application/octet-stream",
+							size: file.size,
+						})),
+					}),
+				},
+			);
+			created = response.items;
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Could not start folder upload");
+			return;
+		}
 
 		await Promise.all(
 			created.map(async (createdItem, index) => {
@@ -203,9 +231,11 @@ export function UploadZone({
 							) : (
 								<Progress value={task.progress * 100} className="h-1.5 flex-1" />
 							)}
-							<Button variant="ghost" size="icon-sm" onClick={() => removeTask(task.id)}>
-								<XIcon className="size-3.5" />
-							</Button>
+							<Tippy content="Remove">
+								<Button variant="ghost" size="icon-sm" onClick={() => removeTask(task.id)}>
+									<XIcon className="size-3.5" />
+								</Button>
+							</Tippy>
 						</div>
 					))}
 				</div>

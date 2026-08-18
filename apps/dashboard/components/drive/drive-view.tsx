@@ -1,9 +1,11 @@
 "use client";
 
-import { LayoutGridIcon, ListIcon } from "lucide-react";
+import { FolderIcon, LayoutGridIcon, ListIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWRInfinite from "swr/infinite";
+import ContainerSkeleton from "@/components/layout/container-skeleton";
 import Container from "@/components/ui/container";
+import { Tippy } from "@/components/ui/tooltip";
 import { useDriveSelection } from "@/hooks/use-drive-selection";
 import useURL from "@/hooks/use-url";
 import { useProjectContext } from "@/lib/current-project";
@@ -84,13 +86,21 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	// still on-screen right after a page loads, an observer rebuilt on every
 	// `size`/`isValidating` change would re-fire before the isValidating
 	// flag has a chance to flip, spiking `size` well past the real page
-	// count in a single tick. `loadingMore`'s functional update closes that
-	// race (React always applies it against the latest pending value), and
-	// keeping the observer's own dependency list to just `hasMore` stops it
-	// from being torn down and rebuilt on every fetch.
+	// count in a single tick. A plain ref (checked-and-set synchronously,
+	// not inside a setState updater) closes that race without nesting one
+	// setState call inside another's functional updater — the previous
+	// version called `setSize` from inside `setLoadingMore`'s updater, which
+	// triggered React's "Cannot update a component while rendering a
+	// different component" warning. Keeping the observer's own dependency
+	// list to just `hasMore` stops it from being torn down and rebuilt on
+	// every fetch.
 	const [loadingMore, setLoadingMore] = useState(false);
+	const loadingMoreRef = useRef(false);
 	useEffect(() => {
-		if (!isValidating) setLoadingMore(false);
+		if (!isValidating) {
+			loadingMoreRef.current = false;
+			setLoadingMore(false);
+		}
 	}, [isValidating]);
 
 	const sentinelRef = useRef<HTMLDivElement>(null);
@@ -100,11 +110,10 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 		if (!node) return;
 		const observer = new IntersectionObserver((entries) => {
 			if (!entries[0]?.isIntersecting) return;
-			setLoadingMore((prev) => {
-				if (prev) return prev;
-				setSize((s) => s + 1);
-				return true;
-			});
+			if (loadingMoreRef.current) return;
+			loadingMoreRef.current = true;
+			setLoadingMore(true);
+			setSize((s) => s + 1);
 		});
 		observer.observe(node);
 		return () => observer.disconnect();
@@ -135,9 +144,14 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 
 	if (!effectiveOrgId) return null;
 
+	if (isLoading) {
+		return <ContainerSkeleton size="lg" rows={5} />;
+	}
+
 	return (
 		<Container
 			header={{
+				icon: FolderIcon,
 				title: "Drive",
 				description: "Browse, upload, and manage this project's files.",
 				action: { title: "New folder", onClick: () => setCreateFolderOpen(true) },
@@ -151,28 +165,32 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 						<DriveToolbar />
 						<SearchBar orgId={effectiveOrgId} projectId={projectId} />
 						<div className="flex items-center rounded-md border p-0.5">
-							<button
-								type="button"
-								aria-label="Grid view"
-								onClick={() => url.setQueryParams({ view: null })}
-								className={cn(
-									"rounded p-1.5 text-muted-foreground hover:text-foreground",
-									view === "grid" && "bg-muted text-foreground",
-								)}
-							>
-								<LayoutGridIcon className="size-4" />
-							</button>
-							<button
-								type="button"
-								aria-label="List view"
-								onClick={() => url.setQueryParams({ view: "list" })}
-								className={cn(
-									"rounded p-1.5 text-muted-foreground hover:text-foreground",
-									view === "list" && "bg-muted text-foreground",
-								)}
-							>
-								<ListIcon className="size-4" />
-							</button>
+							<Tippy content="Grid view">
+								<button
+									type="button"
+									aria-label="Grid view"
+									onClick={() => url.setQueryParams({ view: null })}
+									className={cn(
+										"rounded p-1.5 text-muted-foreground hover:text-foreground",
+										view === "grid" && "bg-muted text-foreground",
+									)}
+								>
+									<LayoutGridIcon className="size-4" />
+								</button>
+							</Tippy>
+							<Tippy content="List view">
+								<button
+									type="button"
+									aria-label="List view"
+									onClick={() => url.setQueryParams({ view: "list" })}
+									className={cn(
+										"rounded p-1.5 text-muted-foreground hover:text-foreground",
+										view === "list" && "bg-muted text-foreground",
+									)}
+								>
+									<ListIcon className="size-4" />
+								</button>
+							</Tippy>
 						</div>
 					</div>
 				</div>
@@ -182,9 +200,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 					folderId={folderId}
 					onUploaded={() => mutate()}
 				/>
-				{isLoading ? (
-					<p className="text-sm text-muted-foreground">Loading…</p>
-				) : view === "list" ? (
+				{view === "list" ? (
 					<DriveList
 						orgId={effectiveOrgId}
 						projectId={projectId}

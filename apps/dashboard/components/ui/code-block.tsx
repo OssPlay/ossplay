@@ -4,7 +4,7 @@ import { Check, Copy } from "lucide-react";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tippy } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
@@ -35,29 +35,22 @@ export const CodeBlock = React.forwardRef<HTMLPreElement, CodeBlockProps>(
 				<div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-900/50">
 					<span className="font-mono text-xs lowercase text-zinc-400">{language || "code"}</span>
 
-					{/* Copy button wrapped in shadcn tooltip */}
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									size="icon"
-									variant="ghost"
-									className="h-7 w-7 text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800"
-									onClick={copyToClipboard}
-								>
-									{hasCopied ? (
-										<Check className="h-3.5 w-3.5 text-green-500" />
-									) : (
-										<Copy className="h-3.5 w-3.5" />
-									)}
-									<span className="sr-only">Copy code</span>
-								</Button>
-							}
-						/>
-						<TooltipContent side="left">
-							<p>{hasCopied ? "Copied!" : "Copy code"}</p>
-						</TooltipContent>
-					</Tooltip>
+					{/* Copy button wrapped in shared Tippy tooltip */}
+					<Tippy content={hasCopied ? "Copied!" : "Copy code"} side="left">
+						<Button
+							size="icon"
+							variant="ghost"
+							className="h-7 w-7 text-zinc-400 hover:text-zinc-50 hover:bg-zinc-800"
+							onClick={copyToClipboard}
+						>
+							{hasCopied ? (
+								<Check className="h-3.5 w-3.5 text-green-500" />
+							) : (
+								<Copy className="h-3.5 w-3.5" />
+							)}
+							<span className="sr-only">Copy code</span>
+						</Button>
+					</Tippy>
 				</div>
 
 				{/* Scrollable container for pre/code */}

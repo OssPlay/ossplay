@@ -8,6 +8,7 @@ import { TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 import useSWR from "swr";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
@@ -18,8 +19,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { useInstanceRoleGate } from "@/hooks/use-instance-role-gate";
 import { useServerTable } from "@/hooks/use-server-table";
-import { ApiError } from "@/lib/api";
 import { formatDatetime } from "@/lib/utils";
 
 interface ErrorLogRow {
@@ -70,13 +71,11 @@ export default function InstanceErrorLogsPage() {
 		items: (response) => response.logs,
 	});
 	const { data: sourcesData } = useSWR<{ sources: string[] }>("/instance/error-logs/sources");
-	const forbidden = table.error instanceof ApiError && table.error.status === 403;
+	const forbidden = useInstanceRoleGate(table.error);
 	const [detail, setDetail] = useState<ErrorLogRow | null>(null);
 
 	if (forbidden) {
-		return (
-			<p className="text-sm text-muted-foreground">Only the instance root can view this page.</p>
-		);
+		return <InstanceForbidden />;
 	}
 
 	return (

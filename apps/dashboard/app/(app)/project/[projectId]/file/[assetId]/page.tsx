@@ -1,8 +1,11 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { LoaderCircleIcon } from "lucide-react";
+import { notFound, useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { PreviewOverlay } from "@/components/drive/preview-overlay";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ApiError } from "@/lib/api";
 import { useProjectContext } from "@/lib/current-project";
 import type { DriveAsset } from "@/types/drive";
 
@@ -16,13 +19,24 @@ export default function ProjectFilePreviewPage() {
 	const { projectId, assetId } = useParams<{ projectId: string; assetId: string }>();
 	const { effectiveOrgId } = useProjectContext(projectId);
 
-	const { data } = useSWR<{ asset: DriveAsset }>(
+	const { data, error, isLoading } = useSWR<{ asset: DriveAsset }>(
 		effectiveOrgId
 			? `/organizations/${effectiveOrgId}/projects/${projectId}/assets/${assetId}`
 			: null,
 	);
 
-	if (!effectiveOrgId || !data) return null;
+	if (error instanceof ApiError && error.status === 404) notFound();
+	if (!effectiveOrgId) return null;
+
+	if (isLoading || !data) {
+		return (
+			<Dialog open>
+				<DialogContent className="sm:max-w-full flex items-center justify-center min-h-96">
+					<LoaderCircleIcon className="animate-spin size-8" />
+				</DialogContent>
+			</Dialog>
+		);
+	}
 
 	return (
 		<PreviewOverlay

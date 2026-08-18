@@ -8,6 +8,7 @@ import {
 	ServerCogIcon,
 	UsersIcon,
 } from "lucide-react";
+import { Fragment } from "react";
 import { Section } from "@/components/layout/section";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useOrgSectionId } from "@/lib/current-org";
@@ -44,7 +45,13 @@ const sidepanel: Sidepanel = [
 	},
 ];
 
-export default function OrganizationLayout({ children }: { children: React.ReactNode }) {
+export default function OrganizationLayout({
+	children,
+	danger,
+}: {
+	children: React.ReactNode;
+	danger: React.ReactNode;
+}) {
 	const { organizations, user } = useAuth();
 	// Root has implicit access to every organization regardless of membership
 	// rows (see ARCHITECTURE.md's Authorization Model section) — useOrgSectionId
@@ -56,7 +63,10 @@ export default function OrganizationLayout({ children }: { children: React.React
 
 	return (
 		<Section sidepanel={sidepanel} breadcrumb={{ title: "Organization" }} access={access}>
-			{children}
+			<div className="flex flex-col gap-6">
+				<Fragment key="children">{children}</Fragment>
+				<Fragment key="danger">{danger}</Fragment>
+			</div>
 		</Section>
 	);
 }

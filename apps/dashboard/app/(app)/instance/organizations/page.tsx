@@ -23,14 +23,7 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { apiFetch, errorMessage } from "@/lib/api";
-
-interface OrganizationRow {
-	id: string;
-	name: string;
-	createdAt: string;
-	memberCount: number;
-	projectCount: number;
-}
+import type { OrganizationRow } from "@/types/instance";
 
 interface OrganizationsResponse {
 	organizations: OrganizationRow[];

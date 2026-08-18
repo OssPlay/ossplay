@@ -54,7 +54,7 @@ export function ProjectList() {
 					<p className="px-2 py-1.5 text-xs text-muted-foreground">No projects yet.</p>
 				)}
 				{projectList.map((project) => {
-					const href = `/project/${project.id}/settings`;
+					const href = `/project/${project.id}`;
 					return (
 						<SidebarMenuItem key={project.id}>
 							<SidebarMenuButton

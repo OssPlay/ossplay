@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { Section } from "@/components/layout/section";
 import AuthProvider, { useAuth } from "@/components/providers/auth-provider";
+import { RenderErrorBoundary } from "@/components/providers/render-error-boundary";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { Sidepanel } from "@/lib/nav-types";
 
@@ -40,22 +41,24 @@ function DefaultSection({ children }: React.PropsWithChildren) {
 
 export default function Layout({ children }: React.PropsWithChildren) {
 	return (
-		<AuthProvider>
-			<SidebarProvider
-				style={
-					{
-						"--sidebar-width": "19rem",
-					} as React.CSSProperties
-				}
-			>
-				<AppSidebar />
-				<SidebarInset>
-					<AppHeader />
-					<div className="flex flex-col flex-1 gap-y-4 min-w-0 p-4">
-						<DefaultSection>{children}</DefaultSection>
-					</div>
-				</SidebarInset>
-			</SidebarProvider>
-		</AuthProvider>
+		<RenderErrorBoundary>
+			<AuthProvider>
+				<SidebarProvider
+					style={
+						{
+							"--sidebar-width": "19rem",
+						} as React.CSSProperties
+					}
+				>
+					<AppSidebar />
+					<SidebarInset>
+						<AppHeader />
+						<div className="flex flex-col flex-1 gap-y-4 min-w-0 p-4">
+							<DefaultSection>{children}</DefaultSection>
+						</div>
+					</SidebarInset>
+				</SidebarProvider>
+			</AuthProvider>
+		</RenderErrorBoundary>
 	);
 }

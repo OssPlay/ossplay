@@ -1,36 +1,11 @@
 "use client";
 
-import { ClockIcon, CopyIcon, MailPlusIcon, UsersIcon } from "lucide-react";
-import { useState } from "react";
+import { ClockIcon, MailPlusIcon, UsersIcon } from "lucide-react";
 import useSWR from "swr";
-import { FormField } from "@/components/auth/form-field";
-import { CopyableLink } from "@/components/copyable-link";
-import { FormError } from "@/components/form-error";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
-import { Label } from "@/components/ui/label";
-import { LoadingButton } from "@/components/ui/loading-button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import {
 	Table,
 	TableBody,
@@ -39,41 +14,13 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useAction } from "@/hooks/use-action";
-import { ApiError, apiFetch, errorMessage } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { useOrgSectionId } from "@/lib/current-org";
-
-type Member = {
-	userId: string;
-	name: string;
-	email: string;
-	role: string;
-	lastSignInAt: string | null;
-};
-type Invitation = {
-	id: string;
-	email: string;
-	role: string;
-	status: string;
-	isExpired: boolean;
-	createdAt: string;
-	inviteUrl: string;
-};
-
-const ROLES = ["member", "admin", "owner"] as const;
-
-// Mirrors instance/users/page.tsx's INVITE_ROLE_LABELS — same "label plus
-// what it actually grants" pattern, kept accurate against the real org
-// permission grants in apps/api/src/lib/authz/permissions.ts's
-// ORG_ROLE_PERMISSIONS rather than restated loosely: member can edit
-// existing projects and manage assets (not create/delete projects); admin
-// adds create/delete projects; owner adds members and organization
-// settings (rename/delete the org itself).
-const ROLE_LABELS: Record<(typeof ROLES)[number], string> = {
-	member: "Member — edit projects, manage assets",
-	admin: "Admin — create/delete projects & assets",
-	owner: "Owner — full access, members & settings",
-};
+import type { OrgInvitation, OrgMember } from "@/types/instance";
+import { InvitationRowItem } from "./components/invitation-row-item";
+import { InviteForm } from "./components/invite-form";
+import { MemberRemoveAction } from "./components/member-remove-action";
+import { MemberRoleSelect } from "./components/member-role-select";
 
 export default function MembersPage() {
 	const { user, organizations } = useAuth();
@@ -96,9 +43,9 @@ export default function MembersPage() {
 		data: membersData,
 		isLoading: membersLoading,
 		mutate: mutateMembers,
-	} = useSWR<{ members: Member[] }>(orgId ? `/organizations/${orgId}/members` : null);
+	} = useSWR<{ members: OrgMember[] }>(orgId ? `/organizations/${orgId}/members` : null);
 	const { data: invitationsData, mutate: mutateInvitations } = useSWR<{
-		invitations: Invitation[];
+		invitations: OrgInvitation[];
 	}>(orgId ? `/organizations/${orgId}/invitations` : null);
 
 	if (!orgId) return null;
@@ -217,249 +164,5 @@ export default function MembersPage() {
 				</Table>
 			</Container>
 		</ApiLoader>
-	);
-}
-
-function InviteForm({ orgId, onInvited }: { orgId: string; onInvited: () => void }) {
-	const [email, setEmail] = useState("");
-	const [role, setRole] = useState<(typeof ROLES)[number]>("member");
-	const [warning, setWarning] = useState<string | null>(null);
-	const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-
-	const invite = useAction(
-		() =>
-			apiFetch<{ warning?: string; inviteUrl?: string }>(`/organizations/${orgId}/invitations`, {
-				method: "POST",
-				body: JSON.stringify({ email, role }),
-			}),
-		{
-			success: (res) =>
-				res.warning
-					? `Invitation created for "${email}" — email could not be sent`
-					: `Invitation sent to "${email}"`,
-			error: "Could not send invitation",
-		},
-	);
-
-	async function handleSubmit() {
-		setWarning(null);
-		setInviteUrl(null);
-		await invite
-			.trigger()
-			.then((res) => {
-				setWarning(res.warning ?? null);
-				setInviteUrl(res.warning ? (res.inviteUrl ?? null) : null);
-				setEmail("");
-				onInvited();
-			})
-			.catch(() => {});
-	}
-
-	return (
-		<div className="flex flex-col gap-4">
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-				<div className="flex-1">
-					<FormField
-						id="inviteEmail"
-						label="Email"
-						type="email"
-						value={email}
-						onChange={setEmail}
-						disabled={invite.isLoading}
-					/>
-				</div>
-				<div className="flex flex-col gap-1.5 w-full sm:w-80">
-					<Label htmlFor="inviteRole">Role</Label>
-					<Select
-						defaultValue={ROLES[0]}
-						onValueChange={(val) => {
-							if (val) setRole(val);
-						}}
-					>
-						<SelectTrigger id="inviteRole" className="w-full">
-							<SelectValue items={ROLE_LABELS} />
-						</SelectTrigger>
-						<SelectContent>
-							{ROLES.map((item) => (
-								<SelectItem key={item} value={item}>
-									{ROLE_LABELS[item]}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-				<LoadingButton
-					type="button"
-					loading={invite.isLoading}
-					onClick={handleSubmit}
-					disabled={!email}
-				>
-					Invite
-				</LoadingButton>
-			</div>
-			<FormError
-				message={invite.error ? errorMessage(invite.error, "Could not send invitation") : null}
-			/>
-			{warning && (
-				<div className="flex flex-col gap-2">
-					<p className="text-sm text-muted-foreground">{warning} — share the link manually.</p>
-					{inviteUrl && <CopyableLink url={inviteUrl} />}
-				</div>
-			)}
-		</div>
-	);
-}
-
-function MemberRoleSelect({
-	orgId,
-	member,
-	onChanged,
-}: {
-	orgId: string;
-	member: Member;
-	onChanged: () => void;
-}) {
-	const changeRole = useAction(
-		(role: (typeof ROLES)[number]) =>
-			apiFetch(`/organizations/${orgId}/members/${member.userId}`, {
-				method: "PUT",
-				body: JSON.stringify({ role }),
-			}),
-		{ error: "Could not update member" },
-	);
-
-	async function handleRoleChange(value: string | null) {
-		if (!value || value === member.role) return;
-		await changeRole
-			.trigger(value as (typeof ROLES)[number])
-			.then(onChanged)
-			.catch(() => {});
-	}
-
-	return (
-		<Select value={member.role} onValueChange={handleRoleChange} disabled={changeRole.isLoading}>
-			<SelectTrigger size="sm" className="w-fit">
-				<SelectValue items={ROLE_LABELS} />
-			</SelectTrigger>
-			<SelectContent>
-				{ROLES.map((item) => (
-					<SelectItem key={item} value={item}>
-						{ROLE_LABELS[item]}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
-	);
-}
-
-function MemberRemoveAction({
-	orgId,
-	member,
-	isSelf,
-	onChanged,
-}: {
-	orgId: string;
-	member: Member;
-	isSelf: boolean;
-	onChanged: () => void;
-}) {
-	const [open, setOpen] = useState(false);
-
-	const remove = useAction(
-		() =>
-			apiFetch(`/organizations/${orgId}/members/${member.userId}`, {
-				method: "DELETE",
-			}),
-		{
-			success: isSelf ? "You left the organization" : `"${member.name}" removed`,
-			error: isSelf ? "Could not leave the organization" : "Could not remove member",
-		},
-	);
-
-	async function handleRemove() {
-		await remove
-			.trigger()
-			.then(() => {
-				setOpen(false);
-				onChanged();
-			})
-			.catch(() => {});
-	}
-
-	return (
-		<AlertDialog open={open} onOpenChange={setOpen}>
-			<AlertDialogTrigger render={<Button variant="ghost" size="sm" />}>
-				{isSelf ? "Leave" : "Remove"}
-			</AlertDialogTrigger>
-			<AlertDialogContent>
-				<AlertDialogHeader>
-					<AlertDialogTitle>
-						{isSelf ? "Leave this organization?" : `Remove "${member.name}"?`}
-					</AlertDialogTitle>
-					<AlertDialogDescription>
-						{isSelf
-							? "You'll lose access to this organization's projects and settings."
-							: "They'll lose access to this organization immediately."}
-					</AlertDialogDescription>
-				</AlertDialogHeader>
-				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction
-						variant="destructive"
-						disabled={remove.isLoading}
-						onClick={handleRemove}
-					>
-						{isSelf ? "Leave" : "Remove"}
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
-	);
-}
-
-function InvitationRowItem({
-	invitation,
-	onRevoked,
-}: {
-	invitation: Invitation;
-	onRevoked: () => void;
-}) {
-	const revoke = useAction(
-		() => apiFetch(`/invitations/${invitation.id}/revoke`, { method: "POST" }),
-		{
-			success: `Invitation to "${invitation.email}" revoked`,
-			error: "Could not revoke invitation",
-		},
-	);
-
-	async function handleRevoke() {
-		await revoke
-			.trigger()
-			.then(onRevoked)
-			.catch(() => {});
-	}
-
-	async function handleCopy() {
-		await navigator.clipboard.writeText(invitation.inviteUrl);
-	}
-
-	return (
-		<TableRow>
-			<TableCell>{invitation.email}</TableCell>
-			<TableCell>
-				<Badge variant="secondary">{invitation.role}</Badge>
-			</TableCell>
-			<TableCell className="text-muted-foreground">
-				{invitation.isExpired ? "Expired" : "Pending"}
-			</TableCell>
-			<TableCell className="text-right">
-				<Button variant="ghost" size="icon-sm" onClick={handleCopy} title="Copy invite link">
-					<CopyIcon className="size-3.5" />
-				</Button>
-				<LoadingButton variant="ghost" size="sm" loading={revoke.isLoading} onClick={handleRevoke}>
-					Revoke
-				</LoadingButton>
-			</TableCell>
-		</TableRow>
 	);
 }

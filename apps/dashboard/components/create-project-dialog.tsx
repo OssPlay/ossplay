@@ -23,10 +23,7 @@ import {
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { slugify } from "@/lib/slugify";
-
-type Visibility = "public" | "private";
-type Project = { id: string; name: string; orgId: string };
-type Destination = { id: string; label: string; visibility: Visibility };
+import type { Destination, Project, Visibility } from "@/types/projects";
 
 const VISIBILITY_LABELS: Record<Visibility, string> = {
 	private: "Private — only accessible with a signed URL",

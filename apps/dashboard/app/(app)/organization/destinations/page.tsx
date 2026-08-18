@@ -46,29 +46,8 @@ import { useAction } from "@/hooks/use-action";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
 import { useOrgSectionId } from "@/lib/current-org";
-
-type Visibility = "public" | "private";
-type DestinationStatus = "untested" | "ok" | "error";
-type ConfigStatus = "unconfigured" | "configured" | "drifted" | "error";
-
-interface DestinationRow {
-	id: string;
-	label: string;
-	endpoint: string;
-	region: string;
-	bucket: string;
-	accessKeyId: string;
-	visibility: Visibility;
-	cloudfrontUrl: string | null;
-	status: DestinationStatus;
-	lastCheckedAt: string | null;
-	lastError: string | null;
-	configStatus: ConfigStatus;
-	configuredAt: string | null;
-	configCheckedAt: string | null;
-	configError: string | null;
-	createdAt: string;
-}
+import type { ConfigStatus, DestinationRow, DestinationStatus } from "@/types/instance";
+import type { Visibility } from "@/types/projects";
 
 interface DestinationsResponse {
 	destinations: DestinationRow[];

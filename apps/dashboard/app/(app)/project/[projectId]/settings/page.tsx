@@ -1,13 +1,25 @@
 "use client";
 
+import { DatabaseIcon, SettingsIcon, TriangleAlertIcon } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Container from "@/components/ui/container";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
@@ -20,16 +32,7 @@ import {
 import { useAction } from "@/hooks/use-action";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { useProjectContext } from "@/lib/current-project";
-
-type Visibility = "public" | "private";
-type Project = {
-	id: string;
-	name: string;
-	orgId: string;
-	visibility: Visibility;
-	destinationId: string | null;
-};
-type Destination = { id: string; label: string; visibility: Visibility };
+import type { Destination, Project } from "@/types/projects";
 
 // Same sentinel/reasoning as components/create-project-dialog.tsx.
 const LOCAL_DRIVE_VALUE = "__local__";
@@ -58,7 +61,7 @@ export default function ProjectGeneralPage() {
 
 	const [name, setName] = useState("");
 	const [destinationId, setDestinationId] = useState("");
-	const [confirmingDelete, setConfirmingDelete] = useState(false);
+	const [deleteOpen, setDeleteOpen] = useState(false);
 	// Seeds the editable fields from the fetched values exactly once — a
 	// background SWR revalidation must not stomp on what the user is
 	// currently typing.
@@ -115,6 +118,7 @@ export default function ProjectGeneralPage() {
 		await remove
 			.trigger()
 			.then(() => {
+				setDeleteOpen(false);
 				mutate();
 				router.replace("/");
 			})
@@ -125,11 +129,8 @@ export default function ProjectGeneralPage() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<Card>
-				<CardHeader>
-					<CardTitle>General</CardTitle>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-4">
+			<Container header={{ icon: SettingsIcon, title: "General" }} size="sm">
+				<div className="flex flex-col gap-4">
 					<FormField
 						id="projectName"
 						label="Name"
@@ -147,14 +148,11 @@ export default function ProjectGeneralPage() {
 					>
 						Save
 					</LoadingButton>
-				</CardContent>
-			</Card>
+				</div>
+			</Container>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Storage</CardTitle>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-4">
+			<Container header={{ icon: DatabaseIcon, title: "Storage" }} size="sm">
+				<div className="flex flex-col gap-4">
 					<div className="flex items-center gap-2">
 						<span className="text-sm text-muted-foreground">Visibility</span>
 						<Badge variant="outline" className="capitalize">
@@ -205,42 +203,41 @@ export default function ProjectGeneralPage() {
 					>
 						Save
 					</LoadingButton>
-				</CardContent>
-			</Card>
+				</div>
+			</Container>
 
 			{canDelete && (
-				<Card>
-					<CardHeader>
-						<CardTitle>Delete project</CardTitle>
-					</CardHeader>
-					<CardContent className="flex flex-col gap-4">
+				<Container header={{ icon: TriangleAlertIcon, title: "Delete project" }} size="sm">
+					<div className="flex flex-col gap-4">
 						<FormError
 							message={remove.error ? errorMessage(remove.error, "Could not delete project") : null}
 						/>
-						{confirmingDelete ? (
-							<div className="flex gap-2">
-								<LoadingButton
-									variant="destructive"
-									loading={remove.isLoading}
-									onClick={handleDelete}
-								>
-									Confirm delete
-								</LoadingButton>
-								<Button
-									variant="ghost"
-									onClick={() => setConfirmingDelete(false)}
-									disabled={remove.isLoading}
-								>
-									Cancel
-								</Button>
-							</div>
-						) : (
-							<Button variant="outline" onClick={() => setConfirmingDelete(true)}>
+						<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+							<AlertDialogTrigger render={<Button variant="outline" className="w-fit" />}>
 								Delete project
-							</Button>
-						)}
-					</CardContent>
-				</Card>
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
+									<AlertDialogDescription>
+										This permanently deletes the project, its folders, and every file in it. This
+										can't be undone.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Cancel</AlertDialogCancel>
+									<AlertDialogAction
+										variant="destructive"
+										disabled={remove.isLoading}
+										onClick={handleDelete}
+									>
+										Delete project
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+					</div>
+				</Container>
 			)}
 		</div>
 	);

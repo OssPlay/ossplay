@@ -1,5 +1,6 @@
 "use client";
 
+import { LoaderCircleIcon } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { type SubmitEvent, useState } from "react";
 import useSWR from "swr";
@@ -62,7 +63,13 @@ export default function InstanceInvitePage() {
 		);
 	}
 
-	if (!details) return null;
+	if (!details) {
+		return (
+			<div className="flex flex-1 items-center justify-center bg-card">
+				<LoaderCircleIcon className="animate-spin size-8" />
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-1 items-center justify-center bg-card">

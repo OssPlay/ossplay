@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
 	AlertDialog,
@@ -36,34 +37,17 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAction } from "@/hooks/use-action";
+import { useInstanceRoleGate } from "@/hooks/use-instance-role-gate";
 import { useServerTable } from "@/hooks/use-server-table";
-import { ApiError, apiFetch, errorMessage } from "@/lib/api";
+import { apiFetch, errorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-type SshKeyType = "ssh-rsa" | "ssh-ed25519";
-
-interface SshKeyRow {
-	id: string;
-	label: string;
-	keyType: SshKeyType;
-	publicKey: string;
-	fingerprint: string;
-	serverCount: number;
-	createdAt: string;
-}
+import type { SshKeyGen, SshKeyRow, SshKeyType } from "@/types/instance";
 
 interface SshKeysResponse {
 	keys: SshKeyRow[];
 	total: number;
 	page: number;
 	pageSize: number;
-}
-
-interface SshKeyGen {
-	keyType: SshKeyType;
-	publicKey: string;
-	privateKey: string;
-	fingerprint: string;
 }
 
 const KEY_TYPE_LABELS: Record<SshKeyType, string> = {
@@ -78,16 +62,14 @@ export default function InstanceSshKeysPage() {
 		items: (response) => response.keys,
 	});
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const forbidden = table.error instanceof ApiError && table.error.status === 403;
+	const forbidden = useInstanceRoleGate(table.error);
 
 	const deleteMany = useAction((ids: string[]) =>
 		Promise.allSettled(ids.map((id) => apiFetch(`/instance/ssh-keys/${id}`, { method: "DELETE" }))),
 	);
 
 	if (forbidden) {
-		return (
-			<p className="text-sm text-muted-foreground">Only the instance root can view this page.</p>
-		);
+		return <InstanceForbidden />;
 	}
 
 	const columns: DataTableColumn<SshKeyRow>[] = [
@@ -168,6 +150,10 @@ export default function InstanceSshKeysPage() {
 						label: "Delete",
 						variant: "destructive",
 						onClick: handleBulkDelete,
+						confirm: {
+							title: "Delete selected keys?",
+							description: "This can't be undone.",
+						},
 					},
 				]}
 				rowActions={(row) => <SshKeyRowDelete sshKey={row} onDeleted={() => table.mutate()} />}
@@ -250,7 +236,7 @@ function AddSshKeyDialog({
 				method: "POST",
 				body: JSON.stringify({ label, publicKey, privateKey }),
 			}),
-		{ error: "Could not add key", success: "Successfully created key" },
+		{ error: "Could not add key", success: "Key created" },
 	);
 
 	const generate = useAction(

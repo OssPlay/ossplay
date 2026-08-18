@@ -6,6 +6,26 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-18 — Dashboard UI/UX consistency overhaul: parallel routes, skeleton loading, type/component centralization
+
+**Status:** Decided
+
+Drive's UI didn't match the rest of the app (a real `setState`-in-render console warning, inconsistent loading states, missing tooltips), and investigating that surfaced the same "cram everything into one file" problem elsewhere — `settings/security`, `organization`, and `instance/users/[id]` each crammed 3-8 unrelated concerns into one oversized page component. This pass fixed both: the specific Drive bugs, and the systemic pattern, establishing several conventions the app didn't have before.
+
+- **Next.js parallel routes (`@slot`) are now a used pattern in this codebase — first use, applied at exactly 3 sites.** `settings/security` (`@password`/`@twofactor`/`@passkeys`/`@sessions`), `organization` (`children` = rename, `@danger` = delete), `instance/users/[id]` (`children` = identity header, `@security`/`@memberships`/`@danger`). Each slot is its own file with its own `useSWR`/`useAction` calls and its own `error.tsx` blast-radius containment — a crash in one card no longer takes the whole page down. **Real gotcha, cost a dev-server outage to find:** Next 16.2.12 requires a `default.tsx` in *every* slot folder even for a single-route segment with no nested sub-paths (not just for sibling routes sharing a parent layout, contrary to what the docs excerpt implied) — omit one and the *entire* dev server 500s on every route, not just the affected page.
+- **A plain multi-child JSX layout (`<div>{a}{b}{c}</div>`) inside a slot-composing layout.tsx triggers React's "unique key prop" warning** — each top-level child needs `<Fragment key="...">{x}</Fragment>` wrapping. Not obvious since this exact pattern is harmless in a normal component; something about how Next resolves parallel-route slot props into that position makes React treat them as a keyed list. Fixed in all 3 layouts built this pass.
+- **`loading.tsx`/parallel routes are not a substitute for a real loading UI on client-fetched data.** This app fetches via `useSWR` after mount, not server async components — `loading.tsx`'s Suspense boundary only covers route/JS-chunk transition, never a `useSWR` call resolving. Recorded explicitly so this isn't re-litigated: every "fix the loading state" fix this pass was still an in-component `ApiLoader`/skeleton, never a `loading.tsx` file addressing data-wait.
+- **Skeleton loading (via the existing-but-unused `Skeleton` shadcn primitive) replaces the old spinner-in-a-box as the default loading visual**, alongside the existing `ApiLoader`/`ErrorBoundary` (`components/layout/container-skeleton.tsx`, `table-skeleton.tsx`; `ApiLoader` gained an optional `skeleton` prop).
+- **`Tippy` (`components/ui/tooltip.tsx`) is now the single sanctioned tooltip primitive** — consolidated 4 competing patterns (native `title=`, raw `Tooltip`/`TooltipTrigger` primitives, nothing at all, `Tippy`) down to one.
+- **New standing convention: one file, one exported component.** Every route folder needing more than one component gets a colocated `components/` subdirectory. Applied to every multi-component page found across the app (dashboard home's 4 charts, `instance/smtp`, `instance/servers`, `organization/members`, `instance/users`, Drive's trash row actions), not just the 3 parallel-route sites.
+- **New: client-side error reporting.** Previously an uncaught render exception or unhandled promise rejection was invisible everywhere — no console capture, no server log. Added a real `componentDidCatch` class-component boundary + `unhandledrejection` listener in the dashboard, reporting to a new authenticated `POST /client-errors` API route that reuses the existing `logSystemError` helper (`source: "dashboard"`) — these now surface in the existing Error Logs page for free, no new UI needed.
+- **`DataTable`'s bulk actions gained an optional `confirm` config** (renders an `AlertDialog` before firing), closing the one gap where destructive bulk actions (ssh-keys bulk delete, users bulk block) fired with zero confirmation while every single-row destructive action already used `AlertDialog` correctly.
+- **Type centralization extended past Drive** (`types/drive.ts` already did this correctly) to `types/projects.ts` (reconciling 4 conflicting hand-rolled `Project` shapes) and `types/instance.ts` (15 more entities that were each declared locally, drifting risk even where not yet actually drifted).
+
+**Artifacts updated:** No `docs` repo change — this pass is internal UI/architecture consistency, not a user-facing behavior change worth documenting there.
+
+---
+
 ## 2026-08-12 — Drive overhaul: real multi-select/DnD/grid-list UI, on-demand variant pipeline, bulk zip download
 
 **Status:** Decided

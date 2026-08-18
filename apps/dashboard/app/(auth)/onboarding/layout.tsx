@@ -1,5 +1,6 @@
 "use client";
 
+import { LoaderCircleIcon } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import useSWR from "swr";
@@ -41,7 +42,13 @@ export default function OnboardingLayout({ children }: { children: React.ReactNo
 		}
 	}, [status, pathname, router]);
 
-	if (!status) return null;
+	if (!status) {
+		return (
+			<div className="flex flex-1 items-center justify-center bg-card">
+				<LoaderCircleIcon className="animate-spin size-8" />
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-1 items-center justify-center bg-card">

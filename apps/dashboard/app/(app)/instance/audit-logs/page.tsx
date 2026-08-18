@@ -21,19 +21,7 @@ import {
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError } from "@/lib/api";
 import { formatDatetime } from "@/lib/utils";
-
-interface AuditLogRow {
-	id: string;
-	action: string;
-	targetType: string | null;
-	targetId: string | null;
-	metadata: Record<string, unknown> | null;
-	ipAddress: string | null;
-	createdAt: string;
-	actorUserId: string | null;
-	actorName: string | null;
-	actorEmail: string | null;
-}
+import type { AuditLogRow } from "@/types/instance";
 
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
 	return (
