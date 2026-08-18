@@ -10,6 +10,7 @@ import { useState } from "react";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { useServerTable } from "@/hooks/use-server-table";
 import { apiFetch, errorMessage } from "@/lib/api";
 import type { OrganizationRow } from "@/types/instance";
@@ -58,6 +60,7 @@ const columns: DataTableColumn<OrganizationRow>[] = [
 // filling in a duplicate "create org" input somewhere else.
 export default function InstanceOrganizationsPage() {
 	const router = useRouter();
+	const { instance } = useAuth();
 	const table = useServerTable<OrganizationsResponse, OrganizationRow>({
 		endpoint: "/organizations",
 		items: (response) => response.organizations,
@@ -75,6 +78,9 @@ export default function InstanceOrganizationsPage() {
 					title: "New organization",
 					onClick: () => setCreateOpen(true),
 				},
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/instance-organizations` }
+					: undefined,
 			}}
 			size="lg"
 		>
@@ -122,29 +128,17 @@ function CreateOrgDialog({
 		},
 	);
 
-	// Reset on close, not open — the "New organization" button that opens this
-	// dialog calls setCreateOpen(true) directly (bypassing this handler
-	// entirely), so a reset-on-open branch never actually runs on that path.
-	// Every close path (this dialog's own success handler below, Escape,
-	// overlay click) does go through handleOpenChange, so resetting there
-	// covers all of them. Same bug/fix as InviteUserDialog, AddDestinationDialog,
-	// and CreateProjectDialog elsewhere in this codebase.
-	function handleOpenChange(next: boolean) {
-		if (!next) {
-			setName("");
-			createOrg.reset();
-		}
-		onOpenChange(next);
-	}
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => setName(""),
+		action: createOrg,
+	});
 
-	async function handleCreate() {
-		await createOrg
-			.trigger()
-			.then((res) => {
-				handleOpenChange(false);
-				onCreated(res.organization.id);
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(
+			() => createOrg.trigger(),
+			(res) => onCreated(res.organization.id),
+		);
 	}
 
 	return (

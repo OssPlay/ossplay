@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 import { BellIcon, CheckCheckIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
 import { useAction } from "@/hooks/use-action";
@@ -49,6 +50,7 @@ const columns: DataTableColumn<NotificationRow>[] = [
 
 export default function NotificationsPage() {
 	const router = useRouter();
+	const { instance } = useAuth();
 	const table = useServerTable<NotificationsResponse, NotificationRow>({
 		endpoint: "/notifications",
 		items: (response) => response.notifications,
@@ -91,6 +93,9 @@ export default function NotificationsPage() {
 					title: "Mark all as read",
 					onClick: handleMarkAllRead,
 				},
+				learnMore: instance?.docsUrl
+					? { href: `${instance.docsUrl}/guides/notifications` }
+					: undefined,
 			}}
 			size="lg"
 		>

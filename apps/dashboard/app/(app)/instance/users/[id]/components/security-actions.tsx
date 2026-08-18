@@ -1,19 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { FormError } from "@/components/form-error";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
 	Select,
@@ -27,7 +16,6 @@ import { apiFetch, errorMessage } from "@/lib/api";
 import type { InstanceUser } from "@/types/instance";
 
 export function SecurityActions({ user, onChange }: { user: InstanceUser; onChange: () => void }) {
-	const [reset2faOpen, setReset2faOpen] = useState(false);
 	const resetPassword = useAction(
 		() =>
 			apiFetch<{ temporaryPassword: string }>(`/instance/users/${user.id}/password`, {
@@ -52,16 +40,6 @@ export function SecurityActions({ user, onChange }: { user: InstanceUser; onChan
 			error: user.disabledAt ? "Could not unblock user" : "Could not block user",
 		},
 	);
-
-	async function handleReset2fa() {
-		await reset2fa
-			.trigger()
-			.then(() => {
-				setReset2faOpen(false);
-				onChange();
-			})
-			.catch(() => {});
-	}
 
 	async function handleToggleBlock() {
 		await toggleBlock
@@ -125,30 +103,18 @@ export function SecurityActions({ user, onChange }: { user: InstanceUser; onChan
 					</LoadingButton>
 
 					{user.totpEnabled || user.passkeyCount > 0 ? (
-						<AlertDialog open={reset2faOpen} onOpenChange={setReset2faOpen}>
-							<AlertDialogTrigger
-								render={
-									<Button variant="secondary" size="sm">
-										Reset 2FA &amp; passkeys
-									</Button>
-								}
-							/>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Reset 2FA &amp; passkeys?</AlertDialogTitle>
-									<AlertDialogDescription>
-										{user.name} will lose their authenticator and every registered passkey, and will
-										need to set 2FA up again. This can't be undone.
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Cancel</AlertDialogCancel>
-									<AlertDialogAction disabled={reset2fa.isLoading} onClick={handleReset2fa}>
-										Reset 2FA &amp; passkeys
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
+						<ConfirmDialog
+							trigger={
+								<Button variant="secondary" size="sm">
+									Reset 2FA &amp; passkeys
+								</Button>
+							}
+							title="Reset 2FA & passkeys?"
+							description={`${user.name} will lose their authenticator and every registered passkey, and will need to set 2FA up again. This can't be undone.`}
+							confirmLabel="Reset 2FA & passkeys"
+							loading={reset2fa.isLoading}
+							onConfirm={() => reset2fa.trigger().then(onChange)}
+						/>
 					) : null}
 
 					<LoadingButton

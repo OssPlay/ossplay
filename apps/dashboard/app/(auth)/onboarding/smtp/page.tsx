@@ -14,8 +14,8 @@ export default function OnboardingSmtpStep() {
 				Configure SMTP to send invitations and password-reset emails. Skippable — you can set this
 				later from instance settings.
 			</CardDescription>
-			<SmtpForm saveLabel="Continue" onSaved={() => router.push("/onboarding/organization")} />
-			<Button variant="ghost" onClick={() => router.push("/onboarding/organization")}>
+			<SmtpForm saveLabel="Continue" onSaved={() => router.push("/onboarding/updates")} />
+			<Button variant="ghost" onClick={() => router.push("/onboarding/updates")}>
 				Skip
 			</Button>
 		</div>

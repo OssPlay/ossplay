@@ -12,19 +12,9 @@ import { FormError } from "@/components/form-error";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import Container from "@/components/ui/container";
 import {
 	Dialog,
@@ -37,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { useInstanceRoleGate } from "@/hooks/use-instance-role-gate";
 import { useServerTable } from "@/hooks/use-server-table";
 import { apiFetch, errorMessage } from "@/lib/api";
@@ -169,7 +160,6 @@ export default function InstanceSshKeysPage() {
 }
 
 function SshKeyRowDelete({ sshKey, onDeleted }: { sshKey: SshKeyRow; onDeleted: () => void }) {
-	const [open, setOpen] = useState(false);
 	const remove = useAction(
 		() => apiFetch(`/instance/ssh-keys/${sshKey.id}`, { method: "DELETE" }),
 		{
@@ -178,42 +168,23 @@ function SshKeyRowDelete({ sshKey, onDeleted }: { sshKey: SshKeyRow; onDeleted: 
 		},
 	);
 
-	async function handleRemove() {
-		await remove
-			.trigger()
-			.then(() => {
-				setOpen(false);
-				onDeleted();
-			})
-			.catch(() => {});
-	}
-
 	return (
-		<AlertDialog open={open} onOpenChange={setOpen}>
-			<AlertDialogTrigger render={<Button variant="secondary" size="sm" />}>
-				Delete
-			</AlertDialogTrigger>
-			<AlertDialogContent>
-				<AlertDialogHeader>
-					<AlertDialogTitle>Delete "{sshKey.label}"?</AlertDialogTitle>
-					<AlertDialogDescription>
-						{sshKey.serverCount > 0
-							? "This key is used by a remote server and can't be deleted until that server is removed."
-							: "This can't be undone."}
-					</AlertDialogDescription>
-				</AlertDialogHeader>
-				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction
-						variant="destructive"
-						disabled={remove.isLoading || sshKey.serverCount > 0}
-						onClick={handleRemove}
-					>
-						Delete
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
+		<ConfirmDialog
+			trigger={
+				<Button variant="secondary" size="sm">
+					Delete
+				</Button>
+			}
+			title={`Delete "${sshKey.label}"?`}
+			description={
+				sshKey.serverCount > 0
+					? "This key is used by a remote server and can't be deleted until that server is removed."
+					: "This can't be undone."
+			}
+			confirmLabel="Delete"
+			loading={remove.isLoading || sshKey.serverCount > 0}
+			onConfirm={() => remove.trigger().then(onDeleted)}
+		/>
 	);
 }
 
@@ -255,22 +226,18 @@ function AddSshKeyDialog({
 		},
 	);
 
-	function handleOpenChange(next: boolean) {
-		setLabel("");
-		setPublicKey("");
-		setPrivateKey("");
-		create.reset();
-		onOpenChange(next);
-	}
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
+			setLabel("");
+			setPublicKey("");
+			setPrivateKey("");
+		},
+		action: create,
+	});
 
-	async function handleCreate() {
-		await create
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onAdded();
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(() => create.trigger(), onAdded);
 	}
 
 	return (

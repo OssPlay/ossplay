@@ -10,11 +10,11 @@ export default function DangerSlot() {
 	const router = useRouter();
 	const { data, isLoading, forbidden, notFound } = useUserDetail();
 
-	if (isLoading) return <ContainerSkeleton rows={1} />;
+	if (isLoading) return <ContainerSkeleton size="lg" rows={1} />;
 	if (forbidden || notFound || !data) return null;
 
 	return (
-		<Container header={{ title: "Delete user" }}>
+		<Container header={{ title: "Delete user" }} size="lg">
 			<DangerZone user={data.user} onDeleted={() => router.replace("/instance/users")} />
 		</Container>
 	);

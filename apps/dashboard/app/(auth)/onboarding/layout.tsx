@@ -11,13 +11,19 @@ type OnboardingStatus = {
 	steps: {
 		dns: { skippable: boolean; completed: boolean };
 		smtp: { skippable: boolean; completed: boolean };
+		updates: { skippable: boolean; completed: boolean };
 		org: { skippable: boolean; completed: boolean };
 	};
 };
 
+// `org` stays last and non-skippable: it's the one step that flips
+// onboardedAt/needsOnboarding server-side (see the exit effect below), so a
+// step placed after it would never be reachable — the exit redirect fires
+// the instant org completes.
 const STEPS = [
 	{ key: "dns", path: "/onboarding/dns", label: "Domain" },
 	{ key: "smtp", path: "/onboarding/smtp", label: "Email" },
+	{ key: "updates", path: "/onboarding/updates", label: "Updates" },
 	{ key: "org", path: "/onboarding/organization", label: "Organization" },
 ] as const;
 

@@ -15,18 +15,26 @@ import type { Sidepanel } from "@/lib/nav-types";
 
 // Grouped to match instance/layout.tsx's icon-labeled-section convention
 // (Server/Connections/Infrastructure/Access Control) instead of a flat mix
-// of grouped and ungrouped items. No "Remote Servers" entry here — remote
-// servers are provisioned instance-wide by root only (instance/servers);
-// an org can't add or manage its own, it can only end up using one once a
-// project's processing rules reference it. That page never existed, so the
-// old link was a dead 404.
+// of grouped and ungrouped items. "Settings" (org-level config) is kept
+// separate from "Manage" (the member/project management surfaces) rather
+// than one flat "Organization" group mixing both — a group literally named
+// "Organization" reads as if everything under it is settings, which made
+// Members/Projects feel out of place there. No "Remote Servers" entry here
+// — remote servers are provisioned instance-wide by root only
+// (instance/servers); an org can't add or manage its own, it can only end
+// up using one once a project's processing rules reference it. That page
+// never existed, so the old link was a dead 404.
 const sidepanel: Sidepanel = [
 	{ title: "Back to Dashboard", href: "/", icon: ArrowLeftIcon },
 	{
-		title: "Organization",
+		title: "Settings",
 		icon: Building2Icon,
+		items: [{ title: "General", href: "/organization", icon: Building2Icon }],
+	},
+	{
+		title: "Manage",
+		icon: UsersIcon,
 		items: [
-			{ title: "General", href: "/organization", icon: Building2Icon },
 			{ title: "Members", href: "/organization/members", icon: UsersIcon },
 			{ title: "Projects", href: "/organization/projects", icon: FolderIcon },
 		],

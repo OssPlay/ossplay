@@ -1,55 +1,42 @@
 "use client";
 
-import { RotateCcwIcon, Trash2Icon } from "lucide-react";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Tippy } from "@/components/ui/tooltip";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
+// Text-label row actions, matching every other admin table's row-action
+// convention (servers/smtp/ssh-keys/destinations/members) — this used to be
+// the one icon-only pair (with Tippy tooltips) in an otherwise text-button
+// codebase.
 export function TrashRowActions({
 	onRestore,
 	onDeleteForever,
+	restoring,
+	deleting,
 	label,
 }: {
 	onRestore: () => void;
-	onDeleteForever: () => void;
+	onDeleteForever: () => Promise<unknown>;
+	restoring?: boolean;
+	deleting?: boolean;
 	label: string;
 }) {
 	return (
-		<div className="flex justify-end gap-1">
-			<Tippy content="Restore">
-				<Button variant="ghost" size="icon-sm" onClick={onRestore}>
-					<RotateCcwIcon className="size-3.5" />
-				</Button>
-			</Tippy>
-			<AlertDialog>
-				<Tippy content="Delete forever">
-					<AlertDialogTrigger render={<Button variant="ghost" size="icon-sm" />}>
-						<Trash2Icon className="size-3.5" />
-					</AlertDialogTrigger>
-				</Tippy>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Delete "{label}" forever?</AlertDialogTitle>
-						<AlertDialogDescription>This can't be undone.</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction variant="destructive" onClick={onDeleteForever}>
-							Delete forever
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+		<div className="flex justify-end gap-2">
+			<Button variant="ghost" size="sm" disabled={restoring} onClick={onRestore}>
+				Restore
+			</Button>
+			<ConfirmDialog
+				trigger={
+					<Button variant="ghost" size="sm">
+						Delete forever
+					</Button>
+				}
+				title={`Delete "${label}" forever?`}
+				description="This can't be undone."
+				confirmLabel="Delete forever"
+				loading={deleting}
+				onConfirm={onDeleteForever}
+			/>
 		</div>
 	);
 }

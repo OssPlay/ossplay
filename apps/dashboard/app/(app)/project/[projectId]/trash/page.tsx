@@ -5,18 +5,9 @@ import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { TrashRowActions } from "@/components/drive/trash-row-actions";
 import ContainerSkeleton from "@/components/layout/container-skeleton";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import Container from "@/components/ui/container";
 import {
 	Table,
@@ -37,6 +28,7 @@ import type { DriveAsset, DriveFolder } from "@/types/drive";
 // listing doesn't need it.
 export default function ProjectTrashPage() {
 	const { projectId } = useParams<{ projectId: string }>();
+	const { instance } = useAuth();
 	const { effectiveOrgId } = useProjectContext(projectId);
 	const base = `/organizations/${effectiveOrgId}/projects/${projectId}`;
 
@@ -78,40 +70,27 @@ export default function ProjectTrashPage() {
 				icon: Trash2Icon,
 				title: "Trash",
 				description: "Items are permanently deleted after 30 days.",
+				learnMore: instance?.docsUrl ? { href: `${instance.docsUrl}/guides/drive` } : undefined,
 				// A plain header.action fires immediately on click — too easy to
 				// trigger by accident for something this irreversible, unlike the
 				// per-row "Delete forever" (trash-row-actions.tsx), which already
-				// confirms via AlertDialog. header.extra lets this one confirm too.
+				// confirms via ConfirmDialog. header.extra lets this one confirm too.
 				extra:
 					folders.length + assets.length > 0 ? (
-						<AlertDialog>
-							<AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
-								<Trash2Icon /> Empty trash
-							</AlertDialogTrigger>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Empty trash?</AlertDialogTitle>
-									<AlertDialogDescription>
-										This permanently deletes {folders.length + assets.length} item
-										{folders.length + assets.length === 1 ? "" : "s"} — this can't be undone.
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Cancel</AlertDialogCancel>
-									<AlertDialogAction
-										variant="destructive"
-										onClick={() =>
-											emptyTrash
-												.trigger()
-												.then(() => mutate())
-												.catch(() => {})
-										}
-									>
-										Empty trash
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
+						<ConfirmDialog
+							trigger={
+								<Button variant="destructive" size="sm">
+									<Trash2Icon /> Empty trash
+								</Button>
+							}
+							title="Empty trash?"
+							description={`This permanently deletes ${folders.length + assets.length} item${
+								folders.length + assets.length === 1 ? "" : "s"
+							} — this can't be undone.`}
+							confirmLabel="Empty trash"
+							loading={emptyTrash.isLoading}
+							onConfirm={() => emptyTrash.trigger().then(() => mutate())}
+						/>
 					) : undefined,
 			}}
 			size="lg"
@@ -146,12 +125,11 @@ export default function ProjectTrashPage() {
 												.then(() => mutate())
 												.catch(() => {})
 										}
+										restoring={restoreFolder.isLoading}
 										onDeleteForever={() =>
-											deleteFolderForever
-												.trigger(folder.id)
-												.then(() => mutate())
-												.catch(() => {})
+											deleteFolderForever.trigger(folder.id).then(() => mutate())
 										}
+										deleting={deleteFolderForever.isLoading}
 										label={folder.name}
 									/>
 								</TableCell>
@@ -174,12 +152,11 @@ export default function ProjectTrashPage() {
 												.then(() => mutate())
 												.catch(() => {})
 										}
+										restoring={restoreAsset.isLoading}
 										onDeleteForever={() =>
-											deleteAssetForever
-												.trigger(asset.id)
-												.then(() => mutate())
-												.catch(() => {})
+											deleteAssetForever.trigger(asset.id).then(() => mutate())
 										}
+										deleting={deleteAssetForever.isLoading}
 										label={asset.filename}
 									/>
 								</TableCell>

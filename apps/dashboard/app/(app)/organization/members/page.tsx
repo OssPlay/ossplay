@@ -23,7 +23,7 @@ import { MemberRemoveAction } from "./components/member-remove-action";
 import { MemberRoleSelect } from "./components/member-role-select";
 
 export default function MembersPage() {
-	const { user, organizations } = useAuth();
+	const { user, organizations, instance } = useAuth();
 	const orgId = useOrgSectionId();
 	const hasMembership = organizations.some((o) => o.id === orgId);
 
@@ -88,7 +88,7 @@ export default function MembersPage() {
 								title: "Pending invitations",
 								description: "Invitations that haven't been accepted yet.",
 							}}
-							size="sm"
+							size="lg"
 						>
 							<Table>
 								<TableHeader>
@@ -118,6 +118,7 @@ export default function MembersPage() {
 					icon: UsersIcon,
 					title: "Members",
 					description: "Everyone with access to this organization.",
+					learnMore: instance?.docsUrl ? { href: `${instance.docsUrl}/guides/members` } : undefined,
 				}}
 				size="lg"
 			>

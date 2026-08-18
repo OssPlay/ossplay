@@ -6,13 +6,16 @@ export const dynamic = "force-dynamic";
 
 import { MailIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
+import { useAction } from "@/hooks/use-action";
 import { useInstanceRoleGate } from "@/hooks/use-instance-role-gate";
 import { useServerTable } from "@/hooks/use-server-table";
+import { apiFetch } from "@/lib/api";
 import type { SmtpConfigRow } from "@/types/instance";
 import { MakeDefaultButton } from "./components/make-default-button";
 import { SmtpConfigDialog } from "./components/smtp-config-dialog";
@@ -34,9 +37,26 @@ export default function InstanceSmtpPage() {
 	});
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const forbidden = useInstanceRoleGate(table.error);
+	const deleteMany = useAction((ids: string[]) =>
+		Promise.allSettled(ids.map((id) => apiFetch(`/instance/smtp/${id}`, { method: "DELETE" }))),
+	);
 
 	if (forbidden) {
 		return <InstanceForbidden />;
+	}
+
+	async function handleBulkDelete(selected: SmtpConfigRow[]) {
+		const results = await deleteMany.trigger(selected.map((config) => config.id));
+		const failedCount = results.filter((result) => result.status === "rejected").length;
+		const successCount = selected.length - failedCount;
+		if (failedCount > 0) {
+			toast.error(
+				`Deleted ${successCount} of ${selected.length} configs — some could not be deleted.`,
+			);
+		} else {
+			toast.success(successCount === 1 ? "1 config deleted" : `${successCount} configs deleted`);
+		}
+		table.mutate();
 	}
 
 	const columns: DataTableColumn<SmtpConfigRow>[] = [
@@ -83,6 +103,17 @@ export default function InstanceSmtpPage() {
 				searchPlaceholder="Search by name or host…"
 				emptyTitle="No SMTP configs yet"
 				emptyDescription="Add one to start sending invitation and password-reset emails."
+				bulkActions={[
+					{
+						label: "Delete",
+						variant: "destructive",
+						onClick: handleBulkDelete,
+						confirm: {
+							title: "Delete selected configs?",
+							description: "This can't be undone.",
+						},
+					},
+				]}
 				rowActions={(row) => (
 					<div className="flex justify-end gap-2">
 						<TestSmtpConfigButton configId={row.id} configName={row.name} />

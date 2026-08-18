@@ -10,6 +10,7 @@ import { notFound, useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import ContainerSkeleton from "@/components/layout/container-skeleton";
 import { Section } from "@/components/layout/section";
+import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
@@ -25,6 +26,7 @@ import type { InstanceOrgMember, InstanceOrgProject, OrganizationDetail } from "
 export default function InstanceOrganizationDetailPage() {
 	const params = useParams<{ id: string }>();
 	const router = useRouter();
+	const { instance } = useAuth();
 	const {
 		data: orgData,
 		error: orgError,
@@ -38,7 +40,7 @@ export default function InstanceOrganizationDetailPage() {
 	);
 
 	if (orgError instanceof ApiError && orgError.status === 404) notFound();
-	if (orgLoading) return <ContainerSkeleton rows={3} />;
+	if (orgLoading) return <ContainerSkeleton size="lg" rows={3} />;
 	if (!orgData) return null;
 
 	const { organization } = orgData;
@@ -64,7 +66,11 @@ export default function InstanceOrganizationDetailPage() {
 					icon: Building2Icon,
 					title: organization.name,
 					description: `Created ${formatDatetime(organization.createdAt)}`,
+					learnMore: instance?.docsUrl
+						? { href: `${instance.docsUrl}/guides/instance-organizations` }
+						: undefined,
 				}}
+				size="lg"
 			>
 				<div className="flex flex-col gap-6">
 					<Link

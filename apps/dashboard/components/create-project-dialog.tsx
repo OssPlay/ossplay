@@ -21,6 +21,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { slugify } from "@/lib/slugify";
 import type { Destination, Project, Visibility } from "@/types/projects";
@@ -92,22 +93,17 @@ export function CreateProjectDialog({
 		setId(next);
 	}
 
-	// Reset on close, not open: both callers (organization/projects's header
-	// button and the sidebar's project-list quick-create) set `open` directly,
-	// bypassing this handler entirely, so a reset-on-open branch never
-	// actually runs — the dialog would reopen still showing the previous
-	// project's values. Every close path does go through this handler.
-	function handleOpenChange(next: boolean) {
-		if (!next) {
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
 			setName("");
 			setId("");
 			setIdTouched(false);
 			setVisibility("private");
 			setDestinationId(LOCAL_DRIVE_VALUE);
-			createProject.reset();
-		}
-		onOpenChange(next);
-	}
+		},
+		action: createProject,
+	});
 
 	function handleVisibilityChange(next: Visibility) {
 		setVisibility(next);
@@ -117,14 +113,8 @@ export function CreateProjectDialog({
 		setDestinationId(LOCAL_DRIVE_VALUE);
 	}
 
-	async function handleCreate() {
-		await createProject
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onCreated();
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(() => createProject.trigger(), onCreated);
 	}
 
 	const canSubmit = name.trim() && id && destinationId;

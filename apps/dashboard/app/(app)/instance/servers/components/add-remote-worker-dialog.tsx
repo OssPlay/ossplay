@@ -19,6 +19,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { apiFetch, errorMessage } from "@/lib/api";
 import type { SshKeyOption } from "@/types/instance";
 
@@ -84,11 +85,9 @@ export function AddRemoteWorkerDialog({
 
 	const create = type === "ssh" ? createServer : createCompute;
 
-	// Reset on close, not open: the header's "Add remote worker" button sets
-	// `open` directly (bypassing this handler), so a reset-on-open branch
-	// would never actually run on that path.
-	function handleOpenChange(next: boolean) {
-		if (!next) {
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
 			setType("ssh");
 			setLabel("");
 			setHost("");
@@ -99,20 +98,17 @@ export function AddRemoteWorkerDialog({
 			setFunctionArn("");
 			setAccessKeyId("");
 			setSecretAccessKey("");
-			createServer.reset();
-			createCompute.reset();
-		}
-		onOpenChange(next);
-	}
+		},
+		action: {
+			reset: () => {
+				createServer.reset();
+				createCompute.reset();
+			},
+		},
+	});
 
-	async function handleCreate() {
-		await create
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onAdded();
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(() => create.trigger(), onAdded);
 	}
 
 	const canSubmit =

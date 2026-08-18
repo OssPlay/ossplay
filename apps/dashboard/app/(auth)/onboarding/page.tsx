@@ -9,6 +9,7 @@ type OnboardingStatus = {
 	steps: {
 		dns: { completed: boolean };
 		smtp: { completed: boolean };
+		updates: { completed: boolean };
 		org: { completed: boolean };
 	};
 };
@@ -22,6 +23,7 @@ export default function OnboardingIndexPage() {
 		if (!data) return;
 		if (!data.steps.dns.completed) router.replace("/onboarding/dns");
 		else if (!data.steps.smtp.completed) router.replace("/onboarding/smtp");
+		else if (!data.steps.updates.completed) router.replace("/onboarding/updates");
 		else router.replace("/onboarding/organization");
 	}, [data, router]);
 

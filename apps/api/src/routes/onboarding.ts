@@ -42,6 +42,10 @@ onboardingRoute.get(
 			steps: {
 				dns: { skippable: true, completed: Boolean(domain.name) },
 				smtp: { skippable: true, completed: await isSmtpConfigured() },
+				// Purely informational (current version + update-check status) —
+				// nothing to configure, so always "completed"; it's here so the
+				// wizard's step indicator can still show it as a real step.
+				updates: { skippable: true, completed: true },
 				org: { skippable: false, completed: orgCompleted },
 			},
 		});

@@ -6,14 +6,17 @@ export const dynamic = "force-dynamic";
 
 import { HardDriveIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import useSWR from "swr";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import Container from "@/components/ui/container";
+import { useAction } from "@/hooks/use-action";
 import { useInstanceRoleGate } from "@/hooks/use-instance-role-gate";
 import type { ServerTable } from "@/hooks/use-server-table";
+import { apiFetch } from "@/lib/api";
 import type {
 	ComputeDestinationRow,
 	RemoteServerRow,
@@ -78,6 +81,19 @@ export default function InstanceServersPage() {
 		return [...ssh, ...lambda].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 	}, [serversData, computeData]);
 
+	// Each selected row routes to its own kind's endpoint — the two backend
+	// resources this page merges (see the RemoteWorkerRow comment above)
+	// don't share a delete route.
+	const deleteMany = useAction((rows: RemoteWorkerRow[]) =>
+		Promise.allSettled(
+			rows.map((row) =>
+				row.kind === "ssh"
+					? apiFetch(`/instance/servers/${row.id}`, { method: "DELETE" })
+					: apiFetch(`/instance/compute-destinations/${row.id}`, { method: "DELETE" }),
+			),
+		),
+	);
+
 	if (forbidden) {
 		return <InstanceForbidden />;
 	}
@@ -123,6 +139,21 @@ export default function InstanceServersPage() {
 		order: "asc",
 		setSort: () => {},
 	};
+
+	async function handleBulkDelete(selected: RemoteWorkerRow[]) {
+		const results = await deleteMany.trigger(selected);
+		const failedCount = results.filter((result) => result.status === "rejected").length;
+		const successCount = selected.length - failedCount;
+		if (failedCount > 0) {
+			toast.error(`Removed ${successCount} of ${selected.length} — some could not be removed.`);
+		} else {
+			toast.success(
+				successCount === 1 ? "1 remote worker removed" : `${successCount} remote workers removed`,
+			);
+		}
+		mutateServers();
+		mutateCompute();
+	}
 
 	const columns: DataTableColumn<RemoteWorkerRow>[] = [
 		{ key: "label", title: "Label" },
@@ -189,6 +220,17 @@ export default function InstanceServersPage() {
 							{ label: "Offline", value: "offline" },
 							{ label: "Error", value: "error" },
 						],
+					},
+				]}
+				bulkActions={[
+					{
+						label: "Remove",
+						variant: "destructive",
+						onClick: handleBulkDelete,
+						confirm: {
+							title: "Remove selected remote workers?",
+							description: "This can't be undone.",
+						},
 					},
 				]}
 				rowActions={(row) =>

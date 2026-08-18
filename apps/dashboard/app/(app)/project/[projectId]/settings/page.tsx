@@ -6,19 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import Container from "@/components/ui/container";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -61,7 +51,6 @@ export default function ProjectGeneralPage() {
 
 	const [name, setName] = useState("");
 	const [destinationId, setDestinationId] = useState("");
-	const [deleteOpen, setDeleteOpen] = useState(false);
 	// Seeds the editable fields from the fetched values exactly once — a
 	// background SWR revalidation must not stomp on what the user is
 	// currently typing.
@@ -114,15 +103,11 @@ export default function ProjectGeneralPage() {
 			.catch(() => {});
 	}
 
-	async function handleDelete() {
-		await remove
-			.trigger()
-			.then(() => {
-				setDeleteOpen(false);
-				mutate();
-				router.replace("/");
-			})
-			.catch(() => {});
+	function handleDelete() {
+		return remove.trigger().then(() => {
+			mutate();
+			router.replace("/");
+		});
 	}
 
 	if (!project) return null;
@@ -212,30 +197,18 @@ export default function ProjectGeneralPage() {
 						<FormError
 							message={remove.error ? errorMessage(remove.error, "Could not delete project") : null}
 						/>
-						<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-							<AlertDialogTrigger render={<Button variant="outline" className="w-fit" />}>
-								Delete project
-							</AlertDialogTrigger>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Delete "{project.name}"?</AlertDialogTitle>
-									<AlertDialogDescription>
-										This permanently deletes the project, its folders, and every file in it. This
-										can't be undone.
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Cancel</AlertDialogCancel>
-									<AlertDialogAction
-										variant="destructive"
-										disabled={remove.isLoading}
-										onClick={handleDelete}
-									>
-										Delete project
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
+						<ConfirmDialog
+							trigger={
+								<Button variant="outline" className="w-fit">
+									Delete project
+								</Button>
+							}
+							title={`Delete "${project.name}"?`}
+							description="This permanently deletes the project, its folders, and every file in it. This can't be undone."
+							confirmLabel="Delete project"
+							loading={remove.isLoading}
+							onConfirm={handleDelete}
+						/>
 					</div>
 				</Container>
 			)}

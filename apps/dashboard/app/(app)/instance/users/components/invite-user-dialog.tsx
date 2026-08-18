@@ -23,6 +23,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { apiFetch, errorMessage } from "@/lib/api";
 import { INVITE_ROLE_LABELS } from "./invite-role-labels";
 
@@ -51,21 +52,18 @@ export function InviteUserDialog({
 		{ error: null },
 	);
 
-	function handleOpenChange(next: boolean) {
-		// Reset on close, not open: the "Add user" button that opens this
-		// dialog sets `open` directly (bypassing this handler entirely), so a
-		// reset-on-open branch never actually runs on that path — the dialog
-		// would reopen still showing the previous invite's link. Every close
-		// path (Done, Escape, overlay click) does go through this handler,
-		// so resetting here covers all of them regardless of how it opened.
-		if (!next) {
+	// Only handleOpenChange from useDialogForm applies here — this dialog's
+	// submit conditionally stays open (see below, the `res.warning` branch),
+	// unlike the hook's own handleSubmit which always closes on success.
+	const { handleOpenChange } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
 			setEmail("");
 			setRole("none");
 			setResult(null);
-			invite.reset();
-		}
-		onOpenChange(next);
-	}
+		},
+		action: invite,
+	});
 
 	async function handleSubmit() {
 		await invite

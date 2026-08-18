@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Switch } from "@/components/ui/switch";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { apiFetch, errorMessage } from "@/lib/api";
 import type { SmtpConfigRow } from "@/types/instance";
 
@@ -39,27 +40,6 @@ export function SmtpConfigDialog({
 	const [fromName, setFromName] = useState(config?.fromName ?? "");
 	const [secure, setSecure] = useState(config?.secure ?? true);
 
-	// Reset on close, not open: the "Add config"/"Manage" button that opens
-	// this dialog sets `open` directly (bypassing this handler entirely), so
-	// a reset-on-open branch never actually runs on that path — the dialog
-	// would reopen still showing the previous config's values. Every close
-	// path (Escape, overlay click, a successful save) does go through this
-	// handler, so resetting here covers all of them regardless of how it
-	// opened. Same fix as instance/users/page.tsx's InviteUserDialog.
-	function handleOpenChange(next: boolean) {
-		if (!next) {
-			setName(config?.name ?? "");
-			setHost(config?.host ?? "");
-			setPort(config ? String(config.port) : "");
-			setUsername(config?.username ?? "");
-			setPassword("");
-			setFromAddress(config?.fromAddress ?? "");
-			setFromName(config?.fromName ?? "");
-			setSecure(config?.secure ?? true);
-		}
-		onOpenChange(next);
-	}
-
 	const save = useAction(
 		() =>
 			apiFetch(mode === "edit" && config ? `/instance/smtp/${config.id}` : "/instance/smtp", {
@@ -81,14 +61,28 @@ export function SmtpConfigDialog({
 		},
 	);
 
-	async function handleSave() {
-		await save
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onSaved();
-			})
-			.catch(() => {});
+	// Reset-to-seed-values (the config's own original values in edit mode, not
+	// blank strings) on close, not open: the "Add config"/"Manage" button that
+	// opens this dialog sets `open` directly (bypassing this handler
+	// entirely), so a reset-on-open branch never actually runs on that path —
+	// the dialog would reopen still showing whatever was typed last time.
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
+			setName(config?.name ?? "");
+			setHost(config?.host ?? "");
+			setPort(config ? String(config.port) : "");
+			setUsername(config?.username ?? "");
+			setPassword("");
+			setFromAddress(config?.fromAddress ?? "");
+			setFromName(config?.fromName ?? "");
+			setSecure(config?.secure ?? true);
+		},
+		action: save,
+	});
+
+	function handleSave() {
+		return handleSubmit(() => save.trigger(), onSaved);
 	}
 
 	return (

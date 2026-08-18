@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { apiFetch, errorMessage } from "@/lib/api";
 import type { DriveFolder } from "@/types/drive";
 
@@ -41,26 +42,14 @@ export function CreateFolderDialog({
 		{ success: (res) => `"${res.folder.name}" created`, error: "Could not create folder" },
 	);
 
-	// Reset on close, not open — the "New folder" button that opens this
-	// calls setOpen directly, bypassing this handler on the open path, same
-	// pattern as every other dialog in this app (see CreateProjectDialog's
-	// own comment on this).
-	function handleOpenChange(next: boolean) {
-		if (!next) {
-			setName("");
-			createFolder.reset();
-		}
-		onOpenChange(next);
-	}
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => setName(""),
+		action: createFolder,
+	});
 
-	async function handleCreate() {
-		await createFolder
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onCreated();
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(() => createFolder.trigger(), onCreated);
 	}
 
 	return (

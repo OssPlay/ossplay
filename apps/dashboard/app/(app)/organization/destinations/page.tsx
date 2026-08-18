@@ -6,25 +6,16 @@ export const dynamic = "force-dynamic";
 
 import { DatabaseIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import useSWR from "swr";
 import { FormField } from "@/components/auth/form-field";
 import { FormError } from "@/components/form-error";
 import ApiLoader from "@/components/layout/api-loader";
 import { DataTable, type DataTableColumn } from "@/components/layout/data-table";
 import { useAuth } from "@/components/providers/auth-provider";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-	AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import Container from "@/components/ui/container";
 import {
 	Dialog,
@@ -43,6 +34,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useAction } from "@/hooks/use-action";
+import { useDialogForm } from "@/hooks/use-dialog-form";
 import { useServerTable } from "@/hooks/use-server-table";
 import { ApiError, apiFetch, errorMessage } from "@/lib/api";
 import { useOrgSectionId } from "@/lib/current-org";
@@ -94,6 +86,13 @@ export default function OrganizationDestinationsPage() {
 		items: (response) => response.destinations,
 	});
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const deleteMany = useAction((ids: string[]) =>
+		Promise.allSettled(
+			ids.map((id) =>
+				apiFetch(`/organizations/${orgId}/s3-destinations/${id}`, { method: "DELETE" }),
+			),
+		),
+	);
 
 	if (!orgId) return null;
 
@@ -110,6 +109,24 @@ export default function OrganizationDestinationsPage() {
 				Only an organization owner can manage S3 destinations.
 			</p>
 		);
+	}
+
+	async function handleBulkDelete(selected: DestinationRow[]) {
+		const results = await deleteMany.trigger(selected.map((d) => d.id));
+		const failedCount = results.filter((result) => result.status === "rejected").length;
+		const successCount = selected.length - failedCount;
+		if (failedCount > 0) {
+			toast.error(
+				failedCount === selected.length
+					? "Could not delete the selected destinations — they may still be used by a project."
+					: `Deleted ${successCount} of ${selected.length} destinations — the rest may still be used by a project.`,
+			);
+		} else {
+			toast.success(
+				successCount === 1 ? "1 destination deleted" : `${successCount} destinations deleted`,
+			);
+		}
+		table.mutate();
 	}
 
 	const columns: DataTableColumn<DestinationRow>[] = [
@@ -213,6 +230,17 @@ export default function OrganizationDestinationsPage() {
 							],
 						},
 					]}
+					bulkActions={[
+						{
+							label: "Delete",
+							variant: "destructive",
+							onClick: handleBulkDelete,
+							confirm: {
+								title: "Delete selected destinations?",
+								description: "This can't be undone.",
+							},
+						},
+					]}
 					rowActions={(row) => (
 						<DestinationRowActions destination={row} onChange={() => table.mutate()} />
 					)}
@@ -237,7 +265,6 @@ function DestinationRowActions({
 	onChange: () => void;
 }) {
 	const orgId = useOrgSectionId();
-	const [deleteOpen, setDeleteOpen] = useState(false);
 
 	const test = useAction(
 		() =>
@@ -275,16 +302,6 @@ function DestinationRowActions({
 			.catch(() => {});
 	}
 
-	async function handleRemove() {
-		await remove
-			.trigger()
-			.then(() => {
-				setDeleteOpen(false);
-				onChange();
-			})
-			.catch(() => {});
-	}
-
 	return (
 		<div className="flex justify-end gap-2">
 			<LoadingButton variant="secondary" size="sm" loading={test.isLoading} onClick={handleTest}>
@@ -298,29 +315,17 @@ function DestinationRowActions({
 			>
 				Configure
 			</LoadingButton>
-			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-				<AlertDialogTrigger render={<Button variant="secondary" size="sm" />}>
-					Remove
-				</AlertDialogTrigger>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Remove "{destination.label}"?</AlertDialogTitle>
-						<AlertDialogDescription>
-							This can't be undone. Blocked while any project still points at it.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant="destructive"
-							disabled={remove.isLoading}
-							onClick={handleRemove}
-						>
-							Remove
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+			<ConfirmDialog
+				trigger={
+					<Button variant="secondary" size="sm">
+						Remove
+					</Button>
+				}
+				title={`Remove "${destination.label}"?`}
+				description="This can't be undone. Blocked while any project still points at it."
+				loading={remove.isLoading}
+				onConfirm={() => remove.trigger().then(onChange)}
+			/>
 		</div>
 	);
 }
@@ -364,16 +369,9 @@ function AddDestinationDialog({
 		{ success: "Destination added", error: "Could not add destination" },
 	);
 
-	// Reset on close, not open: the header's "Add destination" button sets
-	// `open` directly (bypassing this handler entirely, see the Container
-	// header action below), so a reset-on-open branch never actually runs on
-	// that path — the dialog would reopen still showing the previous
-	// destination's values. Every close path (Escape, overlay click, a
-	// successful submit) does go through this handler, so resetting here
-	// covers all of them regardless of how it opened. Same fix as
-	// instance/users/page.tsx's InviteUserDialog.
-	function handleOpenChange(next: boolean) {
-		if (!next) {
+	const { handleOpenChange, handleSubmit } = useDialogForm({
+		onOpenChange,
+		resetFields: () => {
 			setLabel("");
 			setEndpoint("");
 			setEndpointTouched(false);
@@ -383,10 +381,9 @@ function AddDestinationDialog({
 			setSecretAccessKey("");
 			setVisibility("private");
 			setCloudfrontUrl("");
-			create.reset();
-		}
-		onOpenChange(next);
-	}
+		},
+		action: create,
+	});
 
 	// Same seed-once-then-freely-editable pattern as CreateProjectDialog's
 	// name→id slugify: suggest AWS's standard regional endpoint as soon as a
@@ -403,14 +400,8 @@ function AddDestinationDialog({
 		setEndpoint(next);
 	}
 
-	async function handleCreate() {
-		await create
-			.trigger()
-			.then(() => {
-				handleOpenChange(false);
-				onAdded();
-			})
-			.catch(() => {});
+	function handleCreate() {
+		return handleSubmit(() => create.trigger(), onAdded);
 	}
 
 	const canSubmit = label && endpoint && region && bucket && accessKeyId && secretAccessKey;
