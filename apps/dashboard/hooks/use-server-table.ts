@@ -51,6 +51,10 @@ export interface ServerTable<TItem> {
 	setDateRange: (key: string, range: Partial<DateRange>) => void;
 	hasActiveFilters: boolean;
 	resetFilters: () => void;
+	sort: string | null;
+	order: "asc" | "desc";
+	/** Clicking the already-active column reverses order; a new column resets to ascending. */
+	setSort: (key: string) => void;
 }
 
 // The single FE half of the shared list-query contract (BE half:
@@ -92,6 +96,19 @@ export function useServerTable<TResponse extends ListEnvelope, TItem>({
 	const { data, error, isLoading, mutate } = useSWR<TResponse>(
 		endpoint ? `${endpoint}${queryString ? `?${queryString}` : ""}` : null,
 	);
+
+	const sort = url.getQueryParam("sort");
+	const order = url.getQueryParam("order") === "desc" ? "desc" : "asc";
+
+	// order cycles asc <-> desc on repeat clicks of the same column (never
+	// clears the sort entirely) — a fresh column always starts ascending.
+	function setSort(key: string) {
+		if (sort === key) {
+			url.setQueryParams({ order: order === "asc" ? "desc" : null, page: null });
+		} else {
+			url.setQueryParams({ sort: key, order: null, page: null });
+		}
+	}
 
 	function setPage(next: number) {
 		url.setQueryParams({ page: next > 0 ? String(next) : null });
@@ -149,6 +166,9 @@ export function useServerTable<TResponse extends ListEnvelope, TItem>({
 		mutate,
 		search: searchInput,
 		setSearch: setSearchInput,
+		sort,
+		order,
+		setSort,
 		setPage,
 		setPageSize,
 		getFilter,

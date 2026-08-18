@@ -32,8 +32,10 @@ function serialize(config: SmtpConfig) {
 
 instanceSmtpRoute.get("/", async (c) => {
 	const db = getDb();
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [smtpConfigs.name, smtpConfigs.host, smtpConfigs.fromAddress],
+		sortable: { name: smtpConfigs.name, host: smtpConfigs.host, createdAt: smtpConfigs.createdAt },
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 25,
 	});
 
@@ -42,7 +44,10 @@ instanceSmtpRoute.get("/", async (c) => {
 			.select()
 			.from(smtpConfigs)
 			.where(where)
-			.orderBy(desc(smtpConfigs.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(smtpConfigs.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db.select({ total: count() }).from(smtpConfigs).where(where),

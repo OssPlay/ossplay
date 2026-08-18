@@ -15,10 +15,12 @@ instanceAuditLogsRoute.use("*", requireAuth, requireInstancePermission("instance
 
 instanceAuditLogsRoute.get("/", async (c) => {
 	const db = getDb();
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [users.name, users.email],
 		filters: { action: auditLogs.action },
 		dateRanges: { created_at: auditLogs.createdAt },
+		sortable: { createdAt: auditLogs.createdAt, action: auditLogs.action },
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 25,
 	});
 
@@ -39,7 +41,10 @@ instanceAuditLogsRoute.get("/", async (c) => {
 			.from(auditLogs)
 			.leftJoin(users, eq(auditLogs.actorUserId, users.id))
 			.where(where)
-			.orderBy(desc(auditLogs.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(auditLogs.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db

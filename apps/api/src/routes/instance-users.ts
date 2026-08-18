@@ -70,8 +70,15 @@ async function findSoleOwnerOrgs(userId: string): Promise<Array<{ id: string; na
 
 instanceUsersRoute.get("/", async (c) => {
 	const db = getDb();
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [users.name, users.email],
+		sortable: {
+			name: users.name,
+			email: users.email,
+			createdAt: users.createdAt,
+			lastSignInAt: users.lastSignInAt,
+		},
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 10,
 	});
 
@@ -89,7 +96,10 @@ instanceUsersRoute.get("/", async (c) => {
 			})
 			.from(users)
 			.where(where)
-			.orderBy(desc(users.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(users.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db.select({ total: count() }).from(users).where(where),

@@ -40,7 +40,7 @@ interface AuditLogsResponse {
 }
 
 const columns: DataTableColumn<AuditLogRow>[] = [
-	{ key: "createdAt", title: "When", formatter: "datetime" },
+	{ key: "createdAt", title: "When", formatter: "datetime", sortable: true },
 	{
 		key: "actorName",
 		title: "Actor",
@@ -50,6 +50,7 @@ const columns: DataTableColumn<AuditLogRow>[] = [
 	{
 		key: "action",
 		title: "Action",
+		sortable: true,
 		cell: (row) => (
 			<Badge variant="secondary" className="font-mono">
 				{row.action}

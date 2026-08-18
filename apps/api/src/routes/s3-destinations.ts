@@ -43,13 +43,15 @@ function serialize(destination: S3Destination) {
 s3DestinationsRoute.get("/:orgId/s3-destinations", ...gate, async (c) => {
 	const db = getDb();
 	const orgId = c.req.param("orgId");
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [s3Destinations.label, s3Destinations.bucket],
 		filters: {
 			visibility: s3Destinations.visibility,
 			status: s3Destinations.status,
 			configStatus: s3Destinations.configStatus,
 		},
+		sortable: { label: s3Destinations.label, createdAt: s3Destinations.createdAt },
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 25,
 	});
 	const scoped = and(eq(s3Destinations.orgId, orgId), where);
@@ -59,7 +61,10 @@ s3DestinationsRoute.get("/:orgId/s3-destinations", ...gate, async (c) => {
 			.select()
 			.from(s3Destinations)
 			.where(scoped)
-			.orderBy(desc(s3Destinations.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(s3Destinations.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db.select({ total: count() }).from(s3Destinations).where(scoped),

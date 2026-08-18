@@ -33,7 +33,7 @@ interface OrganizationsResponse {
 }
 
 const columns: DataTableColumn<OrganizationRow>[] = [
-	{ key: "name", title: "Organization", className: "font-medium" },
+	{ key: "name", title: "Organization", className: "font-medium", sortable: true },
 	{
 		key: "memberCount",
 		title: "Members",
@@ -44,7 +44,13 @@ const columns: DataTableColumn<OrganizationRow>[] = [
 		title: "Projects",
 		cell: (row) => <Badge variant="secondary">{row.projectCount}</Badge>,
 	},
-	{ key: "createdAt", title: "Created", formatter: "datetime", className: "text-muted-foreground" },
+	{
+		key: "createdAt",
+		title: "Created",
+		formatter: "datetime",
+		className: "text-muted-foreground",
+		sortable: true,
+	},
 ];
 
 // The one canonical place organizations get created on this instance — a

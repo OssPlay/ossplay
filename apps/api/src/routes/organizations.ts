@@ -51,8 +51,10 @@ organizationsRoute.get(
 	requireInstancePermission("instance:manage_orgs"),
 	async (c) => {
 		const db = getDb();
-		const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+		const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 			searchable: [organizations.name],
+			sortable: { name: organizations.name, createdAt: organizations.createdAt },
+			defaultSort: { key: "name", order: "asc" },
 			defaultPageSize: 25,
 		});
 
@@ -65,7 +67,11 @@ organizationsRoute.get(
 				})
 				.from(organizations)
 				.where(where)
-				.orderBy(organizations.name)
+				// sortable+defaultSort are always passed above, so parseListQuery
+				// never actually returns undefined here — the fallback just
+				// satisfies orderBy's SQL | undefined type without a non-null
+				// assertion.
+				.orderBy(orderBy ?? organizations.name)
 				.limit(limit)
 				.offset(offset),
 			db.select({ total: count() }).from(organizations).where(where),

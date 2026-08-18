@@ -56,10 +56,11 @@ export default function InstanceServersPage() {
 	const sshKeys = keysData?.keys ?? [];
 
 	const columns: DataTableColumn<RemoteServerRow>[] = [
-		{ key: "label", title: "Label" },
+		{ key: "label", title: "Label", sortable: true },
 		{
 			key: "host",
 			title: "Host",
+			sortable: true,
 			cell: (row) => `${row.sshUsername}@${row.host}:${row.port}`,
 		},
 		{

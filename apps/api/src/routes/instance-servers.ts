@@ -33,9 +33,15 @@ function serialize(server: RemoteServer) {
 
 instanceServersRoute.get("/", async (c) => {
 	const db = getDb();
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [remoteServers.label, remoteServers.host],
 		filters: { status: remoteServers.status },
+		sortable: {
+			label: remoteServers.label,
+			host: remoteServers.host,
+			createdAt: remoteServers.createdAt,
+		},
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 25,
 	});
 
@@ -44,7 +50,10 @@ instanceServersRoute.get("/", async (c) => {
 			.select()
 			.from(remoteServers)
 			.where(where)
-			.orderBy(desc(remoteServers.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(remoteServers.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db.select({ total: count() }).from(remoteServers).where(where),

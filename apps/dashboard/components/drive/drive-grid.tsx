@@ -1,12 +1,20 @@
 "use client";
 
 import {
+	CopyIcon,
+	DownloadIcon,
+	ExternalLinkIcon,
+	EyeIcon,
 	FileIcon,
 	FileTextIcon,
 	FilmIcon,
 	FolderIcon,
+	FolderInputIcon,
+	FolderOpenIcon,
 	ImageIcon,
+	LinkIcon,
 	MusicIcon,
+	PencilIcon,
 	Trash2Icon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -17,12 +25,11 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { type RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
+import type { RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
 import type { DriveSelection } from "@/hooks/use-drive-selection";
 import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 import { DownloadAsDialog } from "./download-as-dialog";
-import { MoveToDialog } from "./move-to-dialog";
 import { PreviewOverlay } from "./preview-overlay";
 import { RenameDialog } from "./rename-dialog";
 
@@ -51,13 +58,18 @@ function hasOnDemandVariants(mimeType: string) {
 // better).
 //
 // `selection` is owned by DriveView (not built here) so it survives a
-// grid/list view-mode toggle instead of resetting each time.
+// grid/list view-mode toggle instead of resetting each time. `driveActions`
+// and `onMoveTo` are owned by DriveView too, now — the bulk-action bar and
+// `MoveToDialog` live there so both this and DriveList share one instance
+// instead of each duplicating its own.
 export function DriveGrid({
 	orgId,
 	projectId,
 	folders,
 	assets,
 	selection,
+	driveActions,
+	onMoveTo,
 	onRefresh,
 }: {
 	orgId: string;
@@ -65,42 +77,24 @@ export function DriveGrid({
 	folders: DriveFolder[];
 	assets: DriveAsset[];
 	selection: DriveSelection;
+	driveActions: ReturnType<typeof useDriveActions>;
+	onMoveTo: () => void;
 	onRefresh: () => void;
 }) {
 	const router = useRouter();
 	const [previewAsset, setPreviewAsset] = useState<DriveAsset | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
-	const [moveToOpen, setMoveToOpen] = useState(false);
 	const [downloadAsTarget, setDownloadAsTarget] = useState<DriveAsset | null>(null);
 
 	const {
 		base,
-		bulkTrash,
 		trashFolderAndRefresh,
 		trashAssetAndRefresh,
 		moveItemsAndRefresh,
 		duplicateAssetAndRefresh,
-		bulkDownload,
 		downloadSelectionAndOpen,
 		copyLink,
-	} = useDriveActions({
-		orgId,
-		projectId,
-		folders,
-		assets,
-		selected: selection.selected,
-		onRefresh,
-	});
-
-	async function handleBulkTrash() {
-		await bulkTrash
-			.trigger()
-			.then(() => {
-				selection.clear();
-				onRefresh();
-			})
-			.catch(() => {});
-	}
+	} = driveActions;
 
 	function handleDragStart(id: string, e: DragEvent) {
 		const ids = selection.isSelected(id) ? selection.selected : new Set([id]);
@@ -130,39 +124,10 @@ export function DriveGrid({
 
 	return (
 		<div className="flex flex-col gap-3">
-			{selection.selected.size > 0 && (
-				<div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-					<span className="text-sm">{selection.selected.size} selected</span>
-					<button
-						type="button"
-						onClick={() => downloadSelectionAndOpen(selection.selected)}
-						disabled={bulkDownload.isLoading}
-						className="ml-auto text-sm text-muted-foreground hover:text-foreground hover:underline"
-					>
-						Download
-					</button>
-					<button
-						type="button"
-						onClick={() => setMoveToOpen(true)}
-						className="text-sm text-muted-foreground hover:text-foreground hover:underline"
-					>
-						Move to…
-					</button>
-					<button
-						type="button"
-						onClick={handleBulkTrash}
-						disabled={bulkTrash.isLoading}
-						className="flex items-center gap-1 text-sm text-destructive hover:underline"
-					>
-						<Trash2Icon className="size-3.5" /> Move to trash
-					</button>
-				</div>
-			)}
-
 			<div
 				ref={selection.containerRef}
 				{...selection.containerHandlers}
-				className="relative grid select-none grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+				className="relative grid select-none grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
 			>
 				{folders.map((folder) => (
 					<ContextMenu key={folder.id}>
@@ -182,23 +147,23 @@ export function DriveGrid({
 									if (e.key === "Enter") router.push(`/project/${projectId}/${folder.id}`);
 								}}
 								className={cn(
-									"flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border p-3 hover:bg-muted/50",
+									"flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border p-4 hover:bg-muted/50",
 									selection.isSelected(folder.id) &&
 										"border-primary bg-primary/5 ring-1 ring-primary",
 								)}
 							>
-								<FolderIcon className="size-10 text-muted-foreground" />
+								<FolderIcon className="size-16 text-muted-foreground" />
 								<span className="max-w-full truncate text-sm">{folder.name}</span>
 							</button>
 						</ContextMenuTrigger>
 						<ContextMenuContent>
 							<ContextMenuItem onClick={() => router.push(`/project/${projectId}/${folder.id}`)}>
-								Open
+								<FolderOpenIcon /> Open
 							</ContextMenuItem>
 							<ContextMenuItem
 								onClick={() => window.open(`/project/${projectId}/${folder.id}`, "_blank")}
 							>
-								Open in new tab
+								<ExternalLinkIcon /> Open in new tab
 							</ContextMenuItem>
 							<ContextMenuItem
 								onClick={() =>
@@ -209,17 +174,19 @@ export function DriveGrid({
 									})
 								}
 							>
-								Rename
+								<PencilIcon /> Rename
 							</ContextMenuItem>
 							<ContextMenuItem onClick={() => downloadSelectionAndOpen(new Set([folder.id]))}>
-								Download as zip
+								<DownloadIcon /> Download as zip
 							</ContextMenuItem>
-							<ContextMenuItem onClick={() => setMoveToOpen(true)}>Move to…</ContextMenuItem>
+							<ContextMenuItem onClick={onMoveTo}>
+								<FolderInputIcon /> Move to…
+							</ContextMenuItem>
 							<ContextMenuItem
 								variant="destructive"
 								onClick={() => trashFolderAndRefresh(folder.id)}
 							>
-								Move to trash
+								<Trash2Icon /> Move to trash
 							</ContextMenuItem>
 						</ContextMenuContent>
 					</ContextMenu>
@@ -247,16 +214,16 @@ export function DriveGrid({
 										if (e.key === "Enter") setPreviewAsset(asset);
 									}}
 									className={cn(
-										"flex w-full cursor-pointer flex-col items-center gap-2 overflow-hidden rounded-lg border p-3 hover:bg-muted/50",
+										"flex w-full cursor-pointer flex-col items-center gap-2 overflow-hidden rounded-2xl border p-4 hover:bg-muted/50",
 										selection.isSelected(asset.id) &&
 											"border-primary bg-primary/5 ring-1 ring-primary",
 									)}
 								>
 									{thumbnailUrl ? (
 										// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as preview-overlay.tsx's AssetViewer
-										<img src={thumbnailUrl} alt="" className="size-10 rounded object-cover" />
+										<img src={thumbnailUrl} alt="" className="size-16 rounded-lg object-cover" />
 									) : (
-										<Icon className="size-10 text-muted-foreground" />
+										<Icon className="size-16 text-muted-foreground" />
 									)}
 									<span className="max-w-full truncate text-sm">{asset.filename}</span>
 									{asset.status !== "ready" && (
@@ -267,9 +234,11 @@ export function DriveGrid({
 								</button>
 							</ContextMenuTrigger>
 							<ContextMenuContent>
-								<ContextMenuItem onClick={() => setPreviewAsset(asset)}>Open</ContextMenuItem>
+								<ContextMenuItem onClick={() => setPreviewAsset(asset)}>
+									<EyeIcon /> Open
+								</ContextMenuItem>
 								<ContextMenuItem onClick={() => window.open(contentUrl, "_blank")}>
-									Open in new tab
+									<ExternalLinkIcon /> Open in new tab
 								</ContextMenuItem>
 								<ContextMenuItem
 									onClick={() =>
@@ -280,23 +249,27 @@ export function DriveGrid({
 										})
 									}
 								>
-									Rename
+									<PencilIcon /> Rename
 								</ContextMenuItem>
 								{hasOnDemandVariants(asset.mimeType) && (
 									<ContextMenuItem onClick={() => setDownloadAsTarget(asset)}>
-										Download as…
+										<DownloadIcon /> Download as…
 									</ContextMenuItem>
 								)}
-								<ContextMenuItem onClick={() => copyLink(asset.id)}>Copy link</ContextMenuItem>
-								<ContextMenuItem onClick={() => duplicateAssetAndRefresh(asset.id)}>
-									Make a copy
+								<ContextMenuItem onClick={() => copyLink(asset.id)}>
+									<LinkIcon /> Copy link
 								</ContextMenuItem>
-								<ContextMenuItem onClick={() => setMoveToOpen(true)}>Move to…</ContextMenuItem>
+								<ContextMenuItem onClick={() => duplicateAssetAndRefresh(asset.id)}>
+									<CopyIcon /> Make a copy
+								</ContextMenuItem>
+								<ContextMenuItem onClick={onMoveTo}>
+									<FolderInputIcon /> Move to…
+								</ContextMenuItem>
 								<ContextMenuItem
 									variant="destructive"
 									onClick={() => trashAssetAndRefresh(asset.id)}
 								>
-									Move to trash
+									<Trash2Icon /> Move to trash
 								</ContextMenuItem>
 							</ContextMenuContent>
 						</ContextMenu>
@@ -340,14 +313,6 @@ export function DriveGrid({
 					onRenamed={onRefresh}
 				/>
 			)}
-
-			<MoveToDialog
-				orgId={orgId}
-				projectId={projectId}
-				open={moveToOpen}
-				onOpenChange={setMoveToOpen}
-				onSelectFolder={(target) => moveItemsAndRefresh(selection.selected, target)}
-			/>
 
 			{downloadAsTarget && (
 				<DownloadAsDialog

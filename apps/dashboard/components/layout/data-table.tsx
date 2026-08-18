@@ -2,7 +2,7 @@
 
 import type { VariantProps } from "class-variance-authority";
 import type { LucideIcon } from "lucide-react";
-import { SearchIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
 	AlertDialog,
@@ -46,6 +46,8 @@ export interface DataTableColumn<TItem> {
 	cell?: (row: TItem) => React.ReactNode;
 	formatter?: keyof typeof formatters;
 	className?: string;
+	/** Makes the header clickable — sends `key` as the `sort` param, toggling `order` on repeat clicks. Only takes effect once the backing route's `parseListQuery` call actually honors that key (see `list-query.ts`'s `sortable` config). */
+	sortable?: boolean;
 }
 
 export interface DataTableFacet {
@@ -243,7 +245,23 @@ export function DataTable<TItem>({
 							)}
 							{columns.map((column) => (
 								<TableHead key={column.key} className={column.className}>
-									{column.title}
+									{column.sortable ? (
+										<button
+											type="button"
+											onClick={() => table.setSort(column.key)}
+											className="inline-flex items-center gap-1 hover:text-foreground"
+										>
+											{column.title}
+											{table.sort === column.key &&
+												(table.order === "desc" ? (
+													<ArrowDownIcon className="size-3.5" />
+												) : (
+													<ArrowUpIcon className="size-3.5" />
+												))}
+										</button>
+									) : (
+										column.title
+									)}
 								</TableHead>
 							))}
 							{rowActions && <TableHead className="w-10" />}

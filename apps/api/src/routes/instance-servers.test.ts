@@ -99,6 +99,32 @@ describe.skipIf(!process.env.DATABASE_URL)("instance remote servers", () => {
 		expect(body.provisioned).toBe(false);
 	});
 
+	it("GET /instance/servers?sort=label&order=desc sorts by label", async () => {
+		const secondRes = await jsonRequest("/instance/servers", {
+			method: "POST",
+			cookie: rootCookie,
+			body: JSON.stringify({
+				label: "Another VPS",
+				host: "127.0.0.2",
+				port: 2,
+				sshUsername: "root",
+				sshKeyId: keyId,
+			}),
+		});
+		const secondBody = (await secondRes.json()) as { server: { id: string; label: string } };
+
+		const res = await jsonRequest("/instance/servers?sort=label&order=desc", {
+			cookie: rootCookie,
+		});
+		const body = (await res.json()) as { servers: Array<{ label: string }> };
+		expect(body.servers.map((s) => s.label)).toEqual(["My VPS", "Another VPS"]);
+
+		await jsonRequest(`/instance/servers/${secondBody.server.id}`, {
+			method: "DELETE",
+			cookie: rootCookie,
+		});
+	});
+
 	it("DELETE /instance/servers/:id removes the server", async () => {
 		const res = await jsonRequest(`/instance/servers/${serverId}`, {
 			method: "DELETE",

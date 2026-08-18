@@ -94,6 +94,17 @@ describe.skipIf(!process.env.DATABASE_URL)("instance audit logs", () => {
 		expect(missBody.total).toBe(0);
 	});
 
+	it("GET /instance/audit-logs?sort=action&order=asc sorts by action", async () => {
+		const res = await jsonRequest("/instance/audit-logs?sort=action&order=asc", {
+			cookie: rootCookie,
+		});
+		const body = (await res.json()) as { logs: Array<{ action: string }> };
+		expect(body.logs).toHaveLength(3);
+		// "instance.domain.update" sorts before "organization.create" — the
+		// only unambiguous position since the other two rows tie on action.
+		expect(body.logs[0]?.action).toBe("instance.domain.update");
+	});
+
 	it("GET /instance/audit-logs?page&per_page paginates", async () => {
 		const res = await jsonRequest("/instance/audit-logs?page=0&per_page=1", {
 			cookie: rootCookie,

@@ -65,6 +65,7 @@ export default function InstanceUsersPage() {
 		{
 			key: "name",
 			title: "Name",
+			sortable: true,
 			cell: (row) => (
 				<span>
 					{row.name}
@@ -76,7 +77,7 @@ export default function InstanceUsersPage() {
 				</span>
 			),
 		},
-		{ key: "email", title: "Email" },
+		{ key: "email", title: "Email", sortable: true },
 		{
 			key: "totpEnabled",
 			title: "2FA / Passkeys",
@@ -101,6 +102,7 @@ export default function InstanceUsersPage() {
 			title: "Last sign-in",
 			className: "text-muted-foreground",
 			formatter: "datetime",
+			sortable: true,
 		},
 	];
 

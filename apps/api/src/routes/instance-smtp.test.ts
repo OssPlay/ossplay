@@ -78,6 +78,12 @@ describe.skipIf(!process.env.DATABASE_URL)("instance SMTP configs", () => {
 		secondConfigId = body.config.id;
 	});
 
+	it("GET /instance/smtp?sort=name&order=desc sorts by name", async () => {
+		const res = await jsonRequest("/instance/smtp?sort=name&order=desc", { cookie: rootCookie });
+		const body = (await res.json()) as { configs: Array<{ name: string }> };
+		expect(body.configs.map((c) => c.name)).toEqual(["Primary", "Backup"]);
+	});
+
 	it("PUT /instance/smtp/:id updates fields and leaves the password unchanged when omitted", async () => {
 		const res = await jsonRequest(`/instance/smtp/${firstConfigId}`, {
 			method: "PUT",

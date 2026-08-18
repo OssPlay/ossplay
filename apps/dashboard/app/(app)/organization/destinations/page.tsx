@@ -113,7 +113,7 @@ export default function OrganizationDestinationsPage() {
 	}
 
 	const columns: DataTableColumn<DestinationRow>[] = [
-		{ key: "label", title: "Label" },
+		{ key: "label", title: "Label", sortable: true },
 		{
 			key: "bucket",
 			title: "Bucket",

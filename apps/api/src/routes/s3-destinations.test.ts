@@ -75,6 +75,22 @@ describe.skipIf(!process.env.DATABASE_URL)("s3 destinations", () => {
 		expect(body.destinations[0]?.id).toBe(destinationId);
 	});
 
+	it("GET /:orgId/s3-destinations?sort=label&order=desc sorts by label", async () => {
+		const other = await createTestS3Destination(orgId, { label: "Aardvark" });
+
+		const res = await jsonRequest(
+			`/organizations/${orgId}/s3-destinations?sort=label&order=desc`,
+			{ cookie: ownerCookie },
+		);
+		const body = (await res.json()) as { destinations: Destination[] };
+		expect(body.destinations.map((d) => d.label)).toEqual(["Primary", "Aardvark"]);
+
+		await jsonRequest(`/organizations/${orgId}/s3-destinations/${other.id}`, {
+			method: "DELETE",
+			cookie: ownerCookie,
+		});
+	});
+
 	it("PUT /:orgId/s3-destinations/:id updates a field, visibility stays fixed", async () => {
 		const res = await jsonRequest(`/organizations/${orgId}/s3-destinations/${destinationId}`, {
 			method: "PUT",

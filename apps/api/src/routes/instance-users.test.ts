@@ -95,6 +95,12 @@ describe.skipIf(!process.env.DATABASE_URL)("instance user management", () => {
 		expect(secondBody.users[0]?.id).not.toBe(firstBody.users[0]?.id);
 	});
 
+	it("GET /instance/users?sort=name&order=desc sorts by name", async () => {
+		const res = await jsonRequest("/instance/users?sort=name&order=desc", { cookie: rootCookie });
+		const body = (await res.json()) as { users: Array<{ name: string }> };
+		expect(body.users.map((u) => u.name)).toEqual(["Member", "Ada Admin"]);
+	});
+
 	it("PUT /instance/users/:id/password requires exactly one of newPassword/generateTemporary", async () => {
 		const res = await jsonRequest(`/instance/users/${memberId}/password`, {
 			method: "PUT",

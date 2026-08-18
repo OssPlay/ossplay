@@ -73,7 +73,7 @@ export default function InstanceSshKeysPage() {
 	}
 
 	const columns: DataTableColumn<SshKeyRow>[] = [
-		{ key: "label", title: "Label" },
+		{ key: "label", title: "Label", sortable: true },
 		{ key: "fingerprint", title: "Fingerprint", formatter: "code" },
 		{
 			key: "keyType",
@@ -92,7 +92,7 @@ export default function InstanceSshKeysPage() {
 				</span>
 			),
 		},
-		{ key: "createdAt", title: "Created at", formatter: "datetime" },
+		{ key: "createdAt", title: "Created at", formatter: "datetime", sortable: true },
 	];
 
 	async function handleBulkDelete(selected: SshKeyRow[]) {

@@ -125,6 +125,14 @@ describe.skipIf(!process.env.DATABASE_URL)("instance SSH keys", () => {
 		expect(((await noneRes.json()) as { total: number }).total).toBe(0);
 	});
 
+	it("GET /instance/ssh-keys?sort=label&order=desc sorts by label", async () => {
+		const res = await jsonRequest("/instance/ssh-keys?sort=label&order=desc", {
+			cookie: rootCookie,
+		});
+		const body = (await res.json()) as { keys: Array<{ label: string }> };
+		expect(body.keys.map((k) => k.label)).toEqual(["Pasted key", "Generated key"]);
+	});
+
 	it("GET /instance/ssh-keys?page=&per_page= paginates", async () => {
 		const res = await jsonRequest("/instance/ssh-keys?per_page=1&page=0", {
 			cookie: rootCookie,

@@ -2,6 +2,7 @@
 
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DataTableFacetedFilter } from "@/components/ui/data-table-faceted-filter";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -22,11 +23,11 @@ const SORT_OPTIONS = [
 ] as const;
 
 const TYPE_FILTERS = [
-	{ key: "image", label: "Images" },
-	{ key: "video", label: "Video" },
-	{ key: "audio", label: "Audio" },
-	{ key: "pdf", label: "PDF" },
-] as const;
+	{ value: "image", label: "Images" },
+	{ value: "video", label: "Video" },
+	{ value: "audio", label: "Audio" },
+	{ value: "pdf", label: "PDF" },
+];
 
 // Sort/filter apply to the assets list only — folders stay eagerly loaded
 // and alphabetical (no size/mimeType column to sort by, and a folder count
@@ -79,24 +80,20 @@ export function DriveToolbar() {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<div className="flex flex-wrap items-center gap-1">
-				{TYPE_FILTERS.map((filter) => (
-					<Button
-						key={filter.key}
-						type="button"
-						size="sm"
-						variant={activeType === filter.key ? "secondary" : "outline"}
-						onClick={() =>
-							url.setQueryParams({
-								filter_type: activeType === filter.key ? null : filter.key,
-								page: null,
-							})
-						}
-					>
-						{filter.label}
-					</Button>
-				))}
-			</div>
+			<DataTableFacetedFilter
+				title="Type"
+				options={TYPE_FILTERS}
+				value={activeType ? [activeType] : []}
+				// The backend only ever takes one `filter_type` value at a time
+				// (see folders.ts's MIME_FAMILY_PATTERNS) — this component is
+				// natively multi-select, so keep only the just-toggled value
+				// rather than accumulating a set. It still re-derives its own
+				// checked state from `value` every render, so this round-trips
+				// correctly without any change to the shared component.
+				onChange={(values) =>
+					url.setQueryParams({ filter_type: values.at(-1) ?? null, page: null })
+				}
+			/>
 		</div>
 	);
 }

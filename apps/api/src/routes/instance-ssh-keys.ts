@@ -30,10 +30,12 @@ function serialize(key: SshKey) {
 
 instanceSshKeysRoute.get("/", async (c) => {
 	const db = getDb();
-	const { where, page, pageSize, limit, offset } = parseListQuery(c, {
+	const { where, orderBy, page, pageSize, limit, offset } = parseListQuery(c, {
 		searchable: [sshKeys.label],
 		filters: { type: sshKeys.keyType },
 		dateRanges: { created_at: sshKeys.createdAt },
+		sortable: { label: sshKeys.label, createdAt: sshKeys.createdAt },
+		defaultSort: { key: "createdAt", order: "desc" },
 		defaultPageSize: 25,
 	});
 
@@ -42,7 +44,10 @@ instanceSshKeysRoute.get("/", async (c) => {
 			.select()
 			.from(sshKeys)
 			.where(where)
-			.orderBy(desc(sshKeys.createdAt))
+			// sortable+defaultSort are always passed above, so parseListQuery
+			// never actually returns undefined here — the fallback just satisfies
+			// orderBy's SQL | undefined type without a non-null assertion.
+			.orderBy(orderBy ?? desc(sshKeys.createdAt))
 			.limit(limit)
 			.offset(offset),
 		db.select({ total: count() }).from(sshKeys).where(where),

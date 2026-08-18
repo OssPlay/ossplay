@@ -1,6 +1,6 @@
 "use client";
 
-import type * as React from "react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -40,18 +40,24 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
 	);
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
-	return (
-		<tr
-			data-slot="table-row"
-			className={cn(
-				"border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
-				className,
-			)}
-			{...props}
-		/>
-	);
-}
+// forwardRef (unlike its siblings here) so a caller can hit-test/scroll a
+// specific row — e.g. Drive's marquee/click selection (hooks/use-drive-
+// selection.ts's `registerItemRef`), which needs the real `<tr>` node.
+const TableRow = React.forwardRef<HTMLTableRowElement, React.ComponentProps<"tr">>(
+	function TableRow({ className, ...props }, ref) {
+		return (
+			<tr
+				ref={ref}
+				data-slot="table-row"
+				className={cn(
+					"border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+					className,
+				)}
+				{...props}
+			/>
+		);
+	},
+);
 
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 	return (

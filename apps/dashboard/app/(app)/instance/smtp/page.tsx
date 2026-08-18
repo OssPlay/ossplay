@@ -40,8 +40,8 @@ export default function InstanceSmtpPage() {
 	}
 
 	const columns: DataTableColumn<SmtpConfigRow>[] = [
-		{ key: "name", title: "Name" },
-		{ key: "host", title: "Host" },
+		{ key: "name", title: "Name", sortable: true },
+		{ key: "host", title: "Host", sortable: true },
 		{
 			key: "fromAddress",
 			title: "From",

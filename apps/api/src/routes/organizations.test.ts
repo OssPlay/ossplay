@@ -46,6 +46,12 @@ describe.skipIf(!process.env.DATABASE_URL)("organizations, members, invitations"
 		expect(body.organizations.map((o) => o.name).sort()).toEqual(["Acme Inc", "Second Org"]);
 	});
 
+	it("GET /organizations?sort=name&order=desc sorts by name", async () => {
+		const res = await jsonRequest("/organizations?sort=name&order=desc", { cookie: ownerCookie });
+		const body = (await res.json()) as { organizations: Array<{ name: string }> };
+		expect(body.organizations.map((o) => o.name)).toEqual(["Second Org", "Acme Inc"]);
+	});
+
 	it("GET /organizations includes member/project counts, GET /:orgId returns the single org", async () => {
 		const destination = await createTestS3Destination(orgId);
 		await jsonRequest(`/organizations/${orgId}/projects`, {
