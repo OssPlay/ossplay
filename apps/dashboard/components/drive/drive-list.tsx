@@ -344,6 +344,13 @@ export function DriveList({
 										>
 											<PencilIcon /> Rename
 										</ContextMenuItem>
+										<ContextMenuItem
+											onClick={() => {
+												window.location.href = `${contentUrl}?disposition=attachment`;
+											}}
+										>
+											<DownloadIcon /> Download
+										</ContextMenuItem>
 										{hasOnDemandVariants(asset.mimeType) && (
 											<ContextMenuItem onClick={() => setDownloadAsTarget(asset)}>
 												<DownloadIcon /> Download as…

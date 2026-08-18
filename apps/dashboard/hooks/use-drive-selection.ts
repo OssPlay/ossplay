@@ -192,6 +192,30 @@ export function useDriveSelection(items: DriveSelectableItem[]) {
 		setSelected((prev) => (prev.has(id) ? prev : new Set([id])));
 	}
 
+	// Attached to the whole Container (alongside handleContainerKeyDown) so
+	// clicking anywhere outside the list clears the selection — not just the
+	// grid/list wrapper's own empty space (handleContainerPointerDown below),
+	// which the list view rarely has any of since its Table fills the
+	// wrapper edge to edge. Skips clicks inside a selectable item (its own
+	// click handler already manages selection) and inside any interactive
+	// control or open menu/dialog, so an in-progress action never gets its
+	// selection yanked out from under it mid-click.
+	function handleContainerClick(e: MouseEvent) {
+		if (selected.size === 0) return;
+		const target = e.target as HTMLElement;
+		for (const el of itemElements.current.values()) {
+			if (el.contains(target)) return;
+		}
+		if (
+			target.closest(
+				'button, a, input, [role="menu"], [data-slot$="-content"], [data-slot="command"]',
+			)
+		) {
+			return;
+		}
+		setSelected(new Set());
+	}
+
 	function handleContainerPointerDown(e: PointerEvent) {
 		if (e.button !== 0 || e.target !== e.currentTarget) return;
 		const rect = containerRef.current?.getBoundingClientRect();
@@ -252,6 +276,7 @@ export function useDriveSelection(items: DriveSelectableItem[]) {
 		},
 		focusedId,
 		handleContainerKeyDown,
+		handleContainerClick,
 	};
 }
 

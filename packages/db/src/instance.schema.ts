@@ -69,6 +69,47 @@ export const remoteServers = pgTable("remote_servers", {
 	}),
 });
 
+// A serverless execution backend for image/video/audio/PDF processing jobs
+// — sibling to remoteServers above (same instance-wide scope, same
+// instance:manage_workers gate, same status/lastCheckedAt/lastError "last
+// test connection" convention), not an org- or project-scoped resource like
+// s3Destinations: which destination handles a given job is decided entirely
+// by the instance's own dispatcher (rotation/usage via lastUsedAt below),
+// orgs and projects have no picker for this. `provider` is an enum of one
+// today because AWS Lambda is the only serverless backend that can run the
+// same native binaries (ffmpeg, pdftoppm) the worker processors depend on —
+// Cloudflare Workers' V8 isolate can't run subprocesses at all, so it isn't
+// offered here yet, though the column leaves room for it. `enabled` lets an
+// operator pull a destination out of rotation temporarily without deleting
+// its (re-enterable) configuration.
+export const computeDestinations = pgTable("compute_destinations", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	provider: text("provider", { enum: ["lambda"] }).notNull(),
+	label: text("label").notNull(),
+	region: text("region").notNull(),
+	functionArn: text("function_arn").notNull(),
+	accessKeyId: text("access_key_id").notNull(),
+	secretAccessKeyEncrypted: text("secret_access_key_encrypted").notNull(),
+	enabled: boolean("enabled").default(true).notNull(),
+	status: text("status", {
+		enum: ["pending", "checking", "online", "offline", "error"],
+	})
+		.default("pending")
+		.notNull(),
+	lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+	lastError: text("last_error"),
+	// Updated to now() every time the dispatcher actually routes a job here —
+	// picking the enabled+online destination with the oldest (or null)
+	// lastUsedAt on each dispatch is the whole rotation/usage-based selection
+	// strategy: it self-balances across however many destinations exist
+	// without needing a separate load/capacity metric.
+	lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+		onDelete: "set null",
+	}),
+});
+
 // Replaces the old singleton `smtp` section of ossplay.yaml (see
 // lib/config/instance-config.ts) now that multiple named configs with a
 // default flag are supported. host/port/fromAddress are the fields a
@@ -169,6 +210,7 @@ export const systemLogs = pgTable(
 
 export type SshKey = typeof sshKeys.$inferSelect;
 export type RemoteServer = typeof remoteServers.$inferSelect;
+export type ComputeDestination = typeof computeDestinations.$inferSelect;
 export type SmtpConfig = typeof smtpConfigs.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InstanceInvitation = typeof instanceInvitations.$inferSelect;
@@ -189,6 +231,13 @@ export const remoteServersRelations = relations(remoteServers, ({ one }) => ({
 	}),
 	createdBy: one(users, {
 		fields: [remoteServers.createdByUserId],
+		references: [users.id],
+	}),
+}));
+
+export const computeDestinationsRelations = relations(computeDestinations, ({ one }) => ({
+	createdBy: one(users, {
+		fields: [computeDestinations.createdByUserId],
 		references: [users.id],
 	}),
 }));

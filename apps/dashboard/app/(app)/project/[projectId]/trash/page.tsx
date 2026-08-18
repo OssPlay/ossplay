@@ -5,6 +5,18 @@ import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { TrashRowActions } from "@/components/drive/trash-row-actions";
 import ContainerSkeleton from "@/components/layout/container-skeleton";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import Container from "@/components/ui/container";
 import {
 	Table,
@@ -66,19 +78,41 @@ export default function ProjectTrashPage() {
 				icon: Trash2Icon,
 				title: "Trash",
 				description: "Items are permanently deleted after 30 days.",
-				action:
-					folders.length + assets.length > 0
-						? {
-								icon: Trash2Icon,
-								title: "Empty trash",
-								variant: "destructive",
-								onClick: () =>
-									emptyTrash
-										.trigger()
-										.then(() => mutate())
-										.catch(() => {}),
-							}
-						: undefined,
+				// A plain header.action fires immediately on click — too easy to
+				// trigger by accident for something this irreversible, unlike the
+				// per-row "Delete forever" (trash-row-actions.tsx), which already
+				// confirms via AlertDialog. header.extra lets this one confirm too.
+				extra:
+					folders.length + assets.length > 0 ? (
+						<AlertDialog>
+							<AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
+								<Trash2Icon /> Empty trash
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Empty trash?</AlertDialogTitle>
+									<AlertDialogDescription>
+										This permanently deletes {folders.length + assets.length} item
+										{folders.length + assets.length === 1 ? "" : "s"} — this can't be undone.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Cancel</AlertDialogCancel>
+									<AlertDialogAction
+										variant="destructive"
+										onClick={() =>
+											emptyTrash
+												.trigger()
+												.then(() => mutate())
+												.catch(() => {})
+										}
+									>
+										Empty trash
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+					) : undefined,
 			}}
 			size="lg"
 		>

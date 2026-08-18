@@ -84,6 +84,27 @@ export interface RemoteServerRow {
 // see instance/ssh-keys's SshKeyRow for the full row.
 export type SshKeyOption = { id: string; label: string };
 
+// One row of GET /instance/compute-destinations — a serverless (Lambda)
+// worker, shown on the same instance/servers page as RemoteServerRow above
+// (a "remote worker" is either kind, per that page's own comment) rather
+// than a separate settings page: instance-wide, no org/project picker,
+// which destination handles a job is decided by the dispatcher's own
+// rotation (packages/core/src/compute-dispatch.ts), not chosen here.
+export interface ComputeDestinationRow {
+	id: string;
+	provider: "lambda";
+	label: string;
+	region: string;
+	functionArn: string;
+	accessKeyId: string;
+	enabled: boolean;
+	status: ServerStatus;
+	lastCheckedAt: string | null;
+	lastError: string | null;
+	lastUsedAt: string | null;
+	createdAt: string;
+}
+
 // One row of GET /instance/smtp — see app/(app)/instance/smtp/page.tsx.
 export interface SmtpConfigRow {
 	id: string;

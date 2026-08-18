@@ -142,6 +142,24 @@ COPY --from=deps-worker /repo/packages/db/node_modules packages/db/node_modules
 COPY --from=deps-worker /repo/packages/core/node_modules packages/core/node_modules
 ENTRYPOINT ["bun", "run", "/repo/entrypoint.ts"]
 
+FROM runner-base AS runner-lambda
+# Same native binaries as runner-worker (see that stage's comment) — the
+# Lambda handler reuses apps/worker's processors unmodified, just invoked
+# via lambda-runtime.ts's Runtime API loop instead of a BullMQ Worker. This
+# stage is NOT part of ghcr.io/ossplay/ossplay's own published tags (see
+# docker-images.yml) — AWS Lambda container images must live in the user's
+# own ECR, not an arbitrary registry, so this is built and pushed by the
+# user themselves (see the Compute Destinations guide).
+RUN apk add --no-cache ffmpeg poppler-utils
+COPY packages/db packages/db
+COPY packages/core packages/core
+COPY apps/worker apps/worker
+COPY --from=deps-worker /repo/node_modules /repo/node_modules
+COPY --from=deps-worker /repo/apps/worker/node_modules apps/worker/node_modules
+COPY --from=deps-worker /repo/packages/db/node_modules packages/db/node_modules
+COPY --from=deps-worker /repo/packages/core/node_modules packages/core/node_modules
+ENTRYPOINT ["bun", "run", "/repo/apps/worker/src/lambda-runtime.ts"]
+
 FROM runner-base AS runner-jobs
 COPY packages/db packages/db
 COPY packages/core packages/core

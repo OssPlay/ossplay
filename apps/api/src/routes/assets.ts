@@ -11,6 +11,7 @@ import {
 	permanentlyDeleteSubtree,
 	queueForMimeType,
 	resolveStorageDriver,
+	tryDispatchToComputeDestination,
 	type StorageDriver,
 	type VariantSpec,
 } from "@ossplay/core";
@@ -264,12 +265,9 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/confirm", ...gate,
 	await logActivity(assetId, "uploaded", actor.id);
 
 	if (queueName) {
-		await getQueue(queueName).add("process", {
-			assetId,
-			projectId,
-			s3Path: asset.s3Path,
-			mimeType: asset.mimeType,
-		});
+		const jobData = { assetId, projectId, s3Path: asset.s3Path, mimeType: asset.mimeType };
+		const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
+		if (!dispatched) await getQueue(queueName).add("process", jobData);
 	}
 
 	const updated = await requireAsset(projectId, assetId);
@@ -421,12 +419,9 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 	await logActivity(newId, "uploaded", actor.id);
 
 	if (queueName) {
-		await getQueue(queueName).add("process", {
-			assetId: newId,
-			projectId,
-			s3Path: key,
-			mimeType: original.mimeType,
-		});
+		const jobData = { assetId: newId, projectId, s3Path: key, mimeType: original.mimeType };
+		const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
+		if (!dispatched) await getQueue(queueName).add("process", jobData);
 	}
 
 	const created = await requireAsset(projectId, newId);
@@ -542,13 +537,15 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate
 	// mimetype (like application/pdf) that queueForMimeType routes to null.
 	const queueName = queueForMimeType(original.mimeType);
 	if (!queueName) throw new Error(`No processing queue for mimetype ${original.mimeType}`);
-	await getQueue(queueName).add("variant", {
+	const jobData = {
 		assetId,
 		projectId,
 		s3Path: original.s3Path,
 		mimeType: original.mimeType,
 		requestedVariant: { variantAssetId: variantId, spec },
-	});
+	};
+	const dispatched = await tryDispatchToComputeDestination(queueName, "variant", jobData);
+	if (!dispatched) await getQueue(queueName).add("variant", jobData);
 
 	const created = await requireAsset(projectId, variantId);
 	return c.json({ asset: created }, 202);

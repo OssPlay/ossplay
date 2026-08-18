@@ -11,6 +11,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@aws-sdk/client-lambda": "^3.1106.0",
 		"@aws-sdk/client-s3": "^3.1106.0",
 		"@ossplay/db": "workspace:*",
 		"drizzle-orm": "^0.45.2",

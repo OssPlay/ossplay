@@ -221,73 +221,79 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 		<Container
 			size="lg"
 			onKeyDown={selection.handleContainerKeyDown}
+			onClick={selection.handleContainerClick}
 			className={cn("transition-shadow", selection.selected.size > 0 && "ring-1 ring-primary/40")}
 		>
 			<div className="flex flex-col gap-4">
-				<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
-					<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
-					<div className="flex flex-wrap items-center gap-2">
-						<UploadMenuButton
-							onUploadFiles={() => uploadRef.current?.openFilePicker()}
-							onUploadFolder={() => uploadRef.current?.openFolderPicker()}
-						/>
-						<Button size="sm" onClick={() => setCreateFolderOpen(true)}>
-							<FolderPlusIcon /> New folder
-						</Button>
+				{/* Sticky as one unit just below AppHeader (sticky top-0 h-16) — so the
+				    breadcrumb/actions and search/toolbar stay put while only the
+				    grid/list body scrolls underneath, matching the header's own layer. */}
+				<div className="sticky top-16 z-10 flex flex-col gap-4 bg-background pb-2">
+					<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+						<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
+						<div className="flex flex-wrap items-center gap-2">
+							<UploadMenuButton
+								onUploadFiles={() => uploadRef.current?.openFilePicker()}
+								onUploadFolder={() => uploadRef.current?.openFolderPicker()}
+							/>
+							<Button size="sm" onClick={() => setCreateFolderOpen(true)}>
+								<FolderPlusIcon /> New folder
+							</Button>
+						</div>
 					</div>
-				</div>
-				<div className="flex flex-wrap items-center justify-between gap-2">
-					{selection.selected.size > 0 ? (
-						<DriveBulkActionBar
-							count={selection.selected.size}
-							hasMore={hasMore}
-							onClear={() => selection.setSelected(new Set())}
-							onDownload={() => driveActions.downloadSelectionAndOpen(selection.selected)}
-							downloadLoading={driveActions.bulkDownload.isLoading}
-							onMoveTo={() => setMoveToOpen(true)}
-							onTrash={handleBulkTrash}
-							trashLoading={driveActions.bulkTrash.isLoading}
-						/>
-					) : (
-						<>
-							<span className="text-sm text-muted-foreground">
-								{folders.length} folder{folders.length === 1 ? "" : "s"} · {assetItems.length}
-								{hasMore ? "+" : ""} file{assetItems.length === 1 ? "" : "s"}
-							</span>
-							<div className="flex flex-wrap items-center gap-2">
-								<SearchBar orgId={effectiveOrgId} projectId={projectId} />
-								<DriveToolbar view={view} />
-								<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
-									<Tippy content="Grid view">
-										<button
-											type="button"
-											aria-label="Grid view"
-											onClick={() => setView("grid")}
-											className={cn(
-												"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-												view === "grid" && "bg-muted text-foreground",
-											)}
-										>
-											<LayoutGridIcon className="size-4" />
-										</button>
-									</Tippy>
-									<Tippy content="List view">
-										<button
-											type="button"
-											aria-label="List view"
-											onClick={() => setView("list")}
-											className={cn(
-												"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
-												view === "list" && "bg-muted text-foreground",
-											)}
-										>
-											<ListIcon className="size-4" />
-										</button>
-									</Tippy>
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						{selection.selected.size > 0 ? (
+							<DriveBulkActionBar
+								count={selection.selected.size}
+								hasMore={hasMore}
+								onClear={() => selection.setSelected(new Set())}
+								onDownload={() => driveActions.downloadSelectionAndOpen(selection.selected)}
+								downloadLoading={driveActions.bulkDownload.isLoading}
+								onMoveTo={() => setMoveToOpen(true)}
+								onTrash={handleBulkTrash}
+								trashLoading={driveActions.bulkTrash.isLoading}
+							/>
+						) : (
+							<>
+								<span className="text-sm text-muted-foreground">
+									{folders.length} folder{folders.length === 1 ? "" : "s"} · {assetItems.length}
+									{hasMore ? "+" : ""} file{assetItems.length === 1 ? "" : "s"}
+								</span>
+								<div className="flex flex-wrap items-center gap-2">
+									<SearchBar orgId={effectiveOrgId} projectId={projectId} />
+									<DriveToolbar view={view} />
+									<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
+										<Tippy content="Grid view">
+											<button
+												type="button"
+												aria-label="Grid view"
+												onClick={() => setView("grid")}
+												className={cn(
+													"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+													view === "grid" && "bg-muted text-foreground",
+												)}
+											>
+												<LayoutGridIcon className="size-4" />
+											</button>
+										</Tippy>
+										<Tippy content="List view">
+											<button
+												type="button"
+												aria-label="List view"
+												onClick={() => setView("list")}
+												className={cn(
+													"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
+													view === "list" && "bg-muted text-foreground",
+												)}
+											>
+												<ListIcon className="size-4" />
+											</button>
+										</Tippy>
+									</div>
 								</div>
-							</div>
-						</>
-					)}
+							</>
+						)}
+					</div>
 				</div>
 				<UploadZone
 					ref={uploadRef}
