@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -12,7 +13,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import useURL from "@/hooks/use-url";
-import { cn } from "@/lib/utils";
 
 const SORT_OPTIONS = [
 	{ key: "name", label: "Name" },
@@ -41,15 +41,15 @@ export function DriveToolbar() {
 	return (
 		<div className="flex flex-wrap items-center gap-2">
 			<DropdownMenu>
-				<DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground">
-					{order === "desc" ? (
-						<ArrowDownIcon className="size-3.5" />
-					) : (
-						<ArrowUpIcon className="size-3.5" />
-					)}
-					{sortLabel}
-					<ChevronDownIcon className="size-3.5" />
-				</DropdownMenuTrigger>
+				<DropdownMenuTrigger
+					render={
+						<Button variant="outline" size="sm">
+							{order === "desc" ? <ArrowDownIcon /> : <ArrowUpIcon />}
+							{sortLabel}
+							<ChevronDownIcon />
+						</Button>
+					}
+				/>
 				<DropdownMenuContent align="end">
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>Sort by</DropdownMenuLabel>
@@ -81,24 +81,20 @@ export function DriveToolbar() {
 
 			<div className="flex flex-wrap items-center gap-1">
 				{TYPE_FILTERS.map((filter) => (
-					<button
+					<Button
 						key={filter.key}
 						type="button"
+						size="sm"
+						variant={activeType === filter.key ? "secondary" : "outline"}
 						onClick={() =>
 							url.setQueryParams({
 								filter_type: activeType === filter.key ? null : filter.key,
 								page: null,
 							})
 						}
-						className={cn(
-							"rounded-full border px-2.5 py-1 text-xs",
-							activeType === filter.key
-								? "border-primary bg-primary/10 text-primary"
-								: "text-muted-foreground hover:text-foreground",
-						)}
 					>
 						{filter.label}
-					</button>
+					</Button>
 				))}
 			</div>
 		</div>

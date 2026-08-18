@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderIcon, LayoutGridIcon, ListIcon } from "lucide-react";
+import { FolderIcon, FolderPlusIcon, LayoutGridIcon, ListIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWRInfinite from "swr/infinite";
 import ContainerSkeleton from "@/components/layout/container-skeleton";
@@ -17,13 +17,15 @@ import { DriveGrid } from "./drive-grid";
 import { DriveList } from "./drive-list";
 import { DriveToolbar } from "./drive-toolbar";
 import { SearchBar } from "./search-bar";
-import { UploadZone } from "./upload-zone";
+import { UploadMenuButton } from "./upload-menu-button";
+import { UploadZone, type UploadZoneHandle } from "./upload-zone";
 
 // Shared by both the drive root page and the [folderId] page — same fetch/
 // render/action logic either way, `folderId` null = project root.
 export function DriveView({ projectId, folderId }: { projectId: string; folderId: string | null }) {
 	const { effectiveOrgId } = useProjectContext(projectId);
 	const [createFolderOpen, setCreateFolderOpen] = useState(false);
+	const uploadRef = useRef<UploadZoneHandle>(null);
 	const url = useURL();
 	const view = url.getQueryParam("view") === "list" ? "list" : "grid";
 
@@ -148,30 +150,46 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 		return <ContainerSkeleton size="lg" rows={5} />;
 	}
 
+	const breadcrumb = firstPage?.breadcrumb ?? [];
+
 	return (
 		<Container
 			header={{
 				icon: FolderIcon,
 				title: "Drive",
 				description: "Browse, upload, and manage this project's files.",
-				action: { title: "New folder", onClick: () => setCreateFolderOpen(true) },
+				extra: (
+					<UploadMenuButton
+						onUploadFiles={() => uploadRef.current?.openFilePicker()}
+						onUploadFolder={() => uploadRef.current?.openFolderPicker()}
+					/>
+				),
+				action: {
+					icon: FolderPlusIcon,
+					title: "New folder",
+					onClick: () => setCreateFolderOpen(true),
+				},
 			}}
 			size="lg"
 		>
 			<div className="flex flex-col gap-4">
 				<div className="flex flex-wrap items-center justify-between gap-3">
-					<BreadcrumbNav projectId={projectId} breadcrumb={firstPage?.breadcrumb ?? []} />
-					<div className="flex flex-wrap items-center gap-3">
-						<DriveToolbar />
+					{breadcrumb.length > 0 ? (
+						<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
+					) : (
+						<div />
+					)}
+					<div className="flex flex-wrap items-center gap-2">
 						<SearchBar orgId={effectiveOrgId} projectId={projectId} />
-						<div className="flex items-center rounded-md border p-0.5">
+						<DriveToolbar />
+						<div className="flex h-8 items-center gap-0.5 rounded-4xl border p-0.5">
 							<Tippy content="Grid view">
 								<button
 									type="button"
 									aria-label="Grid view"
 									onClick={() => url.setQueryParams({ view: null })}
 									className={cn(
-										"rounded p-1.5 text-muted-foreground hover:text-foreground",
+										"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
 										view === "grid" && "bg-muted text-foreground",
 									)}
 								>
@@ -184,7 +202,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 									aria-label="List view"
 									onClick={() => url.setQueryParams({ view: "list" })}
 									className={cn(
-										"rounded p-1.5 text-muted-foreground hover:text-foreground",
+										"rounded-full p-1.5 text-muted-foreground hover:text-foreground",
 										view === "list" && "bg-muted text-foreground",
 									)}
 								>
@@ -195,35 +213,37 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 					</div>
 				</div>
 				<UploadZone
+					ref={uploadRef}
 					orgId={effectiveOrgId}
 					projectId={projectId}
 					folderId={folderId}
 					onUploaded={() => mutate()}
-				/>
-				{view === "list" ? (
-					<DriveList
-						orgId={effectiveOrgId}
-						projectId={projectId}
-						folders={firstPage?.childFolders ?? []}
-						assets={assetItems}
-						selection={selection}
-						onRefresh={() => mutate()}
-					/>
-				) : (
-					<DriveGrid
-						orgId={effectiveOrgId}
-						projectId={projectId}
-						folders={firstPage?.childFolders ?? []}
-						assets={assetItems}
-						selection={selection}
-						onRefresh={() => mutate()}
-					/>
-				)}
-				{hasMore && (
-					<div ref={sentinelRef} className="flex justify-center py-4">
-						{loadingMore && <p className="text-sm text-muted-foreground">Loading more…</p>}
-					</div>
-				)}
+				>
+					{view === "list" ? (
+						<DriveList
+							orgId={effectiveOrgId}
+							projectId={projectId}
+							folders={firstPage?.childFolders ?? []}
+							assets={assetItems}
+							selection={selection}
+							onRefresh={() => mutate()}
+						/>
+					) : (
+						<DriveGrid
+							orgId={effectiveOrgId}
+							projectId={projectId}
+							folders={firstPage?.childFolders ?? []}
+							assets={assetItems}
+							selection={selection}
+							onRefresh={() => mutate()}
+						/>
+					)}
+					{hasMore && (
+						<div ref={sentinelRef} className="flex justify-center py-4">
+							{loadingMore && <p className="text-sm text-muted-foreground">Loading more…</p>}
+						</div>
+					)}
+				</UploadZone>
 			</div>
 			<CreateFolderDialog
 				orgId={effectiveOrgId}

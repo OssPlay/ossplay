@@ -1,7 +1,7 @@
 "use client";
 
-import { FolderUpIcon, UploadIcon, XIcon } from "lucide-react";
-import { type DragEvent, useRef, useState } from "react";
+import { XIcon } from "lucide-react";
+import { type DragEvent, forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -26,27 +26,43 @@ interface CreatedUploadItem {
 	uploadTarget: string;
 }
 
+export interface UploadZoneHandle {
+	openFilePicker: () => void;
+	openFolderPicker: () => void;
+}
+
 // Drag-drop only handles flat files (no recursive directory traversal via
-// DataTransferItem.webkitGetAsEntry) — "Upload folder" below is the
-// supported way to upload a whole tree, via a plain
-// `<input webkitdirectory>`, which already hands back each File's full
-// relative path with no extra traversal code needed. Flagged as a scope
-// simplification, not an oversight.
-export function UploadZone({
-	orgId,
-	projectId,
-	folderId,
-	onUploaded,
-}: {
-	orgId: string;
-	projectId: string;
-	folderId: string | null;
-	onUploaded: () => void;
-}) {
+// DataTransferItem.webkitGetAsEntry) — the folder picker triggered via
+// `openFolderPicker` is the supported way to upload a whole tree, via a
+// plain `<input webkitdirectory>`, which already hands back each File's
+// full relative path with no extra traversal code needed. Flagged as a
+// scope simplification, not an oversight.
+//
+// Wraps `children` (the grid/list) as the actual drop target and file-picker
+// triggers instead of rendering its own boxed button row — the file-manager
+// picks up drag-and-drop over the content it's already looking at, and the
+// two "Upload…" triggers live in the page's Container header instead
+// (imperative handle below), so there's no permanently-visible upload chrome
+// competing with the file list for space.
+export const UploadZone = forwardRef<
+	UploadZoneHandle,
+	{
+		orgId: string;
+		projectId: string;
+		folderId: string | null;
+		onUploaded: () => void;
+		children: React.ReactNode;
+	}
+>(function UploadZone({ orgId, projectId, folderId, onUploaded, children }, ref) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const folderInputRef = useRef<HTMLInputElement>(null);
 	const [tasks, setTasks] = useState<UploadTask[]>([]);
 	const [dragActive, setDragActive] = useState(false);
+
+	useImperativeHandle(ref, () => ({
+		openFilePicker: () => fileInputRef.current?.click(),
+		openFolderPicker: () => folderInputRef.current?.click(),
+	}));
 
 	function addTask(filename: string): string {
 		const id = crypto.randomUUID();
@@ -177,7 +193,7 @@ export function UploadZone({
 	}
 
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: a drag-drop file zone has no equivalent semantic ARIA role — the buttons below remain the accessible way to trigger an upload.
+		// biome-ignore lint/a11y/noStaticElementInteractions: a drag-drop file zone has no equivalent semantic ARIA role — the header's "Upload…" buttons remain the accessible way to trigger an upload.
 		<div
 			onDragOver={(e) => {
 				e.preventDefault();
@@ -187,19 +203,10 @@ export function UploadZone({
 			onDrop={handleDrop}
 			className={
 				dragActive
-					? "rounded-lg border-2 border-dashed border-primary bg-primary/5 p-4"
-					: "rounded-lg border-2 border-dashed border-transparent p-4"
+					? "rounded-lg border-2 border-dashed border-primary bg-primary/5 -m-2 p-2"
+					: "rounded-lg border-2 border-dashed border-transparent -m-2 p-2"
 			}
 		>
-			<div className="flex items-center gap-2">
-				<Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-					<UploadIcon /> Upload files
-				</Button>
-				<Button variant="outline" size="sm" onClick={() => folderInputRef.current?.click()}>
-					<FolderUpIcon /> Upload folder
-				</Button>
-				<span className="text-xs text-muted-foreground">or drag files here</span>
-			</div>
 			<input
 				ref={fileInputRef}
 				type="file"
@@ -222,7 +229,7 @@ export function UploadZone({
 				}}
 			/>
 			{tasks.length > 0 && (
-				<div className="mt-3 flex flex-col gap-2">
+				<div className="mb-3 flex flex-col gap-2">
 					{tasks.map((task) => (
 						<div key={task.id} className="flex items-center gap-2 text-sm">
 							<span className="w-48 truncate">{task.filename}</span>
@@ -240,6 +247,7 @@ export function UploadZone({
 					))}
 				</div>
 			)}
+			{children}
 		</div>
 	);
-}
+});

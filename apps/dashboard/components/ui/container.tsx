@@ -22,6 +22,8 @@ export interface ContainerHeaderConfig {
 	action?: ContainerHeaderAction;
 	/** Link out to this page's docs guide, shown under the title/description. Omit when there's no matching guide yet — don't link to a page that doesn't exist. */
 	learnMore?: { href: string; label?: string };
+	/** Custom node rendered before `action` — for a page that needs more than one header control (e.g. a secondary dropdown button) without growing this into a full multi-action API. */
+	extra?: React.ReactNode;
 }
 
 export default function Container({
@@ -79,6 +81,7 @@ export default function Container({
 								</Link>
 							)}
 						</div>
+						{header.extra}
 						{header.action && (
 							<Button
 								variant={header.action.variant ?? "default"}

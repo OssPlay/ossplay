@@ -30,16 +30,16 @@ export function SearchBar({ orgId, projectId }: { orgId: string; projectId: stri
 	const hasResults = (data?.folders.length ?? 0) > 0 || (data?.assets.length ?? 0) > 0;
 
 	return (
-		<div className="relative w-full max-w-xs">
+		<div className="relative w-37.5 lg:w-62.5">
 			<div className="relative">
-				<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+				<SearchIcon className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 				<Input
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 					onFocus={() => setFocused(true)}
 					onBlur={() => setTimeout(() => setFocused(false), 150)}
 					placeholder="Search this project…"
-					className="pl-8"
+					className="h-8 pl-8"
 				/>
 			</div>
 			{showResults && (
