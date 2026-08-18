@@ -29,8 +29,8 @@ DATABASE_URL=postgres://ossplay:ossplay@localhost:5432/ossplay bun run --filter 
 bun run dev
 ```
 
-- Dashboard: [http://localhost:3000](http://localhost:3000)
-- API health check: [http://localhost:3001/health](http://localhost:3001/health)
+- Dashboard: [http://localhost:6100](http://localhost:6100)
+- API health check: [http://localhost:6101/health](http://localhost:6101/health)
 
 ## Self-host
 

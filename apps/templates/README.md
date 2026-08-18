@@ -9,7 +9,7 @@ on an email's look without sending anything over a real SMTP server.
 bun run dev:templates   # from the repo root, or `bun run dev` here
 ```
 
-Opens at `http://localhost:3004`. Pick a template from the sidebar, switch
+Opens at `http://localhost:6104`. Pick a template from the sidebar, switch
 between fixtures (sample prop sets, see `src/fixtures.ts`), and toggle
 desktop / mobile / raw-HTML source view. A Vite dev-middleware
 (`src/plugin/email-render-plugin.ts`) renders each `.tsx` template

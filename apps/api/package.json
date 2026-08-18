@@ -11,7 +11,8 @@
 		"test": "bun run scripts/test-db.ts",
 		"test:local": "bun test",
 		"cli:reset-root": "bun run src/cli/reset-root.ts",
-		"cli:reset-db": "bun run src/cli/reset-db.ts"
+		"cli:reset-db": "bun run src/cli/reset-db.ts",
+		"cli:bootstrap-root": "bun run src/cli/bootstrap-root.ts"
 	},
 	"dependencies": {
 		"@ossplay/core": "workspace:*",

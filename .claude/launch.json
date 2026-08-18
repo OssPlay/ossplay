@@ -5,19 +5,19 @@
 			"name": "templates",
 			"runtimeExecutable": "bun",
 			"runtimeArgs": ["run", "dev:templates"],
-			"port": 3004
+			"port": 6104
 		},
 		{
 			"name": "dashboard",
 			"runtimeExecutable": "bun",
 			"runtimeArgs": ["run", "dev:dashboard"],
-			"port": 3000
+			"port": 6100
 		},
 		{
 			"name": "api",
 			"runtimeExecutable": "bun",
 			"runtimeArgs": ["run", "dev:api"],
-			"port": 3001
+			"port": 6101
 		}
 	]
 }

@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 const SESSION_COOKIE_NAME = "ossplay_session";
-const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://localhost:3001";
+const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://localhost:6101";
 
 // Accessible regardless of session/setup state — /invite/:token works for
 // both a brand-new account and an already-logged-in existing user accepting
@@ -114,7 +114,7 @@ export async function proxy(request: NextRequest) {
 	// all, so this branch is dev-only. Caddy also sets X-Forwarded-Host/Proto
 	// by default; done manually here so getPublicUrl() (used to build
 	// invite/reset email links) sees the dashboard's origin in dev too,
-	// instead of this rewrite's destination (localhost:3001).
+	// instead of this rewrite's destination (localhost:6101).
 	if (pathname.startsWith("/api/")) {
 		if (process.env.NODE_ENV === "production") {
 			return NextResponse.next();

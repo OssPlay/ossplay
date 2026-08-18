@@ -24,8 +24,9 @@ export const setupRoute = new Hono<AppEnv>();
 // Precise per the Authorization Model: "needs setup" means no instance root
 // exists yet, not "zero users" — the two happen to be equivalent today since
 // setup is the only way any account gets created, but this is the correct
-// check going forward.
-async function instanceNeedsSetup(): Promise<boolean> {
+// check going forward. Exported for cli/bootstrap-root.ts, the only other
+// caller that needs this exact check.
+export async function instanceNeedsSetup(): Promise<boolean> {
 	const [existingRoot] = await getDb()
 		.select({ id: users.id })
 		.from(users)

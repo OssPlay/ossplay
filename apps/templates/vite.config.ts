@@ -4,8 +4,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { emailRenderPlugin } from "./src/plugin/email-render-plugin.ts";
 
-// Port 3004 per the monorepo port convention:
-//   3000 – root/dashboard  3001 – api  3002 – docs  3003 – website  3004 – templates
+// Port 6104 per the monorepo port convention:
+//   6100 – root/dashboard  6101 – api  6102 – docs  6103 – website  6104 – templates
 const monorepoRoot = path.resolve(import.meta.dirname, "../..");
 
 export default defineConfig({
@@ -24,7 +24,7 @@ export default defineConfig({
 		}),
 	],
 	server: {
-		port: 3004,
+		port: 6104,
 		fs: {
 			// Needs to reach outside apps/templates to serve/SSR-load
 			// packages/mail/src/templates.

@@ -9,6 +9,6 @@ bun install
 bun run --filter @ossplay/dashboard dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:6100](http://localhost:6100).
 
 Shadcn components live in `components/ui` — add more with `bunx shadcn@latest add <component>` from this directory.
