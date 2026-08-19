@@ -28,12 +28,12 @@ export default function InterceptedOpenAssetModal() {
 		// biome-ignore lint/a11y/noStaticElementInteractions: click-to-dismiss on the backdrop is a mouse-only convenience — the keyboard-equivalent close action is Escape, handled globally inside AssetPreview.
 		// biome-ignore lint/a11y/useKeyWithClickEvents: same reasoning — Escape (not a key event on this element) is the documented keyboard path.
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs sm:p-8"
+			className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) handleClose();
 			}}
 		>
-			<div className="h-full max-h-[42rem] w-full max-w-5xl overflow-hidden rounded-2xl border bg-popover shadow-lg">
+			<div className="absolute inset-0 flex flex-col overflow-hidden bg-popover shadow-2xl sm:inset-6 sm:rounded-2xl sm:border lg:inset-10">
 				<AssetPreview
 					projectId={projectId}
 					assetId={assetId}

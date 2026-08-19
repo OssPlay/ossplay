@@ -36,6 +36,7 @@ import { getQueue, getRedisConnection } from "../lib/queue";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
+import { attachThumbnails } from "./folders";
 
 export const assetsRoute = new Hono<AppEnv>();
 
@@ -93,7 +94,8 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId", ...gate, async (c
 	if (!project) return c.json({ error: "Project not found" }, 404);
 	const asset = await requireAsset(projectId, assetId);
 	if (!asset || asset.deletedAt) return c.json({ error: "Asset not found" }, 404);
-	return c.json({ asset });
+	const [assetWithThumbnail] = await attachThumbnails(getDb(), [asset]);
+	return c.json({ asset: assetWithThumbnail });
 });
 
 const createUploadSchema = z.object({

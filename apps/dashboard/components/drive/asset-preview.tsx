@@ -12,7 +12,7 @@ import {
 	XIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { usePolledAsset } from "@/hooks/use-polled-asset";
@@ -33,11 +33,14 @@ export function AssetPreview({
 	assetId,
 	showDetails,
 	onClose,
+	hideCloseButton,
 }: {
 	projectId: string;
 	assetId: string;
 	showDetails?: boolean;
 	onClose: () => void;
+	/** The full-page route has no overlay to dismiss — Escape/back navigation still works via onClose, this just hides the redundant X. */
+	hideCloseButton?: boolean;
 }) {
 	const router = useRouter();
 	const { effectiveOrgId, project } = useProjectContext(projectId);
@@ -130,9 +133,11 @@ export function AssetPreview({
 					<Button variant="ghost" size="icon-sm" onClick={() => setDetailsOpen(true)}>
 						<InfoIcon />
 					</Button>
-					<Button variant="ghost" size="icon-sm" onClick={onClose}>
-						<XIcon />
-					</Button>
+					{!hideCloseButton && (
+						<Button variant="ghost" size="icon-sm" onClick={onClose}>
+							<XIcon />
+						</Button>
+					)}
 				</div>
 			</div>
 
@@ -198,9 +203,11 @@ function AssetBody({
 	if (mimeType.startsWith("image/")) {
 		const src = viewOriginal || !thumbnailUrl ? contentUrl : thumbnailUrl;
 		return (
-			<div className="flex flex-col items-center gap-3">
-				{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
-				<img src={src} alt={filename} className="max-h-[60vh] max-w-full object-contain" />
+			<div className="flex h-full w-full flex-col items-center gap-3">
+				{/* key={src} remounts (instead of an effect resetting state) whenever the
+				    image itself changes — a different asset or the view-original toggle —
+				    so stale zoom/pan never carries over to the new image. */}
+				<PannableImage key={src} src={src} alt={filename} />
 				{!viewOriginal && thumbnailUrl && (
 					<Button variant="outline" size="sm" onClick={onViewOriginal}>
 						View original
@@ -281,6 +288,118 @@ function AssetBody({
 			<a href={contentUrl} className={buttonVariants({ variant: "outline", size: "sm" })}>
 				<DownloadIcon /> Download to view
 			</a>
+		</div>
+	);
+}
+
+const MIN_SCALE = 1;
+const MAX_SCALE = 4;
+const ZOOM_STEP = 0.4;
+
+function clamp(value: number, min: number, max: number) {
+	return Math.min(max, Math.max(min, value));
+}
+
+// Wheel-to-zoom + drag-to-pan for the image preview. A native (non-React)
+// wheel listener is required — React 17+ registers onWheel passively for
+// scroll perf, so e.preventDefault() inside a JSX handler is silently
+// ignored and the page would scroll instead of the image zooming.
+function PannableImage({ src, alt }: { src: string; alt: string }) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [scale, setScale] = useState(1);
+	const [offset, setOffset] = useState({ x: 0, y: 0 });
+	const [isDragging, setIsDragging] = useState(false);
+	const dragRef = useRef<{
+		startX: number;
+		startY: number;
+		originX: number;
+		originY: number;
+	} | null>(null);
+
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el) return;
+		function onWheel(e: WheelEvent) {
+			e.preventDefault();
+			setScale((s) => clamp(s + (e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP), MIN_SCALE, MAX_SCALE));
+		}
+		el.addEventListener("wheel", onWheel, { passive: false });
+		return () => el.removeEventListener("wheel", onWheel);
+	}, []);
+
+	function clampOffset(next: { x: number; y: number }, s: number) {
+		const el = containerRef.current;
+		if (!el || s <= 1) return { x: 0, y: 0 };
+		const maxX = ((s - 1) * el.clientWidth) / 2;
+		const maxY = ((s - 1) * el.clientHeight) / 2;
+		return { x: clamp(next.x, -maxX, maxX), y: clamp(next.y, -maxY, maxY) };
+	}
+
+	function handlePointerDown(e: React.PointerEvent) {
+		if (scale <= 1) return;
+		e.currentTarget.setPointerCapture(e.pointerId);
+		setIsDragging(true);
+		dragRef.current = {
+			startX: e.clientX,
+			startY: e.clientY,
+			originX: offset.x,
+			originY: offset.y,
+		};
+	}
+
+	function handlePointerMove(e: React.PointerEvent) {
+		const drag = dragRef.current;
+		if (!drag) return;
+		setOffset(
+			clampOffset(
+				{
+					x: drag.originX + (e.clientX - drag.startX),
+					y: drag.originY + (e.clientY - drag.startY),
+				},
+				scale,
+			),
+		);
+	}
+
+	function endDrag() {
+		dragRef.current = null;
+		setIsDragging(false);
+	}
+
+	function handleDoubleClick() {
+		if (scale > 1) {
+			setScale(1);
+			setOffset({ x: 0, y: 0 });
+		} else {
+			setScale(2);
+		}
+	}
+
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: a pan/zoom gesture surface is inherently pointer-only (drag position, wheel delta) — there's no keyboard equivalent to require, and the "View original" button already gives full-resolution access without it.
+		<div
+			ref={containerRef}
+			className={cn(
+				"relative flex h-full w-full flex-1 touch-none items-center justify-center overflow-hidden",
+				scale > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
+			)}
+			onPointerDown={handlePointerDown}
+			onPointerMove={handlePointerMove}
+			onPointerUp={endDrag}
+			onPointerLeave={endDrag}
+			onDoubleClick={handleDoubleClick}
+		>
+			{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
+			<img
+				src={src}
+				alt={alt}
+				draggable={false}
+				className={cn(
+					"max-h-[60vh] max-w-full select-none object-contain",
+					!isDragging && "transition-transform duration-150 ease-out",
+				)}
+				style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
+			/>
 		</div>
 	);
 }

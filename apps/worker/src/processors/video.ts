@@ -9,6 +9,7 @@ import {
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import {
 	createVariant,
 	ffprobeJson,
@@ -79,7 +80,12 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 		// representative preview.
 		const frameTimestamp = durationSeconds ? Math.min(3, durationSeconds / 2) : 0;
 
-		const thumbPath = join(workDir, "thumb.webp");
+		// ffmpeg outputs a PNG frame, then sharp converts it to webp — not
+		// ffmpeg's own webp encoder directly, since ffmpeg only has one when
+		// built with libwebp linked in (Homebrew's default ffmpeg formula
+		// doesn't), while sharp always bundles its own. Same split PDF
+		// thumbnailing already uses (pdftoppm renders, sharp converts).
+		const framePath = join(workDir, "frame.png");
 		await run("ffmpeg", [
 			"-y",
 			"-ss",
@@ -90,9 +96,10 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			"1",
 			"-vf",
 			"scale=512:-1",
-			thumbPath,
+			framePath,
 		]);
-		const thumbBytes = await readFile(thumbPath);
+		const frameBytes = await readFile(framePath);
+		const thumbWebp = await sharp(frameBytes).webp().toBuffer();
 		await createVariant({
 			projectId,
 			folderId: original.folderId,
@@ -100,7 +107,7 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			filename: replaceExt(original.filename, "webp", "-thumb"),
 			mimeType: "image/webp",
 			storage,
-			data: new Uint8Array(thumbBytes),
+			data: thumbWebp,
 			metadata: { variant: "thumbnail", frameTimestamp },
 		});
 

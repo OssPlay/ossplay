@@ -55,9 +55,11 @@ export default function ProjectLayout({
 	];
 
 	return (
-		<Section sidepanel={sidepanel} breadcrumb={{ title: "Project" }} access={access}>
-			{children}
+		<>
+			<Section sidepanel={sidepanel} breadcrumb={{ title: "Project" }} access={access}>
+				{children}
+			</Section>
 			{modal}
-		</Section>
+		</>
 	);
 }

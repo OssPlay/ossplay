@@ -9,6 +9,7 @@ import {
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
+import sharp from "sharp";
 import { createVariant, ffprobeJson, finalizeVariant, markAssetStatus } from "./shared";
 import { run } from "./spawn";
 
@@ -57,16 +58,21 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 
 		// No embedded art is a normal, common case (not every file has a
 		// cover) — swallow ffmpeg's failure rather than failing the whole
-		// job over a missing optional thumbnail.
-		const coverPath = join(workDir, "cover.webp");
+		// job over a missing optional thumbnail. Extracted as PNG, then
+		// converted to webp via sharp rather than ffmpeg's own webp encoder
+		// directly — see video.ts's processVideo for why (ffmpeg only has
+		// one when built with libwebp linked in, which Homebrew's default
+		// formula doesn't do; sharp always bundles its own).
+		const coverPath = join(workDir, "cover.png");
 		let hasCover = true;
 		try {
-			await run("ffmpeg", ["-y", "-i", inputPath, "-an", "-vcodec", "libwebp", coverPath]);
+			await run("ffmpeg", ["-y", "-i", inputPath, "-an", "-vcodec", "png", coverPath]);
 		} catch {
 			hasCover = false;
 		}
 		if (hasCover) {
 			const coverBytes = await readFile(coverPath);
+			const coverWebp = await sharp(coverBytes).webp().toBuffer();
 			await createVariant({
 				projectId,
 				folderId: original.folderId,
@@ -74,7 +80,7 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 				filename: replaceExt(original.filename, "webp", "-thumb"),
 				mimeType: "image/webp",
 				storage,
-				data: new Uint8Array(coverBytes),
+				data: coverWebp,
 				metadata: { variant: "thumbnail" },
 			});
 		}

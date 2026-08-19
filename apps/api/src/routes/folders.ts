@@ -150,8 +150,10 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 // A designated thumbnail variant (image.ts/pdf.ts's `metadata.variant ===
 // "thumbnail"`) is how the dashboard grid shows a real image instead of a
 // generic file icon — batched into one extra query per listing call rather
-// than a per-asset lookup.
-async function attachThumbnails<T extends { id: string }>(
+// than a per-asset lookup. Exported for assets.ts's single-asset GET route,
+// which needs the same `thumbnailAssetId` on the one row it returns (the
+// preview page/modal reads it from there, not from a listing).
+export async function attachThumbnails<T extends { id: string }>(
 	db: ReturnType<typeof getDb>,
 	rows: T[],
 ): Promise<(T & { thumbnailAssetId: string | null })[]> {
