@@ -354,7 +354,10 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 				parentId={folderId}
 				open={createFolderOpen}
 				onOpenChange={setCreateFolderOpen}
-				onCreated={() => mutate()}
+				onCreated={(folder) => {
+					mutate();
+					selection.setSelected(new Set([folder.id]));
+				}}
 			/>
 			<MoveToDialog
 				orgId={effectiveOrgId}

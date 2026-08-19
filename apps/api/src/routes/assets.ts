@@ -32,7 +32,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { generateToken, hashToken } from "../lib/auth/tokens";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
-import { getQueue, getRedisConnection } from "../lib/queue";
+import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -262,7 +262,7 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/confirm", ...gate,
 	if (queueName) {
 		const jobData = { assetId, projectId, s3Path: asset.s3Path, mimeType: asset.mimeType };
 		const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
-		if (!dispatched) await getQueue(queueName).add("process", jobData);
+		if (!dispatched) await getQueue(queueName).add("process", jobData, PROCESSING_JOB_OPTS);
 	}
 
 	const updated = await requireAsset(projectId, assetId);
@@ -478,7 +478,7 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 	if (queueName) {
 		const jobData = { assetId: newId, projectId, s3Path: key, mimeType: original.mimeType };
 		const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
-		if (!dispatched) await getQueue(queueName).add("process", jobData);
+		if (!dispatched) await getQueue(queueName).add("process", jobData, PROCESSING_JOB_OPTS);
 	}
 
 	const created = await requireAsset(projectId, newId);
@@ -602,7 +602,7 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate
 		requestedVariant: { variantAssetId: variantId, spec },
 	};
 	const dispatched = await tryDispatchToComputeDestination(queueName, "variant", jobData);
-	if (!dispatched) await getQueue(queueName).add("variant", jobData);
+	if (!dispatched) await getQueue(queueName).add("variant", jobData, PROCESSING_JOB_OPTS);
 
 	const created = await requireAsset(projectId, variantId);
 	return c.json({ asset: created }, 202);

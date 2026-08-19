@@ -72,7 +72,14 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 		}
 		if (hasCover) {
 			const coverBytes = await readFile(coverPath);
-			const coverWebp = await sharp(coverBytes).webp().toBuffer();
+			// Embedded cover art can be arbitrarily large (some taggers embed
+			// print-resolution artwork) — cap it the same way pdf.ts caps its
+			// render, since WebP has a hard 16383px-per-side ceiling and a
+			// thumbnail has no reason to keep full resolution anyway.
+			const coverWebp = await sharp(coverBytes)
+				.resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+				.webp()
+				.toBuffer();
 			await createVariant({
 				projectId,
 				folderId: original.folderId,

@@ -5,6 +5,7 @@ import {
 	ChevronRightIcon,
 	DownloadIcon,
 	ExternalLinkIcon,
+	EyeIcon,
 	FileTextIcon,
 	InfoIcon,
 	LinkIcon,
@@ -256,26 +257,60 @@ function AssetBody({
 	}
 
 	if (mimeType === "application/pdf") {
-		return (
-			<div className="flex flex-col items-center gap-3">
-				{thumbnailUrl ? (
-					// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content
+		// Shown in-app (not a new-tab link) once the user opts in, same
+		// thumbnail-first-then-click pattern as video/audio above — but with
+		// the browser's own PDF viewer toolbar/nav-panes/scrollbar stripped
+		// via the `#toolbar=0...` open-parameters convention every Chromium
+		// and Firefox PDF viewer honors, so it reads as part of the app
+		// instead of an embedded browser chrome.
+		if (playing) {
+			return (
+				<div className="flex h-full w-full flex-col gap-2">
+					<div className="flex shrink-0 justify-end">
+						<a
+							href={contentUrl}
+							target="_blank"
+							rel="noreferrer"
+							className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+						>
+							<ExternalLinkIcon /> Open in new tab
+						</a>
+					</div>
+					<iframe
+						src={`${contentUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+						title={filename}
+						className="min-h-0 w-full flex-1 rounded-md border bg-white"
+					/>
+				</div>
+			);
+		}
+		if (thumbnailUrl) {
+			return (
+				<button
+					type="button"
+					onClick={onPlay}
+					className="group relative flex max-h-[60vh] max-w-full items-center justify-center"
+				>
+					{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
 					<img
 						src={thumbnailUrl}
 						alt={filename}
 						className="max-h-[60vh] max-w-full rounded-md border object-contain shadow-sm"
 					/>
-				) : (
-					<FileTextIcon className="size-16 text-muted-foreground" />
-				)}
-				<a
-					href={contentUrl}
-					target="_blank"
-					rel="noreferrer"
-					className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-				>
-					<ExternalLinkIcon /> View full PDF
-				</a>
+					<span className="absolute inset-0 flex items-center justify-center rounded-md bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
+						<span className="flex size-14 items-center justify-center rounded-full bg-background/90">
+							<EyeIcon className="size-6" />
+						</span>
+					</span>
+				</button>
+			);
+		}
+		return (
+			<div className="flex flex-col items-center gap-3">
+				<FileTextIcon className="size-16 text-muted-foreground" />
+				<Button onClick={onPlay}>
+					<EyeIcon /> View PDF
+				</Button>
 			</div>
 		);
 	}

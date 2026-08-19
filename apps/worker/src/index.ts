@@ -4,6 +4,7 @@ import { createRedisConnection } from "./connection";
 import { processAudio } from "./processors/audio";
 import { processImage } from "./processors/image";
 import { processPdf } from "./processors/pdf";
+import { withFailureHandling } from "./processors/shared";
 import { processVideo } from "./processors/video";
 
 // The recycle-bin-expiry sweep (and every other repeatable/scheduled job)
@@ -14,10 +15,26 @@ import { processVideo } from "./processors/video";
 // index.ts.
 const connection = createRedisConnection();
 
-const imageWorker = new Worker(QUEUE_NAMES.imageProcessing, processImage, { connection });
-const videoWorker = new Worker(QUEUE_NAMES.videoProcessing, processVideo, { connection });
-const audioWorker = new Worker(QUEUE_NAMES.audioProcessing, processAudio, { connection });
-const pdfWorker = new Worker(QUEUE_NAMES.pdfProcessing, processPdf, { connection });
+const imageWorker = new Worker(
+	QUEUE_NAMES.imageProcessing,
+	withFailureHandling(QUEUE_NAMES.imageProcessing, processImage),
+	{ connection },
+);
+const videoWorker = new Worker(
+	QUEUE_NAMES.videoProcessing,
+	withFailureHandling(QUEUE_NAMES.videoProcessing, processVideo),
+	{ connection },
+);
+const audioWorker = new Worker(
+	QUEUE_NAMES.audioProcessing,
+	withFailureHandling(QUEUE_NAMES.audioProcessing, processAudio),
+	{ connection },
+);
+const pdfWorker = new Worker(
+	QUEUE_NAMES.pdfProcessing,
+	withFailureHandling(QUEUE_NAMES.pdfProcessing, processPdf),
+	{ connection },
+);
 
 for (const worker of [imageWorker, videoWorker, audioWorker, pdfWorker]) {
 	worker.on("failed", (job, err) => {

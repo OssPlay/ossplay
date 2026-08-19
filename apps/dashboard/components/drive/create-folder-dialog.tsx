@@ -29,7 +29,7 @@ export function CreateFolderDialog({
 	parentId: string | null;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onCreated: () => void;
+	onCreated: (folder: DriveFolder) => void;
 }) {
 	const [name, setName] = useState("");
 
@@ -49,7 +49,10 @@ export function CreateFolderDialog({
 	});
 
 	function handleCreate() {
-		return handleSubmit(() => createFolder.trigger(), onCreated);
+		return handleSubmit(
+			() => createFolder.trigger(),
+			(result) => onCreated(result.folder),
+		);
 	}
 
 	return (

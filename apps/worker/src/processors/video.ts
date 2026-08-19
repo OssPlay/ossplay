@@ -99,7 +99,14 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			framePath,
 		]);
 		const frameBytes = await readFile(framePath);
-		const thumbWebp = await sharp(frameBytes).webp().toBuffer();
+		// The `scale=512:-1` filter above already caps width, but preserves
+		// aspect ratio unconditionally — an extreme-aspect-ratio source (e.g.
+		// a very tall vertical clip) could still push height past WebP's
+		// 16383px-per-side ceiling. Same defensive cap as pdf.ts/audio.ts.
+		const thumbWebp = await sharp(frameBytes)
+			.resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+			.webp()
+			.toBuffer();
 		await createVariant({
 			projectId,
 			folderId: original.folderId,

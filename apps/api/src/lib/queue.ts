@@ -16,6 +16,18 @@ function createRedisConnection(): IORedis {
 let connection: IORedis | null = null;
 const queues = new Map<QueueName, Queue>();
 
+// Every processing job dispatch (assets.ts's confirm/variant routes, v1.ts's
+// upload route) passes this — a handful of automatic, fast retries for a
+// transient failure (a momentary S3/network blip, a DB hiccup) without
+// waiting on apps/jobs' much slower failed-asset retry cron. That cron
+// exists for the class of failure these can't fix (the environment itself
+// was broken, e.g. a missing system binary) — the two are deliberately
+// layered, not redundant.
+export const PROCESSING_JOB_OPTS = {
+	attempts: 3,
+	backoff: { type: "exponential" as const, delay: 5000 },
+};
+
 // Producer-side only — apps/api never consumes a job, it just enqueues one
 // for apps/worker to pick up. One Queue instance per name, memoized, so a
 // route handler firing repeatedly doesn't open a new connection per call.

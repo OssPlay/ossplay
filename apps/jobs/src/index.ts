@@ -1,6 +1,7 @@
 import { QUEUE_NAMES } from "@ossplay/core";
 import { Queue, Worker } from "bullmq";
 import { createRedisConnection } from "./connection";
+import { processFailedAssetRetry } from "./processors/failed-asset-retry";
 import { processRecycleBinExpiry } from "./processors/recycle-bin-expiry";
 import { processS3DestinationConfigCheck } from "./processors/s3-destination-config-check";
 import { processServerIpCheck } from "./processors/server-ip-check";
@@ -26,12 +27,18 @@ const s3ConfigCheckWorker = new Worker(
 const serverIpCheckWorker = new Worker(QUEUE_NAMES.serverIpCheck, processServerIpCheck, {
 	connection,
 });
+const failedAssetRetryWorker = new Worker(
+	QUEUE_NAMES.failedAssetRetry,
+	processFailedAssetRetry,
+	{ connection },
+);
 
 for (const worker of [
 	recycleBinWorker,
 	updateCheckWorker,
 	s3ConfigCheckWorker,
 	serverIpCheckWorker,
+	failedAssetRetryWorker,
 ]) {
 	worker.on("failed", (job, err) => {
 		console.error(`[${worker.name}] job ${job?.id} failed:`, err);
@@ -48,6 +55,7 @@ const recycleBinQueue = new Queue(QUEUE_NAMES.recycleBinExpiry, { connection });
 const updateCheckQueue = new Queue(QUEUE_NAMES.updateCheck, { connection });
 const s3ConfigCheckQueue = new Queue(QUEUE_NAMES.s3DestinationConfigCheck, { connection });
 const serverIpCheckQueue = new Queue(QUEUE_NAMES.serverIpCheck, { connection });
+const failedAssetRetryQueue = new Queue(QUEUE_NAMES.failedAssetRetry, { connection });
 
 await recycleBinQueue.add("sweep", {}, { repeat: { pattern: "0 3 * * *" }, jobId: "daily-sweep" });
 await updateCheckQueue.add("check", {}, { repeat: { pattern: "0 4 * * *" }, jobId: "daily-check" });
@@ -61,6 +69,14 @@ await s3ConfigCheckQueue.add(
 // domain/TLS setup guidance where staleness is more noticeable, so it's
 // worth refreshing more often than once a day.
 await serverIpCheckQueue.add("check", {}, { repeat: { pattern: "0 * * * *" }, jobId: "hourly-check" });
+// Every 30 minutes, not hourly — this is a recovery path (see failed-asset-
+// retry.ts's own comment), and a stuck-processing asset is more noticeable
+// to a waiting user than a slightly-stale IP/update-check value.
+await failedAssetRetryQueue.add(
+	"retry",
+	{},
+	{ repeat: { pattern: "*/30 * * * *" }, jobId: "half-hourly-retry" },
+);
 
 // The update-check used to also run once immediately on apps/api boot
 // (not just every 24h) — preserved here as a one-off job on every apps/jobs
@@ -72,7 +88,7 @@ await updateCheckQueue.add("check-on-boot", {});
 await serverIpCheckQueue.add("check-on-boot", {});
 
 console.log(
-	"OSSPlay jobs listening on recycle-bin-expiry (03:00), update-check (04:00 + on boot), s3-destination-config-check (05:00), server-ip-check (hourly + on boot)",
+	"OSSPlay jobs listening on recycle-bin-expiry (03:00), update-check (04:00 + on boot), s3-destination-config-check (05:00), server-ip-check (hourly + on boot), failed-asset-retry (every 30min)",
 );
 
 process.on("SIGTERM", async () => {
@@ -81,10 +97,12 @@ process.on("SIGTERM", async () => {
 		updateCheckWorker.close(),
 		s3ConfigCheckWorker.close(),
 		serverIpCheckWorker.close(),
+		failedAssetRetryWorker.close(),
 		recycleBinQueue.close(),
 		updateCheckQueue.close(),
 		s3ConfigCheckQueue.close(),
 		serverIpCheckQueue.close(),
+		failedAssetRetryQueue.close(),
 	]);
 	process.exit(0);
 });

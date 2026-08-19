@@ -1,6 +1,7 @@
-import { buildAssetKey, type StorageDriver } from "@ossplay/core";
-import { type Asset, assets, getDb } from "@ossplay/db";
-import { eq } from "drizzle-orm";
+import { type BaseAssetJob, buildAssetKey, type StorageDriver } from "@ossplay/core";
+import { type Asset, assets, getDb, systemLogs } from "@ossplay/db";
+import type { Job } from "bullmq";
+import { eq, sql } from "drizzle-orm";
 import { runCapture } from "./spawn";
 
 // One insert-then-upload helper, reused by every processor (image
@@ -64,10 +65,51 @@ export async function markAssetStatus(
 	status: "ready" | "failed",
 	metadata?: Record<string, unknown>,
 ): Promise<void> {
+	// Merged via a jsonb `||`, not replaced — withFailureHandling's
+	// reprocessAttempts-style bookkeeping (set by apps/jobs' failed-asset
+	// retry cron before re-dispatching) needs to survive a subsequent
+	// failure's own metadata write, and every existing success-path caller
+	// here is still writing an original asset's very first metadata anyway,
+	// so this is a no-op behavior change for them.
 	await getDb()
 		.update(assets)
-		.set({ status, ...(metadata !== undefined && { metadata }) })
+		.set({
+			status,
+			...(metadata !== undefined && {
+				metadata: sql`coalesce(${assets.metadata}, '{}'::jsonb) || ${JSON.stringify(metadata)}::jsonb`,
+			}),
+		})
 		.where(eq(assets.id, assetId));
+}
+
+// Wraps a queue processor so a thrown error also marks the asset it was
+// working on "failed" (instead of leaving it stuck at "processing" forever
+// — nothing else ever moves it off that status) and logs to systemLogs
+// (instance-error-logs.ts's route, and therefore the dashboard's Error Logs
+// page — previously nothing ever wrote there for a processing failure,
+// only apps/api's own request-handling code did). Re-throws afterward so
+// BullMQ's own failure event/attempts/backoff tracking is unaffected.
+export function withFailureHandling<T extends BaseAssetJob>(
+	source: string,
+	processor: (job: Job<T>) => Promise<void>,
+): (job: Job<T>) => Promise<void> {
+	return async (job) => {
+		try {
+			await processor(job);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			const failedAssetId = job.data.requestedVariant?.variantAssetId ?? job.data.assetId;
+			await markAssetStatus(failedAssetId, "failed", { error: message.slice(0, 2000) });
+			await getDb()
+				.insert(systemLogs)
+				.values({
+					source,
+					message: `Processing failed for asset ${failedAssetId}: ${message}`,
+					metadata: { assetId: failedAssetId, projectId: job.data.projectId, jobId: job.id },
+				});
+			throw err;
+		}
+	};
 }
 
 export interface FfprobeStream {

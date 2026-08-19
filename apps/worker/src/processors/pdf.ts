@@ -50,9 +50,17 @@ export async function processPdf(job: Job<PdfProcessingJob>): Promise<void> {
 
 		// Converted to webp for consistency with every other mimetype's
 		// thumbnail (image/video/audio all produce webp) — pdftoppm itself
-		// has no webp output mode, only ppm/png/jpeg.
+		// has no webp output mode, only ppm/png/jpeg. Capped to 1024px on the
+		// long edge before encoding — pdftoppm renders at a fixed 150 DPI with
+		// no size limit, so an unusually large physical page (or a malformed
+		// MediaBox) can render past WebP's hard 16383px-per-side ceiling,
+		// which throws instead of clamping. A thumbnail has no reason to keep
+		// the full render resolution anyway.
 		const rendered = await readFile(`${outputPrefix}.png`);
-		const webp = await sharp(rendered).webp().toBuffer();
+		const webp = await sharp(rendered)
+			.resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+			.webp()
+			.toBuffer();
 		await createVariant({
 			projectId,
 			folderId: original.folderId,

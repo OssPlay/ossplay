@@ -34,6 +34,12 @@ export const QUEUE_NAMES = {
 	// a periodic job writes the result to InstanceConfig, the route just
 	// reads it.
 	serverIpCheck: "server-ip-check",
+	// Re-dispatches original (non-variant) assets stuck at status "failed" —
+	// the class of processing failure BullMQ's own per-job attempts/backoff
+	// can't recover from (the environment itself was broken for longer than
+	// a few seconds, e.g. a missing system binary). See apps/jobs/src/
+	// processors/failed-asset-retry.ts.
+	failedAssetRetry: "failed-asset-retry",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -69,7 +75,7 @@ export function computeSpecKey(spec: VariantSpec): string {
 	}
 }
 
-type BaseAssetJob = {
+export type BaseAssetJob = {
 	assetId: string;
 	projectId: string;
 	s3Path: string;
@@ -102,6 +108,7 @@ export type RecycleBinExpiryJob = Record<string, never>;
 export type UpdateCheckJob = Record<string, never>;
 export type S3DestinationConfigCheckJob = Record<string, never>;
 export type ServerIpCheckJob = Record<string, never>;
+export type FailedAssetRetryJob = Record<string, never>;
 
 export type JobPayloadByQueue = {
 	[QUEUE_NAMES.imageProcessing]: ImageProcessingJob;
@@ -112,6 +119,7 @@ export type JobPayloadByQueue = {
 	[QUEUE_NAMES.updateCheck]: UpdateCheckJob;
 	[QUEUE_NAMES.s3DestinationConfigCheck]: S3DestinationConfigCheckJob;
 	[QUEUE_NAMES.serverIpCheck]: ServerIpCheckJob;
+	[QUEUE_NAMES.failedAssetRetry]: FailedAssetRetryJob;
 };
 
 // mimeType -> the queue its confirm-upload processing job goes to, or null

@@ -22,23 +22,15 @@ import { cn } from "@/lib/utils";
 // so its ResizeObserver never has to re-attach across mount/unmount; the
 // height it reports drives (app)/layout.tsx's compensating bottom padding
 // so a scrolled-to-the-bottom list is never hidden behind it.
+//
+// Stays open once transfers finish (no auto-hide) — the header's clear-all
+// button is the only way tasks leave the list, and it's disabled while
+// anything is still "active" so a still-in-progress transfer can't be
+// dismissed out from under itself.
 export function TransferPopover() {
-	const { tasks, removeTask, setPopoverHeight } = useTransfer();
+	const { tasks, removeTask, clearTasks, setPopoverHeight } = useTransfer();
 	const [collapsed, setCollapsed] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const scheduledRemoval = useRef(new Set<string>());
-
-	useEffect(() => {
-		for (const task of tasks) {
-			if (task.status === "done" && !scheduledRemoval.current.has(task.id)) {
-				scheduledRemoval.current.add(task.id);
-				setTimeout(() => {
-					removeTask(task.id);
-					scheduledRemoval.current.delete(task.id);
-				}, 3000);
-			}
-		}
-	}, [tasks, removeTask]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: rootRef never changes identity, and the node stays mounted (just `hidden`) across empty/non-empty transitions, so this only needs to run once.
 	useEffect(() => {
@@ -69,23 +61,36 @@ export function TransferPopover() {
 			)}
 		>
 			<div className="overflow-hidden rounded-2xl border bg-background shadow-lg">
-				<button
-					type="button"
-					onClick={() => setCollapsed((c) => !c)}
-					className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium"
-				>
-					{activeCount > 0 ? (
-						<Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
-					) : errorCount > 0 ? (
-						<XIcon className="size-4 shrink-0 text-destructive" />
-					) : (
-						<CheckIcon className="size-4 shrink-0 text-primary" />
-					)}
-					<span className="flex-1 text-left">{summaryLabel}</span>
-					<ChevronDownIcon
-						className={cn("size-4 shrink-0 transition-transform", collapsed && "-rotate-90")}
-					/>
-				</button>
+				<div className="flex items-center gap-1 pr-1">
+					<button
+						type="button"
+						onClick={() => setCollapsed((c) => !c)}
+						className="flex flex-1 items-center gap-2 px-4 py-3 text-left text-sm font-medium"
+					>
+						{activeCount > 0 ? (
+							<Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+						) : errorCount > 0 ? (
+							<XIcon className="size-4 shrink-0 text-destructive" />
+						) : (
+							<CheckIcon className="size-4 shrink-0 text-primary" />
+						)}
+						<span className="flex-1 text-left">{summaryLabel}</span>
+						<ChevronDownIcon
+							className={cn("size-4 shrink-0 transition-transform", collapsed && "-rotate-90")}
+						/>
+					</button>
+					<Tippy content={activeCount > 0 ? "Finish in-progress transfers first" : "Clear all"}>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							disabled={activeCount > 0}
+							onClick={clearTasks}
+							aria-label="Clear all"
+						>
+							<XIcon className="size-3.5" />
+						</Button>
+					</Tippy>
+				</div>
 				{!collapsed && (
 					<div className="max-h-72 overflow-y-auto border-t">
 						{tasks.map((task) => (

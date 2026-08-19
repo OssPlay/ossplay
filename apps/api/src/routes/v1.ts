@@ -17,7 +17,7 @@ import { type Asset, assetShareLinks, assets, folders, getDb } from "@ossplay/db
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { hashToken } from "../lib/auth/tokens";
-import { getQueue, getRedisConnection } from "../lib/queue";
+import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { requireApiKey, verifyProjectApiKey } from "../middleware/require-api-key";
 import type { AppEnv } from "../types";
 
@@ -180,7 +180,7 @@ v1Route.post("/:project/upload", requireApiKey, async (c) => {
 		if (queueName) {
 			const jobData = { assetId, projectId, s3Path: key, mimeType };
 			const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
-			if (!dispatched) await getQueue(queueName).add("process", jobData);
+			if (!dispatched) await getQueue(queueName).add("process", jobData, PROCESSING_JOB_OPTS);
 		}
 		created.push({ assetId, filename: file.name, mimeType, size: bytes.byteLength });
 	}

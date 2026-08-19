@@ -18,6 +18,7 @@ interface TransferContextValue {
 	addTask: (task: TransferTask) => void;
 	updateTask: (id: string, patch: Partial<TransferTask>) => void;
 	removeTask: (id: string) => void;
+	clearTasks: () => void;
 	popoverHeight: number;
 	setPopoverHeight: (height: number) => void;
 }
@@ -41,10 +42,15 @@ export function TransferProvider({ children }: { children: React.ReactNode }) {
 	const removeTask = useCallback((id: string) => {
 		setTasks((prev) => prev.filter((t) => t.id !== id));
 	}, []);
+	// Only ever called while nothing is "active" (TransferPopover disables
+	// its clear-all button otherwise) — a plain reset is safe, there's no
+	// in-flight task whose own completion callback might still try to
+	// updateTask() a since-cleared id.
+	const clearTasks = useCallback(() => setTasks([]), []);
 
 	const value = useMemo(
-		() => ({ tasks, addTask, updateTask, removeTask, popoverHeight, setPopoverHeight }),
-		[tasks, addTask, updateTask, removeTask, popoverHeight],
+		() => ({ tasks, addTask, updateTask, removeTask, clearTasks, popoverHeight, setPopoverHeight }),
+		[tasks, addTask, updateTask, removeTask, clearTasks, popoverHeight],
 	);
 
 	return <TransferContext.Provider value={value}>{children}</TransferContext.Provider>;
