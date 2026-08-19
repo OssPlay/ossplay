@@ -17,10 +17,10 @@ describe.skipIf(!process.env.DATABASE_URL)("instance overview", () => {
 		expect(res.status).toBe(401);
 	});
 
-	// detectServerIp() makes a real outbound call (no reliable way to fake a
-	// container's public IP any other way) — this doesn't assert what it
-	// returns, only that the endpoint degrades to null rather than erroring
-	// when that call can't complete (e.g. no outbound internet in CI).
+	// serverIp comes from InstanceConfig's cache (apps/jobs' serverIpCheck job
+	// populates it — this route never calls detectServerIp() live, see
+	// instance.overview.ts) — in a fresh test DB/config it's still null, so
+	// this only asserts the response shape, not a real IP.
 	it("GET /instance/overview reports the running version and a best-effort server IP", async () => {
 		const res = await jsonRequest("/instance/overview", { cookie: rootCookie });
 		expect(res.status).toBe(200);

@@ -27,6 +27,13 @@ export const QUEUE_NAMES = {
 	// declared visibility, catching drift from changes made outside
 	// OSSPlay.
 	s3DestinationConfigCheck: "s3-destination-config-check",
+	// Moves detectServerIp()'s external ipify.org call off the request path —
+	// GET /instance/overview used to call it live on every load (see
+	// server-info.ts), which meant every dashboard visit to that page waited
+	// on a 3s-timeout best-effort outbound fetch. Same fix as updateCheck:
+	// a periodic job writes the result to InstanceConfig, the route just
+	// reads it.
+	serverIpCheck: "server-ip-check",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -94,6 +101,7 @@ export type RecycleBinExpiryJob = Record<string, never>;
 // row in one run, same shape as recycleBinExpiry's own trash sweep.
 export type UpdateCheckJob = Record<string, never>;
 export type S3DestinationConfigCheckJob = Record<string, never>;
+export type ServerIpCheckJob = Record<string, never>;
 
 export type JobPayloadByQueue = {
 	[QUEUE_NAMES.imageProcessing]: ImageProcessingJob;
@@ -103,6 +111,7 @@ export type JobPayloadByQueue = {
 	[QUEUE_NAMES.recycleBinExpiry]: RecycleBinExpiryJob;
 	[QUEUE_NAMES.updateCheck]: UpdateCheckJob;
 	[QUEUE_NAMES.s3DestinationConfigCheck]: S3DestinationConfigCheckJob;
+	[QUEUE_NAMES.serverIpCheck]: ServerIpCheckJob;
 };
 
 // mimeType -> the queue its confirm-upload processing job goes to, or null

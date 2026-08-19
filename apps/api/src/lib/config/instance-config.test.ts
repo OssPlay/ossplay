@@ -31,6 +31,10 @@ describe("instance-config", () => {
 				lastCheckResult: null,
 				lastNotifiedVersion: null,
 			},
+			serverIp: {
+				value: null,
+				checkedAt: null,
+			},
 		});
 	});
 

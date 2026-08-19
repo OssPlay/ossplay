@@ -4,7 +4,7 @@ import { z } from "zod";
 import { logAudit } from "@/lib/audit/log";
 import { readInstanceConfig, writeInstanceConfig } from "@/lib/config/instance-config";
 import { notifyRootsOfUpdateIfNew } from "@/lib/notifications/notify";
-import { detectServerIp, readVersion } from "@/lib/server-info";
+import { readVersion } from "@/lib/server-info";
 import { checkForUpdates } from "@/lib/updates/check";
 import { applyUpdate, getUpdateJobStatus } from "@/lib/updates/updater-client";
 import type { AppEnv } from "@/types";
@@ -12,11 +12,14 @@ import type { AppEnv } from "@/types";
 export const instanceOverviewRoute = new Hono<AppEnv>();
 
 instanceOverviewRoute.get("/", async (c) => {
-	const [serverIp, version] = await Promise.all([detectServerIp(), Promise.resolve(readVersion())]);
-	const { updates, instanceName } = readInstanceConfig();
+	const version = readVersion();
+	// Cached by apps/jobs' hourly serverIpCheck job, not fetched live —
+	// detectServerIp() is a real outbound call to ipify.org with a 3s
+	// timeout, which used to block every load of this route.
+	const { updates, instanceName, serverIp } = readInstanceConfig();
 
 	return c.json({
-		serverIp,
+		serverIp: serverIp.value,
 		version,
 		instanceName,
 		updates,

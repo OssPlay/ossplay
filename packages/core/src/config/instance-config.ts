@@ -49,6 +49,14 @@ export interface InstanceConfig {
 		// latestVersion, not on every check that still finds the same version.
 		lastNotifiedVersion: string | null;
 	};
+	// Populated by apps/jobs' repeatable serverIpCheck job (packages/core's
+	// detectServerIp) rather than fetched live — GET /instance/overview used
+	// to call the outbound ipify.org lookup on every request, which meant
+	// every dashboard visit to that page waited on its up-to-3s timeout.
+	serverIp: {
+		value: string | null;
+		checkedAt: string | null;
+	};
 }
 
 // Only the fields a caller is actually setting — writeInstanceConfig merges
@@ -59,6 +67,7 @@ export interface InstanceConfigPatch {
 	onboardedAt?: string | null;
 	domain?: Partial<InstanceConfig["domain"]>;
 	updates?: Partial<InstanceConfig["updates"]>;
+	serverIp?: Partial<InstanceConfig["serverIp"]>;
 }
 
 const DEFAULTS: InstanceConfig = {
@@ -76,6 +85,10 @@ const DEFAULTS: InstanceConfig = {
 		lastCheckedAt: null,
 		lastCheckResult: null,
 		lastNotifiedVersion: null,
+	},
+	serverIp: {
+		value: null,
+		checkedAt: null,
 	},
 };
 
@@ -113,6 +126,7 @@ export function readInstanceConfig(): InstanceConfig {
 		onboardedAt: parsed.onboardedAt ?? DEFAULTS.onboardedAt,
 		domain: { ...DEFAULTS.domain, ...parsed.domain },
 		updates: { ...DEFAULTS.updates, ...parsed.updates },
+		serverIp: { ...DEFAULTS.serverIp, ...parsed.serverIp },
 	};
 }
 
@@ -126,6 +140,7 @@ export function writeInstanceConfig(patch: InstanceConfigPatch): InstanceConfig 
 		onboardedAt: patch.onboardedAt !== undefined ? patch.onboardedAt : current.onboardedAt,
 		domain: { ...current.domain, ...patch.domain },
 		updates: { ...current.updates, ...patch.updates },
+		serverIp: { ...current.serverIp, ...patch.serverIp },
 	};
 
 	const path = configPath();
@@ -180,5 +195,6 @@ export function resetInstanceConfig(): InstanceConfig {
 		onboardedAt: DEFAULTS.onboardedAt,
 		domain: DEFAULTS.domain,
 		updates: DEFAULTS.updates,
+		serverIp: DEFAULTS.serverIp,
 	});
 }
