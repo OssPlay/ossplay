@@ -105,7 +105,7 @@ export function SecurityActions({ user, onChange }: { user: InstanceUser; onChan
 					{user.totpEnabled || user.passkeyCount > 0 ? (
 						<ConfirmDialog
 							trigger={
-								<Button variant="secondary" size="sm">
+								<Button variant="destructive" size="sm">
 									Reset 2FA &amp; passkeys
 								</Button>
 							}

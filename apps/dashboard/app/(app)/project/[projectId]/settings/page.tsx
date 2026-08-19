@@ -57,7 +57,14 @@ export default function ProjectGeneralPage() {
 	if (!project) return null;
 
 	return (
-		<Container header={{ icon: SettingsIcon, title: "General" }} size="sm">
+		<Container
+			header={{
+				icon: SettingsIcon,
+				title: "General",
+				description: "This project's display name.",
+			}}
+			size="sm"
+		>
 			<div className="flex flex-col gap-4">
 				<FormField
 					id="projectName"

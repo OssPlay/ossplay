@@ -110,8 +110,11 @@ export default function ProjectTrashPage() {
 					<TableBody>
 						{folders.map((folder) => (
 							<TableRow key={folder.id}>
-								<TableCell className="flex items-center gap-2">
-									<FolderIcon className="size-4 text-muted-foreground" /> {folder.name}
+								<TableCell className="flex max-w-80 items-center gap-2">
+									<FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 truncate" title={folder.name}>
+										{folder.name}
+									</span>
 								</TableCell>
 								<TableCell className="text-muted-foreground">Folder</TableCell>
 								<TableCell className="text-muted-foreground">
@@ -137,8 +140,11 @@ export default function ProjectTrashPage() {
 						))}
 						{assets.map((asset) => (
 							<TableRow key={asset.id}>
-								<TableCell className="flex items-center gap-2">
-									<FileIcon className="size-4 text-muted-foreground" /> {asset.filename}
+								<TableCell className="flex max-w-80 items-center gap-2">
+									<FileIcon className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 truncate" title={asset.filename}>
+										{asset.filename}
+									</span>
 								</TableCell>
 								<TableCell className="text-muted-foreground">File</TableCell>
 								<TableCell className="text-muted-foreground">

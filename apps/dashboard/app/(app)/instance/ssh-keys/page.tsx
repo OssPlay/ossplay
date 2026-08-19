@@ -171,7 +171,7 @@ function SshKeyRowDelete({ sshKey, onDeleted }: { sshKey: SshKeyRow; onDeleted: 
 	return (
 		<ConfirmDialog
 			trigger={
-				<Button variant="secondary" size="sm">
+				<Button variant="destructive" size="sm">
 					Delete
 				</Button>
 			}

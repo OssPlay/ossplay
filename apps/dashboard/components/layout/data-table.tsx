@@ -308,11 +308,26 @@ export function DataTable<TItem>({
 										)}
 										{columns.map((column) => (
 											<TableCell key={column.key} className={column.className}>
-												{column.cell
-													? column.cell(row)
-													: column.formatter
-														? formatters[column.formatter](row[column.key])
-														: String(row[column.key] ?? "")}
+												{column.cell ? (
+													column.cell(row)
+												) : column.formatter ? (
+													formatters[column.formatter](row[column.key])
+												) : (
+													// A plain field (a label, name, email — anything free-text an
+													// org admin typed in) has no inherent length limit, so
+													// without a cap here a long enough value would widen the
+													// whole column past its neighbors instead of just eliding.
+													// column.cell/formatter above render their own content and
+													// are deliberately left unwrapped — badges and short
+													// formatted values don't need it and shouldn't be forced
+													// through it.
+													<span
+														className="block max-w-64 truncate"
+														title={String(row[column.key] ?? "")}
+													>
+														{String(row[column.key] ?? "")}
+													</span>
+												)}
 											</TableCell>
 										))}
 										{rowActions && (

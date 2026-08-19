@@ -42,14 +42,22 @@ export default function ProjectDangerZonePage() {
 	if (!project || !canDelete) return null;
 
 	return (
-		<Container header={{ icon: TriangleAlertIcon, title: "Delete project" }} size="sm">
+		<Container
+			header={{
+				icon: TriangleAlertIcon,
+				title: "Delete project",
+				description: "Permanently remove this project, its folders, and every file in it.",
+			}}
+			size="sm"
+			variant="destructive"
+		>
 			<div className="flex flex-col gap-4">
 				<FormError
 					message={remove.error ? errorMessage(remove.error, "Could not delete project") : null}
 				/>
 				<ConfirmDialog
 					trigger={
-						<Button variant="outline" className="w-fit">
+						<Button variant="destructive" className="w-fit">
 							Delete project
 						</Button>
 					}

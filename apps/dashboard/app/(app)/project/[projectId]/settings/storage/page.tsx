@@ -69,7 +69,14 @@ export default function ProjectStoragePage() {
 	if (!project) return null;
 
 	return (
-		<Container header={{ icon: DatabaseIcon, title: "Storage" }} size="sm">
+		<Container
+			header={{
+				icon: DatabaseIcon,
+				title: "Storage",
+				description: "Where this project's files are stored.",
+			}}
+			size="sm"
+		>
 			<div className="flex flex-col gap-4">
 				<div className="flex items-center gap-2">
 					<span className="text-sm text-muted-foreground">Visibility</span>

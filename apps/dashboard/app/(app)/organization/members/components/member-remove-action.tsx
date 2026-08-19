@@ -31,7 +31,7 @@ export function MemberRemoveAction({
 	return (
 		<ConfirmDialog
 			trigger={
-				<Button variant="ghost" size="sm">
+				<Button variant="destructive" size="sm">
 					{isSelf ? "Leave" : "Remove"}
 				</Button>
 			}

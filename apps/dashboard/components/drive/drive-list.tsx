@@ -198,9 +198,11 @@ export function DriveList({
 										/>
 									}
 								>
-									<TableCell className="flex items-center gap-3">
+									<TableCell className="flex max-w-80 items-center gap-3">
 										<FolderIcon className="size-4 shrink-0 text-muted-foreground" />
-										<span className="truncate">{folder.name}</span>
+										<span className="min-w-0 truncate" title={folder.name}>
+											{folder.name}
+										</span>
 									</TableCell>
 									<TableCell className="text-right text-muted-foreground">—</TableCell>
 									<TableCell className="text-right text-muted-foreground">
@@ -252,7 +254,7 @@ export function DriveList({
 											/>
 										}
 									>
-										<TableCell className="flex items-center gap-3">
+										<TableCell className="flex max-w-80 items-center gap-3">
 											{thumbnailUrl ? (
 												// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as asset-preview.tsx's AssetViewer
 												<img
@@ -263,7 +265,9 @@ export function DriveList({
 											) : (
 												<Icon className="size-4 shrink-0 text-muted-foreground" />
 											)}
-											<span className="truncate">{asset.filename}</span>
+											<span className="min-w-0 truncate" title={asset.filename}>
+												{asset.filename}
+											</span>
 											{asset.status !== "ready" && (
 												<span className="shrink-0 text-[10px] text-muted-foreground capitalize">
 													{asset.status}

@@ -37,7 +37,7 @@ export function SmtpConfigManageButton({
 
 			<ConfirmDialog
 				trigger={
-					<Button variant="secondary" size="sm">
+					<Button variant="destructive" size="sm">
 						Delete
 					</Button>
 				}

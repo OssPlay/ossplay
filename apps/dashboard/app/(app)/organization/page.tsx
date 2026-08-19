@@ -43,10 +43,11 @@ export default function OrganizationGeneralPage() {
 								description: "Permanently remove this organization and everything in it.",
 							}}
 							size="sm"
+							variant="destructive"
 						>
 							<Link
 								href="/organization/delete"
-								className={buttonVariants({ variant: "secondary" })}
+								className={buttonVariants({ variant: "destructive" })}
 							>
 								Delete organization
 							</Link>

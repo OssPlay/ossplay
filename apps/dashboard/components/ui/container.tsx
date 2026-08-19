@@ -33,18 +33,22 @@ export default function Container({
 	className,
 	header,
 	size,
+	variant = "default",
 	...props
 }: React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> & {
 	inner?: React.HTMLAttributes<HTMLDivElement>;
 	container?: React.HTMLAttributes<HTMLDivElement>;
 	header?: ContainerHeaderConfig;
 	size?: "lg" | "md" | "sm";
+	/** "destructive" tints the border/header for a danger-zone-style section (delete project/org/user, empty trash) — the container-level counterpart to Button's `destructive` variant, so the whole section reads as high-consequence before a reader even gets to the action button itself. */
+	variant?: "default" | "destructive";
 }) {
 	return (
 		<section
 			{...props}
 			className={cn(
-				"flex flex-col p-4 border-sidebar-border dark:bg-card bg-muted/50 border rounded-4xl w-full mx-auto",
+				"flex flex-col p-4 border dark:bg-card bg-muted/50 rounded-4xl w-full mx-auto",
+				variant === "destructive" ? "border-destructive/30" : "border-sidebar-border",
 				className,
 				size === "lg" && "max-w-7xl",
 				size === "md" && "max-w-5xl",
@@ -54,7 +58,8 @@ export default function Container({
 			<div
 				{...innerProps}
 				className={cn(
-					"flex flex-1 flex-col bg-background rounded-4xl border border-sidebar-border shadow-lg",
+					"flex flex-1 flex-col bg-background rounded-4xl border shadow-lg",
+					variant === "destructive" ? "border-destructive/20" : "border-sidebar-border",
 					innerClassName,
 				)}
 			>
@@ -63,9 +68,20 @@ export default function Container({
 						className="flex items-center gap-4 p-4 mb-4 border-b flex-nowrap"
 						{...header.props}
 					>
-						{header.icon && <header.icon className="size-8 shrink-0" />}
+						{header.icon && (
+							<header.icon
+								className={cn("size-8 shrink-0", variant === "destructive" && "text-destructive")}
+							/>
+						)}
 						<div className="flex flex-col flex-1 min-w-0">
-							<h3 className="text-lg font-bold dark:text-white">{header.title}</h3>
+							<h3
+								className={cn(
+									"text-lg font-bold",
+									variant === "destructive" ? "text-destructive" : "dark:text-white",
+								)}
+							>
+								{header.title}
+							</h3>
 							{header.description && (
 								<p className="text-sm text-muted-foreground">{header.description}</p>
 							)}

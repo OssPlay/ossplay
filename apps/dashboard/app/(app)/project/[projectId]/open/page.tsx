@@ -27,7 +27,7 @@ export default function OpenAssetPage() {
 					assetId={assetId}
 					showDetails={searchParams.get("panel") === "details"}
 					onClose={() => router.push(`/project/${projectId}`)}
-					hideCloseButton
+					fullPage
 				/>
 			</div>
 		</Container>

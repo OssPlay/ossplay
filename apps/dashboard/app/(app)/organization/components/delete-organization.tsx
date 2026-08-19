@@ -28,7 +28,7 @@ export function DeleteOrganization({ org, onDeleted }: { org: OrgLike; onDeleted
 			/>
 			<ConfirmDialog
 				trigger={
-					<Button variant="secondary" className="w-fit">
+					<Button variant="destructive" className="w-fit">
 						Delete organization
 					</Button>
 				}

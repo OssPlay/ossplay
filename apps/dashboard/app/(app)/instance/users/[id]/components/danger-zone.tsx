@@ -20,7 +20,7 @@ export function DangerZone({ user, onDeleted }: { user: InstanceUser; onDeleted:
 			/>
 			<ConfirmDialog
 				trigger={
-					<Button variant="secondary" className="w-fit">
+					<Button variant="destructive" className="w-fit">
 						Delete user
 					</Button>
 				}

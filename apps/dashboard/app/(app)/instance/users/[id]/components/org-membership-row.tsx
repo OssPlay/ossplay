@@ -71,7 +71,7 @@ export function OrgMembershipRow({
 			<TableCell className="text-right">
 				<ConfirmDialog
 					trigger={
-						<Button variant="secondary" size="sm">
+						<Button variant="destructive" size="sm">
 							Remove
 						</Button>
 					}

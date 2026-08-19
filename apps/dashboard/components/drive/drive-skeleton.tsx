@@ -1,11 +1,21 @@
 import Container from "@/components/ui/container";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
 
 // Mirrors DriveView's real (header-less) layout — a breadcrumb+actions row,
-// a search/toolbar row, then a grid of cards — so loading doesn't cause the
-// jump a generic `ContainerSkeleton` (shaped for Container's icon/title
-// header, which Drive no longer uses) would produce.
-export function DriveSkeleton() {
+// a search/toolbar row, then either a grid of cards or a table of rows
+// depending on which view is currently active — so loading doesn't cause
+// the jump a generic `ContainerSkeleton` (shaped for Container's icon/title
+// header, which Drive no longer uses) would produce, and switching views
+// doesn't flash the wrong shape while the next page loads.
+export function DriveSkeleton({ view = "grid" }: { view?: "grid" | "list" }) {
 	return (
 		<Container size="lg">
 			<div className="flex flex-col gap-4">
@@ -25,13 +35,54 @@ export function DriveSkeleton() {
 					<Skeleton className="h-8 w-20 rounded-4xl" />
 					<Skeleton className="h-8 w-16 rounded-4xl" />
 				</div>
-				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-					{Array.from({ length: 10 }, (_, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder count, order never changes
-						<Skeleton key={`card-${i}`} className="aspect-square rounded-2xl" />
-					))}
-				</div>
+				{view === "list" ? <ListSkeleton /> : <GridSkeleton />}
 			</div>
 		</Container>
+	);
+}
+
+function GridSkeleton() {
+	return (
+		<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+			{Array.from({ length: 10 }, (_, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder count, order never changes
+				<Skeleton key={`card-${i}`} className="aspect-square rounded-2xl" />
+			))}
+		</div>
+	);
+}
+
+// Same column set as drive-list.tsx's real header (Name/Size/Modified), so
+// the skeleton-to-real-content swap doesn't shift the layout.
+function ListSkeleton() {
+	return (
+		<div className="overflow-hidden rounded-md border">
+			<Table>
+				<TableHeader>
+					<TableRow>
+						<TableHead>Name</TableHead>
+						<TableHead className="text-right">Size</TableHead>
+						<TableHead className="text-right">Modified</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{Array.from({ length: 8 }, (_, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder count, order never changes
+						<TableRow key={`row-${i}`}>
+							<TableCell className="flex items-center gap-3">
+								<Skeleton className="size-4 shrink-0 rounded" />
+								<Skeleton className="h-4 w-48" />
+							</TableCell>
+							<TableCell className="text-right">
+								<Skeleton className="ml-auto h-4 w-12" />
+							</TableCell>
+							<TableCell className="text-right">
+								<Skeleton className="ml-auto h-4 w-24" />
+							</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</div>
 	);
 }

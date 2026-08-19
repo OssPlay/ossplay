@@ -317,7 +317,7 @@ function DestinationRowActions({
 			</LoadingButton>
 			<ConfirmDialog
 				trigger={
-					<Button variant="secondary" size="sm">
+					<Button variant="destructive" size="sm">
 						Remove
 					</Button>
 				}

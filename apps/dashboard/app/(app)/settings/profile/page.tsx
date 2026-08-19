@@ -125,7 +125,11 @@ function OrganizationsTable({
 			<TableBody>
 				{organizations.map((org) => (
 					<TableRow key={org.id}>
-						<TableCell>{org.name}</TableCell>
+						<TableCell className="max-w-80">
+							<span className="block truncate" title={org.name}>
+								{org.name}
+							</span>
+						</TableCell>
 						<TableCell className="capitalize">{org.role}</TableCell>
 					</TableRow>
 				))}

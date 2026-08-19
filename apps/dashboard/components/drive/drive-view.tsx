@@ -226,7 +226,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	if (!effectiveOrgId) return null;
 
 	if (!snapshotRef.current && isLoading) {
-		return <DriveSkeleton />;
+		return <DriveSkeleton view={view} />;
 	}
 
 	return (

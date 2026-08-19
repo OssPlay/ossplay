@@ -27,7 +27,7 @@ export function TrashRowActions({
 			</Button>
 			<ConfirmDialog
 				trigger={
-					<Button variant="ghost" size="sm">
+					<Button variant="destructive" size="sm">
 						Delete forever
 					</Button>
 				}

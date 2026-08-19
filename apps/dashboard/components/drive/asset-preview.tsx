@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	ArrowLeftIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
 	DownloadIcon,
@@ -34,14 +35,20 @@ export function AssetPreview({
 	assetId,
 	showDetails,
 	onClose,
-	hideCloseButton,
+	fullPage,
 }: {
 	projectId: string;
 	assetId: string;
 	showDetails?: boolean;
 	onClose: () => void;
-	/** The full-page route has no overlay to dismiss — Escape/back navigation still works via onClose, this just hides the redundant X. */
-	hideCloseButton?: boolean;
+	/**
+	 * The full-page route has no overlay to dismiss (so the header's X is
+	 * redundant — Escape/back still works via onClose) and no adjacent
+	 * "previous overlay state" to cycle through, so its header trades the
+	 * modal's prev/next sibling chevrons for one plain back arrow that
+	 * returns to Drive via onClose instead.
+	 */
+	fullPage?: boolean;
 }) {
 	const router = useRouter();
 	const { effectiveOrgId, project } = useProjectContext(projectId);
@@ -112,15 +119,23 @@ export function AssetPreview({
 		<div className="flex h-full flex-col">
 			<div className="flex items-center justify-between gap-3 border-b p-3">
 				<div className="flex min-w-0 items-center gap-2">
-					{prevId && (
-						<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(prevId)}>
-							<ChevronLeftIcon />
+					{fullPage ? (
+						<Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Back to Drive">
+							<ArrowLeftIcon />
 						</Button>
-					)}
-					{nextId && (
-						<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(nextId)}>
-							<ChevronRightIcon />
-						</Button>
+					) : (
+						<>
+							{prevId && (
+								<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(prevId)}>
+									<ChevronLeftIcon />
+								</Button>
+							)}
+							{nextId && (
+								<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(nextId)}>
+									<ChevronRightIcon />
+								</Button>
+							)}
+						</>
 					)}
 					<span className="truncate text-sm font-medium">{asset.filename}</span>
 				</div>
@@ -134,7 +149,7 @@ export function AssetPreview({
 					<Button variant="ghost" size="icon-sm" onClick={() => setDetailsOpen(true)}>
 						<InfoIcon />
 					</Button>
-					{!hideCloseButton && (
+					{!fullPage && (
 						<Button variant="ghost" size="icon-sm" onClick={onClose}>
 							<XIcon />
 						</Button>

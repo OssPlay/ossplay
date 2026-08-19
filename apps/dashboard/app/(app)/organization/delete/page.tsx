@@ -30,6 +30,7 @@ export default function OrganizationDeletePage() {
 				description: "Permanently remove this organization and everything in it.",
 			}}
 			size="sm"
+			variant="destructive"
 		>
 			<div className="flex flex-col gap-4">
 				<Link
