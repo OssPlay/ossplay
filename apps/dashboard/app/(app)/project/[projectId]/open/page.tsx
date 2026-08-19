@@ -25,7 +25,6 @@ export default function OpenAssetPage() {
 				<AssetPreview
 					projectId={projectId}
 					assetId={assetId}
-					showDetails={searchParams.get("panel") === "details"}
 					onClose={() => router.push(`/project/${projectId}`)}
 					fullPage
 				/>

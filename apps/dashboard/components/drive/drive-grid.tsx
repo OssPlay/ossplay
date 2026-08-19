@@ -10,6 +10,7 @@ import { openContextMenu } from "@/lib/open-context-menu";
 import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
+import { AssetDetailsPanel } from "./asset-details-panel";
 import { CopyLinkDialog } from "./copy-link-dialog";
 import { DownloadAsDialog } from "./download-as-dialog";
 import { FolderContextMenuContent } from "./folder-context-menu";
@@ -52,6 +53,7 @@ export function DriveGrid({
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 	const [downloadAsTarget, setDownloadAsTarget] = useState<DriveAsset | null>(null);
 	const [copyLinkTarget, setCopyLinkTarget] = useState<DriveAsset | null>(null);
+	const [detailsTarget, setDetailsTarget] = useState<DriveAsset | null>(null);
 
 	const {
 		base,
@@ -235,9 +237,7 @@ export function DriveGrid({
 								}
 								onDownloadAs={() => setDownloadAsTarget(asset)}
 								onCopyLink={() => handleCopyLink(asset)}
-								onDetails={() =>
-									router.push(`/project/${projectId}/open?id=${asset.id}&panel=details`)
-								}
+								onDetails={() => setDetailsTarget(asset)}
 								onDuplicate={() => duplicateAssetAndRefresh(asset.id)}
 								onMoveTo={onMoveTo}
 								onTrash={() => trashAssetAndRefresh(asset.id)}
@@ -292,6 +292,18 @@ export function DriveGrid({
 					open={Boolean(copyLinkTarget)}
 					onOpenChange={(open) => {
 						if (!open) setCopyLinkTarget(null);
+					}}
+				/>
+			)}
+
+			{detailsTarget && (
+				<AssetDetailsPanel
+					orgId={orgId}
+					projectId={projectId}
+					asset={detailsTarget}
+					open={Boolean(detailsTarget)}
+					onOpenChange={(open) => {
+						if (!open) setDetailsTarget(null);
 					}}
 				/>
 			)}

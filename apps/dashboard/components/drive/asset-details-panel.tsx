@@ -66,11 +66,12 @@ function describeActivity(entry: DriveActivityEntry): string {
 
 // One consolidated right-side panel instead of separate Variants/Activity
 // sheets — scales as more sections get added later without the context
-// menu growing a new item each time. Opened from the preview page (see
-// asset-preview.tsx), not directly from the grid/list context menu — the
-// "Details" menu item routes to the preview with `panel=details` set
-// instead, since a variant/activity list only makes sense next to the
-// asset it's about.
+// menu growing a new item each time. Opened directly as a Sheet from
+// wherever an asset's actions live — the grid/list context menu's
+// "Details" item, and the preview page's own Info button — rather than
+// forcing a detour through the full preview popover just to see details.
+// Takes the already-fetched `asset` object (not just an id), so the
+// grid/list call sites don't need an extra fetch to open it.
 export function AssetDetailsPanel({
 	orgId,
 	projectId,

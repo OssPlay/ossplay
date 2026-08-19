@@ -34,12 +34,7 @@ export default function InterceptedOpenAssetModal() {
 			}}
 		>
 			<div className="absolute inset-0 flex flex-col overflow-hidden bg-popover shadow-2xl sm:inset-6 sm:rounded-2xl sm:border lg:inset-10">
-				<AssetPreview
-					projectId={projectId}
-					assetId={assetId}
-					showDetails={searchParams.get("panel") === "details"}
-					onClose={handleClose}
-				/>
+				<AssetPreview projectId={projectId} assetId={assetId} onClose={handleClose} />
 			</div>
 		</div>
 	);

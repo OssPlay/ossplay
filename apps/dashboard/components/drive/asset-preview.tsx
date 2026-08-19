@@ -33,13 +33,11 @@ import { CopyLinkDialog } from "./copy-link-dialog";
 export function AssetPreview({
 	projectId,
 	assetId,
-	showDetails,
 	onClose,
 	fullPage,
 }: {
 	projectId: string;
 	assetId: string;
-	showDetails?: boolean;
 	onClose: () => void;
 	/**
 	 * The full-page route has no overlay to dismiss (so the header's X is
@@ -58,7 +56,7 @@ export function AssetPreview({
 	const { data } = usePolledAsset(orgId || null, projectId, assetId);
 	const asset = data?.asset;
 
-	const [detailsOpen, setDetailsOpen] = useState(Boolean(showDetails));
+	const [detailsOpen, setDetailsOpen] = useState(false);
 	const [copyLinkOpen, setCopyLinkOpen] = useState(false);
 	const [playing, setPlaying] = useState(false);
 
