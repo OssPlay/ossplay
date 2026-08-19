@@ -40,4 +40,4 @@ If a task seems to conflict with something recorded in `MEMORY.md`, surface the 
 
 - Don't add a new top-level repo or restructure the monorepo layout without it being a recorded decision in `MEMORY.md` first — the repo split in `ARCHITECTURE.md` was deliberate, not incidental.
 - Don't invent brand/visual specifics (colors, logo) — `DESIGN.md` marks these `TBD` on purpose; don't fill them in unprompted.
-- Don't publish `sdk-js` to npmjs.com directly — it targets GitHub Packages for now (see [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-sdk-publishing)).
+- Don't change `sdk-js`'s publish target away from npmjs.com's public `ossplay` org without it being a recorded decision in `MEMORY.md` first (see [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-sdk-publishing)) — this superseded an earlier GitHub Packages decision on 2026-08-19.
