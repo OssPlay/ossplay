@@ -25,6 +25,15 @@ export interface DriveAsset {
 	// attachThumbnails), null on responses that don't attach it (trash,
 	// single-asset fetch).
 	thumbnailAssetId?: string | null;
+	// Only present on a GET .../assets/:assetId/variants row (a variant is
+	// itself just an `assets` row with parentAssetId set) — never on a
+	// regular original. `metadata.variant` is "thumbnail" for eager
+	// thumbnails, "on-demand" for both the fixed-enum "Download as…" system
+	// and this session's /v1 promoted transforms, both keyed by
+	// `metadata.specKey` (see packages/core/src/jobs.ts's computeSpecKey and
+	// apps/api/src/routes/v1.ts's computeTransformSpecKey).
+	parentAssetId?: string | null;
+	metadata?: { variant?: string; specKey?: string; [key: string]: unknown } | null;
 }
 
 export interface DriveBrowseResponse {

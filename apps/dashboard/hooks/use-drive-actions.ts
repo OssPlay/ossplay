@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTransfer } from "@/components/providers/transfer-provider";
 import { useAction } from "@/hooks/use-action";
 import { apiFetch } from "@/lib/api";
+import { copyPublicAssetLink } from "@/lib/copy-link";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 
 export interface RenameTarget {
@@ -227,18 +228,8 @@ export function useDriveActions({
 		await run();
 	}
 
-	// Public-project case only — a permanent /v1 URL, no key needed, works
-	// for anyone (not just someone logged into this dashboard). The private
-	// case needs a signing-duration choice first, so it's handled by
-	// CopyLinkDialog instead of this fire-and-forget helper.
-	async function copyPublicLink(assetId: string) {
-		const url = `${window.location.origin}/api/v1/${projectId}/${assetId}`;
-		try {
-			await navigator.clipboard.writeText(url);
-			toast.success("Link copied");
-		} catch {
-			toast.error("Could not copy link");
-		}
+	function copyPublicLink(assetId: string) {
+		return copyPublicAssetLink(projectId, assetId);
 	}
 
 	return {

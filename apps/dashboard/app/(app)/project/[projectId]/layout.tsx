@@ -20,7 +20,13 @@ import type { Sidepanel } from "@/lib/nav-types";
 // (lib/current-project.ts) instead of each page re-deriving it, and share
 // one sidepanel instead of settings/layout.tsx maintaining its own
 // slightly-different copy.
-export default function ProjectLayout({ children }: { children: React.ReactNode }) {
+export default function ProjectLayout({
+	children,
+	modal,
+}: {
+	children: React.ReactNode;
+	modal: React.ReactNode;
+}) {
 	const { projectId } = useParams<{ projectId: string }>();
 	const { access } = useProjectContext(projectId);
 
@@ -51,6 +57,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 	return (
 		<Section sidepanel={sidepanel} breadcrumb={{ title: "Project" }} access={access}>
 			{children}
+			{modal}
 		</Section>
 	);
 }

@@ -1,0 +1,286 @@
+"use client";
+
+import {
+	ChevronLeftIcon,
+	ChevronRightIcon,
+	DownloadIcon,
+	ExternalLinkIcon,
+	FileTextIcon,
+	InfoIcon,
+	LinkIcon,
+	PlayIcon,
+	XIcon,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import useSWR from "swr";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { usePolledAsset } from "@/hooks/use-polled-asset";
+import { copyPublicAssetLink } from "@/lib/copy-link";
+import { useProjectContext } from "@/lib/current-project";
+import { cn } from "@/lib/utils";
+import type { DriveBrowseResponse } from "@/types/drive";
+import { iconForMimeType } from "./asset-context-menu";
+import { AssetDetailsPanel } from "./asset-details-panel";
+import { CopyLinkDialog } from "./copy-link-dialog";
+
+// The one preview surface for an asset, shared by the intercepted modal
+// route and the full-page route (see app/(app)/project/[projectId]/open/) —
+// so client-side navigation and a hard refresh of the same URL render
+// identically, just wrapped differently by their respective page.tsx.
+export function AssetPreview({
+	projectId,
+	assetId,
+	showDetails,
+	onClose,
+}: {
+	projectId: string;
+	assetId: string;
+	showDetails?: boolean;
+	onClose: () => void;
+}) {
+	const router = useRouter();
+	const { effectiveOrgId, project } = useProjectContext(projectId);
+	const orgId = effectiveOrgId ?? "";
+	const base = `/organizations/${orgId}/projects/${projectId}`;
+
+	const { data } = usePolledAsset(orgId || null, projectId, assetId);
+	const asset = data?.asset;
+
+	const [detailsOpen, setDetailsOpen] = useState(Boolean(showDetails));
+	const [copyLinkOpen, setCopyLinkOpen] = useState(false);
+	const [playing, setPlaying] = useState(false);
+	const [viewOriginal, setViewOriginal] = useState(false);
+
+	// A lightweight sibling list for arrow-key prev/next — re-fetches the
+	// containing folder's listing rather than threading DriveView's
+	// in-memory state across the modal-slot boundary (the intercepted route
+	// and the Drive page are separate route trees under the same layout;
+	// see the plan's note on this being deliberately self-contained).
+	const { data: siblingData } = useSWR<DriveBrowseResponse>(
+		orgId && asset ? `${base}/drive${asset.folderId ? `?folderId=${asset.folderId}` : ""}` : null,
+	);
+	const siblingIds = siblingData?.childAssets.items.map((a) => a.id) ?? [];
+	const currentIndex = siblingIds.indexOf(assetId);
+	const prevId = currentIndex > 0 ? siblingIds[currentIndex - 1] : null;
+	const nextId =
+		currentIndex >= 0 && currentIndex < siblingIds.length - 1 ? siblingIds[currentIndex + 1] : null;
+
+	function navigateTo(id: string) {
+		router.replace(`/project/${projectId}/open?id=${id}`);
+	}
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: navigateTo (and the router it closes over) are stable enough that including them would just cause redundant listener churn on every render.
+	useEffect(() => {
+		function onKeyDown(e: KeyboardEvent) {
+			if (e.key === "Escape") onClose();
+			else if (e.key === "ArrowLeft" && prevId) navigateTo(prevId);
+			else if (e.key === "ArrowRight" && nextId) navigateTo(nextId);
+		}
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [prevId, nextId, onClose]);
+
+	if (!asset) {
+		return (
+			<div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
+				Loading…
+			</div>
+		);
+	}
+
+	const contentUrl = `/api${base}/assets/${asset.id}/content`;
+	const downloadUrl = `${contentUrl}?disposition=attachment`;
+	const thumbnailUrl = asset.thumbnailAssetId
+		? `/api${base}/assets/${asset.thumbnailAssetId}/content`
+		: null;
+
+	// `asset?.id ?? assetId` rather than `asset.id` — TS can't carry the
+	// `if (!asset) return` guard above into this nested function
+	// declaration, but `assetId` (the prop) is always the same value once
+	// `asset` has loaded, so this is equivalent without an assertion.
+	function handleCopyLink() {
+		if (project?.visibility === "public") copyPublicAssetLink(projectId, asset?.id ?? assetId);
+		else setCopyLinkOpen(true);
+	}
+
+	return (
+		<div className="flex h-full flex-col">
+			<div className="flex items-center justify-between gap-3 border-b p-3">
+				<div className="flex min-w-0 items-center gap-2">
+					{prevId && (
+						<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(prevId)}>
+							<ChevronLeftIcon />
+						</Button>
+					)}
+					{nextId && (
+						<Button variant="ghost" size="icon-sm" onClick={() => navigateTo(nextId)}>
+							<ChevronRightIcon />
+						</Button>
+					)}
+					<span className="truncate text-sm font-medium">{asset.filename}</span>
+				</div>
+				<div className="flex shrink-0 items-center gap-1">
+					<Button variant="ghost" size="icon-sm" onClick={handleCopyLink}>
+						<LinkIcon />
+					</Button>
+					<a href={downloadUrl} className={buttonVariants({ variant: "ghost", size: "icon-sm" })}>
+						<DownloadIcon />
+					</a>
+					<Button variant="ghost" size="icon-sm" onClick={() => setDetailsOpen(true)}>
+						<InfoIcon />
+					</Button>
+					<Button variant="ghost" size="icon-sm" onClick={onClose}>
+						<XIcon />
+					</Button>
+				</div>
+			</div>
+
+			<div className="flex flex-1 items-center justify-center overflow-auto bg-muted/30 p-6">
+				<AssetBody
+					mimeType={asset.mimeType}
+					filename={asset.filename}
+					contentUrl={contentUrl}
+					thumbnailUrl={thumbnailUrl}
+					playing={playing}
+					onPlay={() => setPlaying(true)}
+					viewOriginal={viewOriginal}
+					onViewOriginal={() => setViewOriginal(true)}
+				/>
+			</div>
+
+			<AssetDetailsPanel
+				orgId={orgId}
+				projectId={projectId}
+				asset={asset}
+				open={detailsOpen}
+				onOpenChange={setDetailsOpen}
+			/>
+
+			{copyLinkOpen && (
+				<CopyLinkDialog
+					orgId={orgId}
+					projectId={projectId}
+					asset={asset}
+					open={copyLinkOpen}
+					onOpenChange={setCopyLinkOpen}
+				/>
+			)}
+		</div>
+	);
+}
+
+// Thumbnail-first for every type that has one — the original bytes (a
+// multi-MB video/PDF/audio file, or even just a large photo) are never
+// loaded just to preview it. Each type has its own "give me the real
+// thing" affordance instead: video/audio swap in a real player on click,
+// images offer a full-resolution view, PDFs open the real file in a new
+// tab (no in-app PDF viewer — that's real extra scope, not this pass's).
+function AssetBody({
+	mimeType,
+	filename,
+	contentUrl,
+	thumbnailUrl,
+	playing,
+	onPlay,
+	viewOriginal,
+	onViewOriginal,
+}: {
+	mimeType: string;
+	filename: string;
+	contentUrl: string;
+	thumbnailUrl: string | null;
+	playing: boolean;
+	onPlay: () => void;
+	viewOriginal: boolean;
+	onViewOriginal: () => void;
+}) {
+	if (mimeType.startsWith("image/")) {
+		const src = viewOriginal || !thumbnailUrl ? contentUrl : thumbnailUrl;
+		return (
+			<div className="flex flex-col items-center gap-3">
+				{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
+				<img src={src} alt={filename} className="max-h-[60vh] max-w-full object-contain" />
+				{!viewOriginal && thumbnailUrl && (
+					<Button variant="outline" size="sm" onClick={onViewOriginal}>
+						View original
+					</Button>
+				)}
+			</div>
+		);
+	}
+
+	if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
+		if (playing) {
+			return mimeType.startsWith("video/") ? (
+				// biome-ignore lint/a11y/useMediaCaption: no captions track exists for user-uploaded originals
+				<video src={contentUrl} controls autoPlay className="max-h-[60vh] max-w-full" />
+			) : (
+				// biome-ignore lint/a11y/useMediaCaption: no captions track exists for user-uploaded originals
+				<audio src={contentUrl} controls autoPlay className="w-full max-w-md" />
+			);
+		}
+		if (thumbnailUrl) {
+			return (
+				<button
+					type="button"
+					onClick={onPlay}
+					className="group relative flex max-h-[60vh] max-w-full items-center justify-center"
+				>
+					{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
+					<img
+						src={thumbnailUrl}
+						alt={filename}
+						className="max-h-[60vh] max-w-full object-contain"
+					/>
+					<span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
+						<span className="flex size-14 items-center justify-center rounded-full bg-background/90">
+							<PlayIcon className="size-6 translate-x-0.5" />
+						</span>
+					</span>
+				</button>
+			);
+		}
+		return (
+			<Button onClick={onPlay}>
+				<PlayIcon /> Play
+			</Button>
+		);
+	}
+
+	if (mimeType === "application/pdf") {
+		return (
+			<div className="flex flex-col items-center gap-3">
+				{thumbnailUrl ? (
+					// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content
+					<img
+						src={thumbnailUrl}
+						alt={filename}
+						className="max-h-[60vh] max-w-full rounded-md border object-contain shadow-sm"
+					/>
+				) : (
+					<FileTextIcon className="size-16 text-muted-foreground" />
+				)}
+				<a
+					href={contentUrl}
+					target="_blank"
+					rel="noreferrer"
+					className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+				>
+					<ExternalLinkIcon /> View full PDF
+				</a>
+			</div>
+		);
+	}
+
+	const Icon = iconForMimeType(mimeType);
+	return (
+		<div className="flex flex-col items-center gap-3 text-center text-sm text-muted-foreground">
+			<Icon className="size-16" />
+			<p>No inline preview for this file type.</p>
+			<a href={contentUrl} className={buttonVariants({ variant: "outline", size: "sm" })}>
+				<DownloadIcon /> Download to view
+			</a>
+		</div>
+	);
+}
