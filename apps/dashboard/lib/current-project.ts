@@ -20,10 +20,11 @@ export function useProjectContext(projectId: string | undefined) {
 	const org = owningOrg ?? organizations.find((o) => o.id === orgId);
 	const effectiveOrgId = owningOrg?.id ?? orgId;
 	const access = owningOrg !== undefined;
+	const project = owningOrg?.projects.find((p) => p.id === projectId);
 
 	useEffect(() => {
 		if (owningOrg && owningOrg.id !== orgId) setCurrentOrgId(owningOrg.id);
 	}, [owningOrg, orgId]);
 
-	return { owningOrg, org, effectiveOrgId, access };
+	return { owningOrg, org, effectiveOrgId, access, project };
 }

@@ -5,13 +5,6 @@ import { toast } from "sonner";
 import { FormError } from "@/components/form-error";
 import { useTransfer } from "@/components/providers/transfer-provider";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import {
@@ -21,9 +14,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAction } from "@/hooks/use-action";
 import { usePolledAsset } from "@/hooks/use-polled-asset";
 import { apiFetch, errorMessage } from "@/lib/api";
+import { BITRATE_LABELS, FORMAT_LABELS, HEIGHT_LABELS, SIZE_LABELS } from "@/lib/variant-labels";
 import type { DriveAsset, VariantSpec } from "@/types/drive";
 
 type Family = "image" | "video" | "audio";
@@ -34,27 +29,6 @@ function familyOf(mimeType: string): Family | null {
 	if (mimeType.startsWith("audio/")) return "audio";
 	return null;
 }
-
-const FORMAT_LABELS: Record<string, string> = {
-	original: "Original format",
-	webp: "WebP",
-	avif: "AVIF",
-	jpeg: "JPEG",
-	png: "PNG",
-};
-const SIZE_LABELS: Record<string, string> = {
-	original: "Original size",
-	"1024": "1024px",
-	"2048": "2048px",
-	"4096": "4096px",
-};
-const HEIGHT_LABELS: Record<string, string> = { "480": "480p", "720": "720p", "1080": "1080p" };
-const BITRATE_LABELS: Record<string, string> = {
-	"96k": "96 kbps",
-	"128k": "128 kbps",
-	"192k": "192 kbps",
-	"320k": "320 kbps",
-};
 
 function specFromSelection(
 	family: Family,
@@ -198,12 +172,12 @@ export function DownloadAsDialog({
 	}
 
 	return (
-		<Dialog open={open} onOpenChange={handleOpenChange}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Download as…</DialogTitle>
-				</DialogHeader>
-				<div className="flex flex-col gap-4">
+		<Sheet open={open} onOpenChange={handleOpenChange}>
+			<SheetContent className="gap-4">
+				<SheetHeader>
+					<SheetTitle>Download as…</SheetTitle>
+				</SheetHeader>
+				<div className="flex flex-col gap-4 px-6">
 					{family === "image" && (
 						<>
 							<div className="flex flex-col gap-1.5">
@@ -288,7 +262,7 @@ export function DownloadAsDialog({
 						</p>
 					)}
 				</div>
-				<DialogFooter>
+				<SheetFooter className="flex-row justify-end">
 					{variant?.status === "ready" ? (
 						<>
 							<Button variant="outline" onClick={handleCopyLink}>
@@ -304,8 +278,8 @@ export function DownloadAsDialog({
 							Prepare download
 						</LoadingButton>
 					)}
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
+				</SheetFooter>
+			</SheetContent>
+		</Sheet>
 	);
 }

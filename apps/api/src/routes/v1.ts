@@ -13,9 +13,10 @@ import {
 	transformImage,
 	tryDispatchToComputeDestination,
 } from "@ossplay/core";
-import { type Asset, assets, folders, getDb } from "@ossplay/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { type Asset, assetShareLinks, assets, folders, getDb } from "@ossplay/db";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { Hono, type Context } from "hono";
+import { hashToken } from "../lib/auth/tokens";
 import { getQueue, getRedisConnection } from "../lib/queue";
 import { requireApiKey, verifyProjectApiKey } from "../middleware/require-api-key";
 import type { AppEnv } from "../types";
@@ -30,15 +31,40 @@ import type { AppEnv } from "../types";
 // visibility policy (a public project needs no key to read).
 export const v1Route = new Hono<AppEnv>();
 
+// A dashboard-issued "Copy link" grant for one private asset (see
+// packages/db/src/share-link.schema.ts) — checked as a second fallback
+// alongside a full project API key, so a share link reuses this route's
+// entire existing serving logic (local-disk streaming, S3 redirect,
+// disposition, transforms) instead of a parallel code path.
+async function verifyAssetShareToken(c: Context<AppEnv>, assetId: string): Promise<boolean> {
+	const presented = c.req.query("share");
+	if (!presented) return false;
+	const hash = await hashToken(presented);
+	const [link] = await getDb()
+		.select({ id: assetShareLinks.id })
+		.from(assetShareLinks)
+		.where(
+			and(
+				eq(assetShareLinks.id, hash),
+				eq(assetShareLinks.assetId, assetId),
+				gt(assetShareLinks.expiresAt, new Date()),
+			),
+		);
+	return Boolean(link);
+}
+
 // A public project's reads are open, like a CDN — no secret key required in
-// an <img src>. Private projects and every mutation always require a key.
+// an <img src>. Private projects and every mutation always require a key,
+// except a single-asset read carrying a valid share token (see above).
 // Returns true if the request may proceed.
 async function authorizeRead(
 	c: Context<AppEnv>,
 	projectId: string,
 	visibility: "public" | "private",
+	assetId?: string,
 ): Promise<boolean> {
 	if (visibility === "public") return true;
+	if (assetId && (await verifyAssetShareToken(c, assetId))) return true;
 	return verifyProjectApiKey(c, projectId);
 }
 
@@ -333,7 +359,7 @@ v1Route.get("/:project/:item", async (c) => {
 		.from(assets)
 		.where(and(eq(assets.id, assetId), eq(assets.projectId, projectId)));
 	if (!asset || asset.deletedAt) return c.json({ error: "Asset not found" }, 404);
-	if (!(await authorizeRead(c, projectId, project.visibility))) {
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 

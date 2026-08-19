@@ -27,7 +27,7 @@ import { UploadZone, type UploadZoneHandle } from "./upload-zone";
 // Shared by both the drive root page and the [folderId] page — same fetch/
 // render/action logic either way, `folderId` null = project root.
 export function DriveView({ projectId, folderId }: { projectId: string; folderId: string | null }) {
-	const { effectiveOrgId } = useProjectContext(projectId);
+	const { effectiveOrgId, project } = useProjectContext(projectId);
 	const [createFolderOpen, setCreateFolderOpen] = useState(false);
 	const [moveToOpen, setMoveToOpen] = useState(false);
 	const uploadRef = useRef<UploadZoneHandle>(null);
@@ -220,13 +220,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 	});
 
 	async function handleBulkTrash() {
-		await driveActions.bulkTrash
-			.trigger()
-			.then(() => {
-				selection.clear();
-				mutate();
-			})
-			.catch(() => {});
+		await driveActions.bulkTrashAndRefresh().then(() => selection.clear());
 	}
 
 	if (!effectiveOrgId) return null;
@@ -246,7 +240,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 				{/* Sticky as one unit just below AppHeader (sticky top-0 h-16) — so the
 				    breadcrumb/actions and search/toolbar stay put while only the
 				    grid/list body scrolls underneath, matching the header's own layer. */}
-				<div className="sticky top-16 z-10 flex flex-col gap-4 bg-background pb-2">
+				<div className="sticky top-16 z-10 flex flex-col gap-4 bg-background py-2 -mt-2">
 					<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
 						<BreadcrumbNav projectId={projectId} breadcrumb={breadcrumb} />
 						<div className="flex flex-wrap items-center gap-2">
@@ -325,6 +319,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 							<DriveList
 								orgId={effectiveOrgId}
 								projectId={projectId}
+								projectVisibility={project?.visibility ?? "private"}
 								folders={folders}
 								assets={assetItems}
 								selection={selection}
@@ -336,6 +331,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 							<DriveGrid
 								orgId={effectiveOrgId}
 								projectId={projectId}
+								projectVisibility={project?.visibility ?? "private"}
 								folders={folders}
 								assets={assetItems}
 								selection={selection}

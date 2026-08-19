@@ -12,6 +12,7 @@ export interface MeUser {
 export interface MeProject {
 	id: string;
 	name: string;
+	visibility: "public" | "private";
 }
 
 export interface MeOrganization {

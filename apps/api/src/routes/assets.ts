@@ -19,6 +19,7 @@ import {
 import {
 	type Asset,
 	assetActivity,
+	assetShareLinks,
 	assets,
 	folderClosure,
 	folders,
@@ -29,6 +30,7 @@ import { downloadZip } from "client-zip";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
+import { generateToken, hashToken } from "../lib/auth/tokens";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
 import { getQueue, getRedisConnection } from "../lib/queue";
 import { requireAuth } from "../middleware/require-auth";
@@ -339,6 +341,68 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId/activity", ...gate,
 
 	return c.json({ activity: rows });
 });
+
+// Every derived output of an asset (eager thumbnails, the async
+// fixed-enum "Download as…" variants, and this session's on-demand
+// image-transform variants) is just an `assets` row with `parentAssetId`
+// set — one query surfaces all of them for the dashboard's Variants tab,
+// regardless of which of those three systems produced it.
+assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate, async (c) => {
+	const { orgId, projectId, assetId } = c.req.param();
+	const project = await requireProject(orgId, projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const asset = await requireAsset(projectId, assetId);
+	if (!asset) return c.json({ error: "Asset not found" }, 404);
+
+	const variants = await getDb()
+		.select()
+		.from(assets)
+		.where(eq(assets.parentAssetId, assetId))
+		.orderBy(desc(assets.createdAt));
+
+	return c.json({ variants });
+});
+
+const SHARE_LINK_DURATIONS = {
+	"1h": 60 * 60,
+	"1d": 24 * 60 * 60,
+	"7d": 7 * 24 * 60 * 60,
+	"30d": 30 * 24 * 60 * 60,
+} as const;
+const createShareLinkSchema = z.object({
+	duration: z.enum(["1h", "1d", "7d", "30d"]),
+});
+
+// A short-lived, single-asset read grant for "Copy link" on a private
+// project's asset — see packages/db/src/share-link.schema.ts's comment.
+// The returned URL points at /v1 (the public consumer API, not this
+// session-authed route), so it works for whoever it's shared with, not
+// just someone logged into this dashboard.
+assetsRoute.post(
+	"/:orgId/projects/:projectId/assets/:assetId/share-links",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const asset = await requireAsset(projectId, assetId);
+		if (!asset || asset.deletedAt) return c.json({ error: "Asset not found" }, 404);
+
+		const parsed = createShareLinkSchema.safeParse(await c.req.json().catch(() => null));
+		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+		const secret = generateToken();
+		const id = await hashToken(secret);
+		const expiresAt = new Date(Date.now() + SHARE_LINK_DURATIONS[parsed.data.duration] * 1000);
+		const actor = c.get("user");
+
+		await getDb()
+			.insert(assetShareLinks)
+			.values({ id, assetId, expiresAt, createdByUserId: actor.id });
+
+		return c.json({ url: `/api/v1/${projectId}/${assetId}?share=${secret}` }, 201);
+	},
+);
 
 const updateAssetSchema = z.object({
 	filename: z.string().trim().min(1).max(255).optional(),

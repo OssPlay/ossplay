@@ -117,6 +117,7 @@ authRoute.get("/me", requireAuth, async (c) => {
 								columns: {
 									id: true,
 									name: true,
+									visibility: true,
 								},
 							},
 						},

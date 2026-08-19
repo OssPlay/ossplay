@@ -31,7 +31,7 @@ export class S3Storage implements StorageDriver {
 
 	createDownloadUrl(
 		key: string,
-		opts?: { disposition?: "inline" | "attachment"; static?: boolean },
+		opts?: { disposition?: "inline" | "attachment"; static?: boolean; expiresIn?: number },
 	): string {
 		if (opts?.static && this.opts.visibility === "public") {
 			const base = this.opts.cloudfrontUrl ?? `${this.opts.config.endpoint}/${this.opts.config.bucket}`;
@@ -42,7 +42,7 @@ export class S3Storage implements StorageDriver {
 		// for a GET with no override, so "attachment" is the only case that
 		// needs anything extra, and this feature doesn't force a browser
 		// download today; revisit if/when that's actually needed.
-		return getPresignedUrl(this.client, key, { method: "GET", expiresIn: 3600 });
+		return getPresignedUrl(this.client, key, { method: "GET", expiresIn: opts?.expiresIn ?? 3600 });
 	}
 
 	async deleteObject(key: string): Promise<void> {

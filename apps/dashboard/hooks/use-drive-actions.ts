@@ -33,24 +33,39 @@ export function useDriveActions({
 	const base = `/organizations/${orgId}/projects/${projectId}`;
 	const transfer = useTransfer();
 
+	// No built-in success toast on any of the trash actions below —
+	// useAction's `success` option can only show a plain string, and undo
+	// needs an action button, so trashFolderAndRefresh/trashAssetAndRefresh/
+	// the bulk-trash handler in DriveView show it manually instead (see
+	// their own comments). A failure still gets useAction's normal toast.
 	const trashFolder = useAction(
 		(folderId: string) => apiFetch(`${base}/folders/${folderId}/trash`, { method: "POST" }),
-		{ success: "Moved to trash", error: "Could not move to trash" },
+		{ error: "Could not move to trash" },
 	);
 	const trashAsset = useAction(
 		(assetId: string) => apiFetch(`${base}/assets/${assetId}/trash`, { method: "POST" }),
-		{ success: "Moved to trash", error: "Could not move to trash" },
+		{ error: "Could not move to trash" },
 	);
 	const bulkTrash = useAction(
-		() =>
-			apiFetch(`${base}/bulk/trash`, {
-				method: "POST",
-				body: JSON.stringify({
-					folderIds: folders.filter((f) => selected.has(f.id)).map((f) => f.id),
-					assetIds: assets.filter((a) => selected.has(a.id)).map((a) => a.id),
-				}),
-			}),
-		{ success: "Moved to trash", error: "Could not move selection to trash" },
+		(payload: { folderIds: string[]; assetIds: string[] }) =>
+			apiFetch(`${base}/bulk/trash`, { method: "POST", body: JSON.stringify(payload) }),
+		{ error: "Could not move selection to trash" },
+	);
+	// Same reasoning — no success toast of their own, since these back the
+	// "Undo" action on the trash toasts; a failed undo still gets one so
+	// it isn't silent.
+	const restoreFolder = useAction(
+		(folderId: string) => apiFetch(`${base}/folders/${folderId}/restore`, { method: "POST" }),
+		{ error: "Could not restore" },
+	);
+	const restoreAsset = useAction(
+		(assetId: string) => apiFetch(`${base}/assets/${assetId}/restore`, { method: "POST" }),
+		{ error: "Could not restore" },
+	);
+	const bulkRestore = useAction(
+		(payload: { folderIds: string[]; assetIds: string[] }) =>
+			apiFetch(`${base}/bulk/restore`, { method: "POST", body: JSON.stringify(payload) }),
+		{ error: "Could not restore" },
 	);
 
 	const moveAsset = useAction(
@@ -90,14 +105,52 @@ export function useDriveActions({
 	function trashFolderAndRefresh(folderId: string) {
 		return trashFolder
 			.trigger(folderId)
-			.then(onRefresh)
+			.then(() => {
+				onRefresh();
+				toast.success("Moved to trash", {
+					action: {
+						label: "Undo",
+						onClick: () => restoreFolder.trigger(folderId).then(onRefresh),
+					},
+				});
+			})
 			.catch(() => {});
 	}
 
 	function trashAssetAndRefresh(assetId: string) {
 		return trashAsset
 			.trigger(assetId)
-			.then(onRefresh)
+			.then(() => {
+				onRefresh();
+				toast.success("Moved to trash", {
+					action: {
+						label: "Undo",
+						onClick: () => restoreAsset.trigger(assetId).then(onRefresh),
+					},
+				});
+			})
+			.catch(() => {});
+	}
+
+	// Captures the exact set of ids being trashed (rather than re-reading
+	// `selected` later) so the undo action restores precisely what this
+	// call trashed, even if the selection has since changed.
+	function bulkTrashAndRefresh() {
+		const folderIds = folders.filter((f) => selected.has(f.id)).map((f) => f.id);
+		const assetIds = assets.filter((a) => selected.has(a.id)).map((a) => a.id);
+		if (folderIds.length + assetIds.length === 0) return Promise.resolve();
+		return bulkTrash
+			.trigger({ folderIds, assetIds })
+			.then(() => {
+				onRefresh();
+				const count = folderIds.length + assetIds.length;
+				toast.success(count === 1 ? "Moved to trash" : `Moved ${count} items to trash`, {
+					action: {
+						label: "Undo",
+						onClick: () => bulkRestore.trigger({ folderIds, assetIds }).then(onRefresh),
+					},
+				});
+			})
 			.catch(() => {});
 	}
 
@@ -174,8 +227,12 @@ export function useDriveActions({
 		await run();
 	}
 
-	async function copyLink(assetId: string) {
-		const url = `${window.location.origin}/api${base}/assets/${assetId}/content`;
+	// Public-project case only — a permanent /v1 URL, no key needed, works
+	// for anyone (not just someone logged into this dashboard). The private
+	// case needs a signing-duration choice first, so it's handled by
+	// CopyLinkDialog instead of this fire-and-forget helper.
+	async function copyPublicLink(assetId: string) {
+		const url = `${window.location.origin}/api/v1/${projectId}/${assetId}`;
 		try {
 			await navigator.clipboard.writeText(url);
 			toast.success("Link copied");
@@ -189,13 +246,17 @@ export function useDriveActions({
 		trashFolder,
 		trashAsset,
 		bulkTrash,
+		restoreFolder,
+		restoreAsset,
+		bulkRestore,
 		trashFolderAndRefresh,
 		trashAssetAndRefresh,
+		bulkTrashAndRefresh,
 		moveItemsAndRefresh,
 		duplicateAsset,
 		duplicateAssetAndRefresh,
 		bulkDownload,
 		downloadSelectionAndOpen,
-		copyLink,
+		copyPublicLink,
 	};
 }

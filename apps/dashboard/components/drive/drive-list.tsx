@@ -1,32 +1,9 @@
 "use client";
 
-import {
-	ArrowDownIcon,
-	ArrowUpIcon,
-	CopyIcon,
-	DownloadIcon,
-	ExternalLinkIcon,
-	EyeIcon,
-	FileIcon,
-	FileTextIcon,
-	FilmIcon,
-	FolderIcon,
-	FolderInputIcon,
-	FolderOpenIcon,
-	ImageIcon,
-	LinkIcon,
-	MusicIcon,
-	PencilIcon,
-	Trash2Icon,
-} from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, FolderIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type DragEvent, useState } from "react";
-import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
 	Table,
 	TableBody,
@@ -41,8 +18,10 @@ import useURL from "@/hooks/use-url";
 import { formatBytes } from "@/lib/format-bytes";
 import { cn, formatDatetime } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
+import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
+import { CopyLinkDialog } from "./copy-link-dialog";
 import { DownloadAsDialog } from "./download-as-dialog";
-import { PreviewOverlay } from "./preview-overlay";
+import { FolderContextMenuContent } from "./folder-context-menu";
 import { RenameDialog } from "./rename-dialog";
 
 const DRAG_MIME = "application/x-drive-items";
@@ -91,23 +70,6 @@ function SortableHead({
 	);
 }
 
-function iconForMimeType(mimeType: string) {
-	if (mimeType.startsWith("image/")) return ImageIcon;
-	if (mimeType.startsWith("video/")) return FilmIcon;
-	if (mimeType.startsWith("audio/")) return MusicIcon;
-	if (mimeType === "application/pdf") return FileTextIcon;
-	return FileIcon;
-}
-
-// Only image/video/audio have an on-demand conversion path (see the
-// plan's per-mimetype variant matrix) — PDFs and everything else only
-// ever get their original file back, so "Download as…" isn't offered.
-function hasOnDemandVariants(mimeType: string) {
-	return (
-		mimeType.startsWith("image/") || mimeType.startsWith("video/") || mimeType.startsWith("audio/")
-	);
-}
-
 // Row-oriented counterpart to DriveGrid, built on the same `Table`
 // primitives every DataTable page uses (visual consistency only — this
 // stays its own component rather than `DataTable` itself, since folders+
@@ -123,6 +85,7 @@ function hasOnDemandVariants(mimeType: string) {
 export function DriveList({
 	orgId,
 	projectId,
+	projectVisibility,
 	folders,
 	assets,
 	selection,
@@ -132,6 +95,7 @@ export function DriveList({
 }: {
 	orgId: string;
 	projectId: string;
+	projectVisibility: "public" | "private";
 	folders: DriveFolder[];
 	assets: DriveAsset[];
 	selection: DriveSelection;
@@ -140,9 +104,9 @@ export function DriveList({
 	onRefresh: () => void;
 }) {
 	const router = useRouter();
-	const [previewAsset, setPreviewAsset] = useState<DriveAsset | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 	const [downloadAsTarget, setDownloadAsTarget] = useState<DriveAsset | null>(null);
+	const [copyLinkTarget, setCopyLinkTarget] = useState<DriveAsset | null>(null);
 
 	const {
 		base,
@@ -151,8 +115,17 @@ export function DriveList({
 		moveItemsAndRefresh,
 		duplicateAssetAndRefresh,
 		downloadSelectionAndOpen,
-		copyLink,
+		copyPublicLink,
 	} = driveActions;
+
+	function handleCopyLink(asset: DriveAsset) {
+		if (projectVisibility === "public") copyPublicLink(asset.id);
+		else setCopyLinkTarget(asset);
+	}
+
+	function openAsset(assetId: string) {
+		router.push(`/project/${projectId}/open?id=${assetId}`);
+	}
 
 	function handleDragStart(id: string, e: DragEvent) {
 		const ids = selection.isSelected(id) ? selection.selected : new Set([id]);
@@ -234,47 +207,25 @@ export function DriveList({
 										{formatDatetime(folder.updatedAt)}
 									</TableCell>
 								</ContextMenuTrigger>
-								<ContextMenuContent>
-									<ContextMenuItem
-										onClick={() => router.push(`/project/${projectId}/${folder.id}`)}
-									>
-										<FolderOpenIcon /> Open
-									</ContextMenuItem>
-									<ContextMenuItem
-										onClick={() => window.open(`/project/${projectId}/${folder.id}`, "_blank")}
-									>
-										<ExternalLinkIcon /> Open in new tab
-									</ContextMenuItem>
-									<ContextMenuItem
-										onClick={() =>
-											setRenameTarget({
-												name: folder.name,
-												endpoint: `${base}/folders/${folder.id}`,
-												bodyKey: "name",
-											})
-										}
-									>
-										<PencilIcon /> Rename
-									</ContextMenuItem>
-									<ContextMenuItem onClick={() => downloadSelectionAndOpen(new Set([folder.id]))}>
-										<DownloadIcon /> Download as zip
-									</ContextMenuItem>
-									<ContextMenuItem onClick={onMoveTo}>
-										<FolderInputIcon /> Move to…
-									</ContextMenuItem>
-									<ContextMenuItem
-										variant="destructive"
-										onClick={() => trashFolderAndRefresh(folder.id)}
-									>
-										<Trash2Icon /> Move to trash
-									</ContextMenuItem>
-								</ContextMenuContent>
+								<FolderContextMenuContent
+									folder={folder}
+									projectId={projectId}
+									onRename={() =>
+										setRenameTarget({
+											name: folder.name,
+											endpoint: `${base}/folders/${folder.id}`,
+											bodyKey: "name",
+										})
+									}
+									onDownloadAsZip={() => downloadSelectionAndOpen(new Set([folder.id]))}
+									onMoveTo={onMoveTo}
+									onTrash={() => trashFolderAndRefresh(folder.id)}
+								/>
 							</ContextMenu>
 						))}
 
 						{assets.map((asset) => {
 							const Icon = iconForMimeType(asset.mimeType);
-							const contentUrl = `/api${base}/assets/${asset.id}/content`;
 							const thumbnailUrl = asset.thumbnailAssetId
 								? `/api${base}/assets/${asset.thumbnailAssetId}/content`
 								: null;
@@ -288,10 +239,10 @@ export function DriveList({
 												onDragStart={(e) => handleDragStart(asset.id, e)}
 												onPointerDown={(e) => selection.handleItemPointerDown(asset.id, e)}
 												onClick={(e) => selection.handleItemClick(asset.id, e)}
-												onDoubleClick={() => setPreviewAsset(asset)}
+												onDoubleClick={() => openAsset(asset.id)}
 												onContextMenu={() => selection.ensureSelectedForContextMenu(asset.id)}
 												onKeyDown={(e) => {
-													if (e.key === "Enter") setPreviewAsset(asset);
+													if (e.key === "Enter") openAsset(asset.id);
 												}}
 												tabIndex={0}
 												className={cn(
@@ -303,7 +254,7 @@ export function DriveList({
 									>
 										<TableCell className="flex items-center gap-3">
 											{thumbnailUrl ? (
-												// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as preview-overlay.tsx's AssetViewer
+												// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as asset-preview.tsx's AssetViewer
 												<img
 													src={thumbnailUrl}
 													alt=""
@@ -326,52 +277,26 @@ export function DriveList({
 											{formatDatetime(asset.updatedAt)}
 										</TableCell>
 									</ContextMenuTrigger>
-									<ContextMenuContent>
-										<ContextMenuItem onClick={() => setPreviewAsset(asset)}>
-											<EyeIcon /> Open
-										</ContextMenuItem>
-										<ContextMenuItem onClick={() => window.open(contentUrl, "_blank")}>
-											<ExternalLinkIcon /> Open in new tab
-										</ContextMenuItem>
-										<ContextMenuItem
-											onClick={() =>
-												setRenameTarget({
-													name: asset.filename,
-													endpoint: `${base}/assets/${asset.id}`,
-													bodyKey: "filename",
-												})
-											}
-										>
-											<PencilIcon /> Rename
-										</ContextMenuItem>
-										<ContextMenuItem
-											onClick={() => {
-												window.location.href = `${contentUrl}?disposition=attachment`;
-											}}
-										>
-											<DownloadIcon /> Download
-										</ContextMenuItem>
-										{hasOnDemandVariants(asset.mimeType) && (
-											<ContextMenuItem onClick={() => setDownloadAsTarget(asset)}>
-												<DownloadIcon /> Download as…
-											</ContextMenuItem>
-										)}
-										<ContextMenuItem onClick={() => copyLink(asset.id)}>
-											<LinkIcon /> Copy link
-										</ContextMenuItem>
-										<ContextMenuItem onClick={() => duplicateAssetAndRefresh(asset.id)}>
-											<CopyIcon /> Make a copy
-										</ContextMenuItem>
-										<ContextMenuItem onClick={onMoveTo}>
-											<FolderInputIcon /> Move to…
-										</ContextMenuItem>
-										<ContextMenuItem
-											variant="destructive"
-											onClick={() => trashAssetAndRefresh(asset.id)}
-										>
-											<Trash2Icon /> Move to trash
-										</ContextMenuItem>
-									</ContextMenuContent>
+									<AssetContextMenuContent
+										asset={asset}
+										projectId={projectId}
+										base={base}
+										onRename={() =>
+											setRenameTarget({
+												name: asset.filename,
+												endpoint: `${base}/assets/${asset.id}`,
+												bodyKey: "filename",
+											})
+										}
+										onDownloadAs={() => setDownloadAsTarget(asset)}
+										onCopyLink={() => handleCopyLink(asset)}
+										onDetails={() =>
+											router.push(`/project/${projectId}/open?id=${asset.id}&panel=details`)
+										}
+										onDuplicate={() => duplicateAssetAndRefresh(asset.id)}
+										onMoveTo={onMoveTo}
+										onTrash={() => trashAssetAndRefresh(asset.id)}
+									/>
 								</ContextMenu>
 							);
 						})}
@@ -390,18 +315,6 @@ export function DriveList({
 					/>
 				)}
 			</div>
-
-			{previewAsset && (
-				<PreviewOverlay
-					orgId={orgId}
-					projectId={projectId}
-					asset={previewAsset}
-					open={Boolean(previewAsset)}
-					onOpenChange={(open) => {
-						if (!open) setPreviewAsset(null);
-					}}
-				/>
-			)}
 
 			{renameTarget && (
 				<RenameDialog
@@ -424,6 +337,18 @@ export function DriveList({
 					open={Boolean(downloadAsTarget)}
 					onOpenChange={(open) => {
 						if (!open) setDownloadAsTarget(null);
+					}}
+				/>
+			)}
+
+			{copyLinkTarget && (
+				<CopyLinkDialog
+					orgId={orgId}
+					projectId={projectId}
+					asset={copyLinkTarget}
+					open={Boolean(copyLinkTarget)}
+					onOpenChange={(open) => {
+						if (!open) setCopyLinkTarget(null);
 					}}
 				/>
 			)}
