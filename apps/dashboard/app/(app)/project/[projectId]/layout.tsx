@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowLeftIcon, FolderCogIcon, HardDriveIcon, Trash2Icon } from "lucide-react";
+import {
+	ArrowLeftIcon,
+	DatabaseIcon,
+	FolderCogIcon,
+	HardDriveIcon,
+	KeyRoundIcon,
+	SettingsIcon,
+	Trash2Icon,
+	TriangleAlertIcon,
+} from "lucide-react";
 import { useParams } from "next/navigation";
 import { Section } from "@/components/layout/section";
 import { useProjectContext } from "@/lib/current-project";
@@ -19,7 +28,24 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 		{ title: "Back to Dashboard", href: "/", icon: ArrowLeftIcon },
 		{ title: "Drive", href: `/project/${projectId}`, icon: HardDriveIcon },
 		{ title: "Trash", href: `/project/${projectId}/trash`, icon: Trash2Icon },
-		{ title: "Settings", href: `/project/${projectId}/settings`, icon: FolderCogIcon },
+		{
+			title: "Settings",
+			icon: FolderCogIcon,
+			items: [
+				{ title: "General", href: `/project/${projectId}/settings`, icon: SettingsIcon },
+				{ title: "Storage", href: `/project/${projectId}/settings/storage`, icon: DatabaseIcon },
+				{
+					title: "API Keys",
+					href: `/project/${projectId}/settings/api-keys`,
+					icon: KeyRoundIcon,
+				},
+				{
+					title: "Danger Zone",
+					href: `/project/${projectId}/settings/danger`,
+					icon: TriangleAlertIcon,
+				},
+			],
+		},
 	];
 
 	return (

@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { AppHeader } from "@/components/layout/app-header";
 import { Section } from "@/components/layout/section";
 import AuthProvider, { useAuth } from "@/components/providers/auth-provider";
+import { ModalRouter } from "@/components/providers/modal-router";
 import { RenderErrorBoundary } from "@/components/providers/render-error-boundary";
 import { TransferProvider, useTransfer } from "@/components/providers/transfer-provider";
 import { TransferPopover } from "@/components/transfer-popover";
@@ -61,6 +62,7 @@ export default function Layout({ children }: React.PropsWithChildren) {
 	return (
 		<RenderErrorBoundary>
 			<AuthProvider>
+				<ModalRouter />
 				<TransferProvider>
 					<SidebarProvider
 						style={

@@ -6,6 +6,7 @@ export * from "./folders/collect";
 export * from "./folders/recycle";
 export * from "./jobs";
 export * from "./lambda";
+export * from "./media/transform-image";
 export * from "./notifications/notify";
 export * from "./projects/with-destination";
 export * from "./rules";

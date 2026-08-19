@@ -1,14 +1,13 @@
 "use client";
 
 import { FolderIcon, FolderPlusIcon } from "lucide-react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import { CreateProjectDialog } from "@/components/create-project-dialog";
 import ApiLoader from "@/components/layout/api-loader";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
 import Container from "@/components/ui/container";
 import {
 	Table,
@@ -30,7 +29,8 @@ import type { Project } from "@/types/projects";
 // settings page for management" split already used for organizations
 // themselves (org-picker.tsx vs instance/organizations).
 export default function OrganizationProjectsPage() {
-	const { organizations, user, instance } = useAuth();
+	const router = useRouter();
+	const { organizations, user, instance, mutate: mutateAuth } = useAuth();
 	const orgId = useOrgSectionId();
 	const membershipOrg = organizations.find((o) => o.id === orgId);
 	const hasMembership = Boolean(membershipOrg);
@@ -80,7 +80,9 @@ export default function OrganizationProjectsPage() {
 				size="lg"
 			>
 				{projects.length === 0 ? (
-					<p className="text-sm text-muted-foreground">No projects yet.</p>
+					<div className="flex h-24 items-center justify-center">
+						<p className="text-sm font-medium text-muted-foreground">No projects yet.</p>
+					</div>
 				) : (
 					<Table>
 						<TableHeader>
@@ -88,12 +90,15 @@ export default function OrganizationProjectsPage() {
 								<TableHead>Name</TableHead>
 								<TableHead>Visibility</TableHead>
 								<TableHead>Created</TableHead>
-								<TableHead />
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{projects.map((project) => (
-								<TableRow key={project.id}>
+								<TableRow
+									key={project.id}
+									className="cursor-pointer"
+									onClick={() => router.push(`/project/${project.id}`)}
+								>
 									<TableCell className="font-medium">{project.name}</TableCell>
 									<TableCell>
 										<Badge variant="outline" className="capitalize">
@@ -102,14 +107,6 @@ export default function OrganizationProjectsPage() {
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDatetime(project.createdAt)}
-									</TableCell>
-									<TableCell className="text-right">
-										<Link
-											href={`/project/${project.id}`}
-											className={buttonVariants({ variant: "secondary", size: "sm" })}
-										>
-											Open
-										</Link>
 									</TableCell>
 								</TableRow>
 							))}
@@ -122,7 +119,14 @@ export default function OrganizationProjectsPage() {
 				orgId={orgId}
 				open={createOpen}
 				onOpenChange={setCreateOpen}
-				onCreated={() => mutate()}
+				onCreated={() => {
+					mutate();
+					// New projects live in organizations[].projects too (/auth/me) —
+					// the sidebar's project-list.tsx and the project access check in
+					// lib/current-project.ts both read from there, and would
+					// otherwise stay stale until an unrelated remount/refocus.
+					mutateAuth();
+				}}
 			/>
 		</ApiLoader>
 	);

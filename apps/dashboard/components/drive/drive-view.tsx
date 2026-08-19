@@ -81,8 +81,26 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 		return `/organizations/${effectiveOrgId}/projects/${projectId}/drive${qs ? `?${qs}` : ""}`;
 	};
 
-	const { data, mutate, isLoading, setSize, isValidating } =
-		useSWRInfinite<DriveBrowseResponse>(getKey);
+	const { data, mutate, isLoading, setSize, isValidating } = useSWRInfinite<DriveBrowseResponse>(
+		getKey,
+		{
+			// Poll only while something in the currently loaded pages hasn't
+			// reached a terminal state yet — same pending/processing vs
+			// ready/failed distinction as hooks/use-polled-asset.ts, just applied
+			// across the list instead of one asset. An idle Drive view (nothing
+			// in flight) makes zero extra requests; one that's actively
+			// uploading/processing picks up the transition within ~5s without a
+			// manual refresh.
+			refreshInterval: (latestData) => {
+				const hasInFlight = (latestData ?? []).some((page) =>
+					page?.childAssets.items.some(
+						(asset) => asset.status === "pending" || asset.status === "processing",
+					),
+				);
+				return hasInFlight ? 5000 : 0;
+			},
+		},
+	);
 
 	// A folder navigation or a sort/filter change must restart pagination at
 	// page 1 — otherwise a stale `size` from the previous view keeps

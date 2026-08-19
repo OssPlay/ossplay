@@ -2,6 +2,7 @@ import {
 	getProjectWithDestination,
 	type ImageProcessingJob,
 	resolveStorageDriver,
+	transformImage,
 } from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
@@ -36,15 +37,13 @@ export async function processImage(job: Job<ImageProcessingJob>): Promise<void> 
 			throw new Error(`Unexpected variant kind for image asset: ${requestedVariant.spec.kind}`);
 		}
 		const { format, maxDimension } = requestedVariant.spec;
-		let pipeline = sharp(bytes);
-		if (maxDimension !== "original") {
-			pipeline = pipeline.resize(maxDimension, maxDimension, {
-				fit: "inside",
-				withoutEnlargement: true,
-			});
-		}
-		if (format !== "original") pipeline = pipeline.toFormat(format);
-		const converted = await pipeline.toBuffer();
+		const dimension = maxDimension === "original" ? null : maxDimension;
+		const converted = await transformImage(bytes, {
+			format,
+			width: dimension,
+			height: dimension,
+			quality: null,
+		});
 		await finalizeVariant(requestedVariant.variantAssetId, storage, converted);
 		return;
 	}
@@ -52,13 +51,12 @@ export async function processImage(job: Job<ImageProcessingJob>): Promise<void> 
 	const image = sharp(bytes);
 	const meta = await image.metadata();
 
-	const thumbnailBuffer = await sharp(bytes)
-		.resize(THUMBNAIL_MAX_DIMENSION, THUMBNAIL_MAX_DIMENSION, {
-			fit: "inside",
-			withoutEnlargement: true,
-		})
-		.webp()
-		.toBuffer();
+	const thumbnailBuffer = await transformImage(bytes, {
+		format: "webp",
+		width: THUMBNAIL_MAX_DIMENSION,
+		height: THUMBNAIL_MAX_DIMENSION,
+		quality: null,
+	});
 	await createVariant({
 		projectId,
 		folderId: original.folderId,

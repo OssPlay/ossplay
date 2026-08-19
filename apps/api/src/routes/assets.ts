@@ -11,6 +11,7 @@ import {
 	permanentlyDeleteSubtree,
 	queueForMimeType,
 	resolveStorageDriver,
+	shouldServeStatic,
 	tryDispatchToComputeDestination,
 	type StorageDriver,
 	type VariantSpec,
@@ -28,10 +29,7 @@ import { downloadZip } from "client-zip";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import {
-	getProjectWithDestination,
-	type ProjectWithDestination,
-} from "../lib/drive/resolve-project";
+import { getProjectWithDestination } from "../lib/drive/resolve-project";
 import { getQueue, getRedisConnection } from "../lib/queue";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
@@ -61,13 +59,6 @@ async function logActivity(
 	toValue: string | null = null,
 ): Promise<void> {
 	await getDb().insert(assetActivity).values({ assetId, action, actorUserId, fromValue, toValue });
-}
-
-// image/rules.serving is the only static-vs-signed rule that exists today
-// (see s3-storage.ts's own comment) — every other mimeType defaults to
-// signed until that rule surface grows.
-function shouldServeStatic(project: ProjectWithDestination, mimeType: string): boolean {
-	return mimeType.startsWith("image/") && project.rules.image.serving === "static";
 }
 
 // "photo.jpg" -> "photo (copy).jpg" — no collision-avoidance loop needed,

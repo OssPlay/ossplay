@@ -1,4 +1,4 @@
-import type { ProjectRules } from "@ossplay/db";
+import type { Project, ProjectRules } from "@ossplay/db";
 import { z } from "zod";
 
 /**
@@ -27,4 +27,13 @@ export type ProjectRulesInput = z.infer<typeof projectRulesSchema>;
 // Drizzle jsonb type in packages/db/src/schema.ts have drifted apart.
 export function assertRulesMatchSchema(rules: ProjectRulesInput): ProjectRules {
 	return rules;
+}
+
+// image/rules.serving is the only static-vs-signed rule that exists today
+// (see s3-storage.ts's own comment) — every other mimeType defaults to
+// signed until that rule surface grows. Shared by apps/api's internal
+// asset-content route and the public /v1 route — both need the identical
+// static-vs-signed decision.
+export function shouldServeStatic(project: Pick<Project, "rules">, mimeType: string): boolean {
+	return mimeType.startsWith("image/") && project.rules.image.serving === "static";
 }

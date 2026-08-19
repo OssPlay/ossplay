@@ -5,7 +5,7 @@
 export const dynamic = "force-dynamic";
 
 import { ClockIcon, UserPlusIcon, UsersIcon } from "lucide-react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import useSWR from "swr";
@@ -13,7 +13,6 @@ import { DataTable, type DataTableColumn } from "@/components/layout/data-table"
 import { InstanceForbidden } from "@/components/layout/instance-forbidden";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
 import Container from "@/components/ui/container";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAction } from "@/hooks/use-action";
@@ -36,6 +35,7 @@ interface UsersResponse {
 // from (and more powerful than) anything an org-level Members page does —
 // see ARCHITECTURE.md's Authorization Model section.
 export default function InstanceUsersPage() {
+	const router = useRouter();
 	const { instance } = useAuth();
 	const table = useServerTable<UsersResponse, InstanceUser>({
 		endpoint: "/instance/users",
@@ -141,6 +141,7 @@ export default function InstanceUsersPage() {
 					table={table}
 					rowId={(row) => row.id}
 					columns={columns}
+					onRowClick={(row) => router.push(`/instance/users/${row.id}`)}
 					searchPlaceholder="Search name or email…"
 					emptyTitle="No users yet"
 					bulkActions={[
@@ -161,14 +162,6 @@ export default function InstanceUsersPage() {
 							},
 						},
 					]}
-					rowActions={(row) => (
-						<Link
-							href={`/instance/users/${row.id}`}
-							className={buttonVariants({ variant: "secondary", size: "sm" })}
-						>
-							Manage
-						</Link>
-					)}
 				/>
 
 				<InviteUserDialog

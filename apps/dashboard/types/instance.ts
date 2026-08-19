@@ -105,6 +105,13 @@ export interface ComputeDestinationRow {
 	createdAt: string;
 }
 
+// One row of GET /instance/remote-workers — the server-merged union of
+// RemoteServerRow and ComputeDestinationRow above, tagged by `kind`. See
+// app/(app)/instance/servers/page.tsx.
+export type RemoteWorkerRow =
+	| ({ kind: "ssh" } & RemoteServerRow)
+	| ({ kind: "lambda" } & ComputeDestinationRow);
+
 // One row of GET /instance/smtp — see app/(app)/instance/smtp/page.tsx.
 export interface SmtpConfigRow {
 	id: string;

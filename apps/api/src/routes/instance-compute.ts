@@ -18,7 +18,9 @@ export const instanceComputeRoute = new Hono<AppEnv>();
 
 instanceComputeRoute.use("*", requireAuth, requireInstancePermission("instance:manage_workers"));
 
-function serialize(destination: ComputeDestination) {
+// Exported so instance-remote-workers.ts can reuse the exact same field set
+// when it merges this table with remote servers into one list.
+export function serializeComputeDestination(destination: ComputeDestination) {
 	return {
 		id: destination.id,
 		provider: destination.provider,
@@ -60,7 +62,7 @@ instanceComputeRoute.get("/", async (c) => {
 	]);
 
 	return c.json({
-		destinations: rows.map(serialize),
+		destinations: rows.map(serializeComputeDestination),
 		total: totalRows[0]?.total ?? 0,
 		page,
 		pageSize,
@@ -103,7 +105,7 @@ instanceComputeRoute.post("/", async (c) => {
 		metadata: { label: destination.label, provider: destination.provider },
 	});
 
-	return c.json({ destination: serialize(destination) }, 201);
+	return c.json({ destination: serializeComputeDestination(destination) }, 201);
 });
 
 const updateSchema = z.object({
@@ -146,7 +148,7 @@ instanceComputeRoute.put("/:id", async (c) => {
 		metadata: { label: updated.label },
 	});
 
-	return c.json({ destination: serialize(updated) });
+	return c.json({ destination: serializeComputeDestination(updated) });
 });
 
 instanceComputeRoute.delete("/:id", async (c) => {
@@ -204,5 +206,5 @@ instanceComputeRoute.post("/:id/test", async (c) => {
 		metadata: { ok: result.ok },
 	});
 
-	return c.json({ destination: serialize(updated), error: result.error });
+	return c.json({ destination: serializeComputeDestination(updated), error: result.error });
 });

@@ -14,7 +14,9 @@ export const instanceServersRoute = new Hono<AppEnv>();
 
 instanceServersRoute.use("*", requireAuth, requireInstancePermission("instance:manage_workers"));
 
-function serialize(server: RemoteServer) {
+// Exported so instance-remote-workers.ts can reuse the exact same field set
+// when it merges this table with compute-destinations into one list.
+export function serializeRemoteServer(server: RemoteServer) {
 	return {
 		id: server.id,
 		label: server.label,
@@ -60,7 +62,7 @@ instanceServersRoute.get("/", async (c) => {
 	]);
 
 	return c.json({
-		servers: rows.map(serialize),
+		servers: rows.map(serializeRemoteServer),
 		total: totalRows[0]?.total ?? 0,
 		page,
 		pageSize,
@@ -104,7 +106,7 @@ instanceServersRoute.post("/", async (c) => {
 		metadata: { label: server.label, host: server.host },
 	});
 
-	return c.json({ server: serialize(server) }, 201);
+	return c.json({ server: serializeRemoteServer(server) }, 201);
 });
 
 instanceServersRoute.delete("/:id", async (c) => {
@@ -165,7 +167,7 @@ instanceServersRoute.post("/:id/test", async (c) => {
 		metadata: { ok: result.ok },
 	});
 
-	return c.json({ server: serialize(updated), output: result.output, error: result.error });
+	return c.json({ server: serializeRemoteServer(updated), output: result.output, error: result.error });
 });
 
 // Placeholder — see PRD.md §4 / MEMORY.md: real provisioning needs a

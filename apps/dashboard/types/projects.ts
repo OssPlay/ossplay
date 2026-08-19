@@ -24,3 +24,15 @@ export interface Destination {
 	label: string;
 	visibility: Visibility;
 }
+
+// GET/POST /organizations/:orgId/projects/:projectId/api-keys — never
+// includes the actual secret/hash, only what's safe to keep showing after
+// creation (see apps/api/src/routes/project-api-keys.ts's serialize()).
+export interface ProjectApiKeyRow {
+	id: string;
+	label: string;
+	keyPrefix: string;
+	lastUsedAt: string | null;
+	revokedAt: string | null;
+	createdAt: string;
+}

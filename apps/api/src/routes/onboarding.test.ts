@@ -43,6 +43,7 @@ describe.skipIf(!process.env.DATABASE_URL)("onboarding status", () => {
 			steps: {
 				dns: { skippable: true, completed: false },
 				smtp: { skippable: true, completed: false },
+				updates: { skippable: true, completed: true },
 				org: { skippable: false, completed: false },
 			},
 		});
