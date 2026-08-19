@@ -1,11 +1,12 @@
 "use client";
 
-import { FolderIcon } from "lucide-react";
+import { FolderIcon, Loader2Icon, MoreVerticalIcon, TriangleAlertIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type DragEvent, useState } from "react";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
 import type { DriveSelection } from "@/hooks/use-drive-selection";
+import { openContextMenu } from "@/lib/open-context-menu";
 import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
@@ -107,8 +108,10 @@ export function DriveGrid({
 				{folders.map((folder) => (
 					<ContextMenu key={folder.id}>
 						<ContextMenuTrigger>
-							<button
-								type="button"
+							{/* biome-ignore lint/a11y/useSemanticElements: needs to contain a real <button> (the "…" trigger below) — a <button> can't nest one, so this is a div with the button role/keyboard handling added by hand instead. */}
+							<div
+								role="button"
+								tabIndex={0}
 								ref={selection.registerItemRef(folder.id)}
 								draggable
 								onDragStart={(e) => handleDragStart(folder.id, e)}
@@ -122,14 +125,26 @@ export function DriveGrid({
 									if (e.key === "Enter") router.push(`/project/${projectId}/${folder.id}`);
 								}}
 								className={cn(
-									"flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border p-4 hover:bg-muted/50",
+									"group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-card transition-colors hover:border-foreground/30",
 									selection.isSelected(folder.id) &&
 										"border-primary bg-primary/5 ring-1 ring-primary",
 								)}
 							>
-								<FolderIcon className="size-16 text-muted-foreground" />
-								<span className="max-w-full truncate text-sm">{folder.name}</span>
-							</button>
+								<div className="flex aspect-square w-full items-center justify-center bg-muted/40">
+									<FolderIcon className="size-14 text-muted-foreground" />
+								</div>
+								<div className="p-3">
+									<span className="block truncate text-sm">{folder.name}</span>
+								</div>
+								<button
+									type="button"
+									onClick={openContextMenu}
+									aria-label="More actions"
+									className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+								>
+									<MoreVerticalIcon className="size-4" />
+								</button>
+							</div>
 						</ContextMenuTrigger>
 						<FolderContextMenuContent
 							folder={folder}
@@ -153,11 +168,14 @@ export function DriveGrid({
 					const thumbnailUrl = asset.thumbnailAssetId
 						? `/api${base}/assets/${asset.thumbnailAssetId}/content`
 						: null;
+					const isProcessing = asset.status === "pending" || asset.status === "processing";
 					return (
 						<ContextMenu key={asset.id}>
 							<ContextMenuTrigger>
-								<button
-									type="button"
+								{/* biome-ignore lint/a11y/useSemanticElements: needs to contain a real <button> (the "…" trigger below) — a <button> can't nest one, so this is a div with the button role/keyboard handling added by hand instead. */}
+								<div
+									role="button"
+									tabIndex={0}
 									ref={selection.registerItemRef(asset.id)}
 									draggable
 									onDragStart={(e) => handleDragStart(asset.id, e)}
@@ -169,24 +187,40 @@ export function DriveGrid({
 										if (e.key === "Enter") openAsset(asset.id);
 									}}
 									className={cn(
-										"flex w-full cursor-pointer flex-col items-center gap-2 overflow-hidden rounded-2xl border p-4 hover:bg-muted/50",
+										"group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-card transition-colors hover:border-foreground/30",
 										selection.isSelected(asset.id) &&
 											"border-primary bg-primary/5 ring-1 ring-primary",
 									)}
 								>
-									{thumbnailUrl ? (
-										// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as asset-preview.tsx's AssetViewer
-										<img src={thumbnailUrl} alt="" className="size-16 rounded-lg object-cover" />
-									) : (
-										<Icon className="size-16 text-muted-foreground" />
-									)}
-									<span className="max-w-full truncate text-sm">{asset.filename}</span>
-									{asset.status !== "ready" && (
-										<span className="text-[10px] text-muted-foreground capitalize">
-											{asset.status}
-										</span>
-									)}
-								</button>
+									<div className="relative flex aspect-square w-full items-center justify-center overflow-hidden bg-muted/40">
+										{thumbnailUrl ? (
+											// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as asset-preview.tsx's AssetViewer
+											<img src={thumbnailUrl} alt="" className="size-full object-cover" />
+										) : (
+											<Icon className="size-14 text-muted-foreground" />
+										)}
+										{(isProcessing || asset.status === "failed") && (
+											<div className="absolute inset-0 flex items-center justify-center bg-background/70">
+												{isProcessing ? (
+													<Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+												) : (
+													<TriangleAlertIcon className="size-6 text-destructive" />
+												)}
+											</div>
+										)}
+									</div>
+									<div className="p-3">
+										<span className="block truncate text-sm">{asset.filename}</span>
+									</div>
+									<button
+										type="button"
+										onClick={openContextMenu}
+										aria-label="More actions"
+										className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+									>
+										<MoreVerticalIcon className="size-4" />
+									</button>
+								</div>
 							</ContextMenuTrigger>
 							<AssetContextMenuContent
 								asset={asset}

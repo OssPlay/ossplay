@@ -52,8 +52,9 @@ function GridSkeleton() {
 	);
 }
 
-// Same column set as drive-list.tsx's real header (Name/Size/Modified), so
-// the skeleton-to-real-content swap doesn't shift the layout.
+// Same column set as drive-list.tsx's real header (Name/Size/Modified/the
+// "…" actions column), so the skeleton-to-real-content swap doesn't shift
+// the layout.
 function ListSkeleton() {
 	return (
 		<div className="overflow-hidden rounded-md border">
@@ -63,6 +64,7 @@ function ListSkeleton() {
 						<TableHead>Name</TableHead>
 						<TableHead className="text-right">Size</TableHead>
 						<TableHead className="text-right">Modified</TableHead>
+						<TableHead className="w-10" />
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -79,6 +81,7 @@ function ListSkeleton() {
 							<TableCell className="text-right">
 								<Skeleton className="ml-auto h-4 w-24" />
 							</TableCell>
+							<TableCell />
 						</TableRow>
 					))}
 				</TableBody>

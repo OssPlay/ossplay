@@ -1,6 +1,13 @@
 "use client";
 
-import { ArrowDownIcon, ArrowUpIcon, FolderIcon } from "lucide-react";
+import {
+	ArrowDownIcon,
+	ArrowUpIcon,
+	FolderIcon,
+	Loader2Icon,
+	MoreVerticalIcon,
+	TriangleAlertIcon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type DragEvent, useState } from "react";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -16,6 +23,7 @@ import type { RenameTarget, useDriveActions } from "@/hooks/use-drive-actions";
 import type { DriveSelection } from "@/hooks/use-drive-selection";
 import useURL from "@/hooks/use-url";
 import { formatBytes } from "@/lib/format-bytes";
+import { openContextMenu } from "@/lib/open-context-menu";
 import { cn, formatDatetime } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
 import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
@@ -170,6 +178,7 @@ export function DriveList({
 							<SortableHead sortKey="updatedAt" className="text-right">
 								Modified
 							</SortableHead>
+							<TableHead className="w-10" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -192,7 +201,7 @@ export function DriveList({
 											}}
 											tabIndex={0}
 											className={cn(
-												"cursor-pointer",
+												"group cursor-pointer",
 												selection.isSelected(folder.id) && "bg-primary/15",
 											)}
 										/>
@@ -207,6 +216,16 @@ export function DriveList({
 									<TableCell className="text-right text-muted-foreground">—</TableCell>
 									<TableCell className="text-right text-muted-foreground">
 										{formatDatetime(folder.updatedAt)}
+									</TableCell>
+									<TableCell>
+										<button
+											type="button"
+											onClick={openContextMenu}
+											aria-label="More actions"
+											className="flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+										>
+											<MoreVerticalIcon className="size-4" />
+										</button>
 									</TableCell>
 								</ContextMenuTrigger>
 								<FolderContextMenuContent
@@ -231,6 +250,7 @@ export function DriveList({
 							const thumbnailUrl = asset.thumbnailAssetId
 								? `/api${base}/assets/${asset.thumbnailAssetId}/content`
 								: null;
+							const isProcessing = asset.status === "pending" || asset.status === "processing";
 							return (
 								<ContextMenu key={asset.id}>
 									<ContextMenuTrigger
@@ -248,14 +268,18 @@ export function DriveList({
 												}}
 												tabIndex={0}
 												className={cn(
-													"cursor-pointer",
+													"group cursor-pointer",
 													selection.isSelected(asset.id) && "bg-primary/15",
 												)}
 											/>
 										}
 									>
 										<TableCell className="flex max-w-80 items-center gap-3">
-											{thumbnailUrl ? (
+											{isProcessing ? (
+												<Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground" />
+											) : asset.status === "failed" ? (
+												<TriangleAlertIcon className="size-4 shrink-0 text-destructive" />
+											) : thumbnailUrl ? (
 												// biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content — same as asset-preview.tsx's AssetViewer
 												<img
 													src={thumbnailUrl}
@@ -268,17 +292,22 @@ export function DriveList({
 											<span className="min-w-0 truncate" title={asset.filename}>
 												{asset.filename}
 											</span>
-											{asset.status !== "ready" && (
-												<span className="shrink-0 text-[10px] text-muted-foreground capitalize">
-													{asset.status}
-												</span>
-											)}
 										</TableCell>
 										<TableCell className="text-right text-muted-foreground">
 											{asset.size != null ? formatBytes(asset.size) : "—"}
 										</TableCell>
 										<TableCell className="text-right text-muted-foreground">
 											{formatDatetime(asset.updatedAt)}
+										</TableCell>
+										<TableCell>
+											<button
+												type="button"
+												onClick={openContextMenu}
+												aria-label="More actions"
+												className="flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+											>
+												<MoreVerticalIcon className="size-4" />
+											</button>
 										</TableCell>
 									</ContextMenuTrigger>
 									<AssetContextMenuContent

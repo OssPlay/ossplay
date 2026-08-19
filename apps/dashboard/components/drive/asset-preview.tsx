@@ -61,7 +61,6 @@ export function AssetPreview({
 	const [detailsOpen, setDetailsOpen] = useState(Boolean(showDetails));
 	const [copyLinkOpen, setCopyLinkOpen] = useState(false);
 	const [playing, setPlaying] = useState(false);
-	const [viewOriginal, setViewOriginal] = useState(false);
 
 	// A lightweight sibling list for arrow-key prev/next — re-fetches the
 	// containing folder's listing rather than threading DriveView's
@@ -165,8 +164,6 @@ export function AssetPreview({
 					thumbnailUrl={thumbnailUrl}
 					playing={playing}
 					onPlay={() => setPlaying(true)}
-					viewOriginal={viewOriginal}
-					onViewOriginal={() => setViewOriginal(true)}
 				/>
 			</div>
 
@@ -191,12 +188,12 @@ export function AssetPreview({
 	);
 }
 
-// Thumbnail-first for every type that has one — the original bytes (a
-// multi-MB video/PDF/audio file, or even just a large photo) are never
-// loaded just to preview it. Each type has its own "give me the real
-// thing" affordance instead: video/audio swap in a real player on click,
-// images offer a full-resolution view, PDFs open the real file in a new
-// tab (no in-app PDF viewer — that's real extra scope, not this pass's).
+// Thumbnail-first for the types where the original is expensive to load
+// sight-unseen (video/PDF can be multi-MB, autoplaying a large video by
+// default would be its own problem) — but a preview's whole point is to
+// look at the actual file, so an image (never more than a moderate photo)
+// just shows the original directly; there's no lower-resolution version
+// worth trading a click for.
 function AssetBody({
 	mimeType,
 	filename,
@@ -204,8 +201,6 @@ function AssetBody({
 	thumbnailUrl,
 	playing,
 	onPlay,
-	viewOriginal,
-	onViewOriginal,
 }: {
 	mimeType: string;
 	filename: string;
@@ -213,24 +208,9 @@ function AssetBody({
 	thumbnailUrl: string | null;
 	playing: boolean;
 	onPlay: () => void;
-	viewOriginal: boolean;
-	onViewOriginal: () => void;
 }) {
 	if (mimeType.startsWith("image/")) {
-		const src = viewOriginal || !thumbnailUrl ? contentUrl : thumbnailUrl;
-		return (
-			<div className="flex h-full w-full flex-col items-center gap-3">
-				{/* key={src} remounts (instead of an effect resetting state) whenever the
-				    image itself changes — a different asset or the view-original toggle —
-				    so stale zoom/pan never carries over to the new image. */}
-				<PannableImage key={src} src={src} alt={filename} />
-				{!viewOriginal && thumbnailUrl && (
-					<Button variant="outline" size="sm" onClick={onViewOriginal}>
-						View original
-					</Button>
-				)}
-			</div>
-		);
+		return <PannableImage src={contentUrl} alt={filename} />;
 	}
 
 	if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
