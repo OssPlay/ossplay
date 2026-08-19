@@ -14,7 +14,15 @@ const nextConfig: NextConfig = {
 	// here — it needs to set X-Forwarded-Host so email links built from the
 	// request (invite/reset) point at the dashboard's origin, and rewrite()
 	// destinations here can't carry custom headers. In prod Caddy is in front
-	// of both services instead (see infra/caddy/Caddyfile).
+	// of both services instead (see infra/caddy/Caddyfile), which has no
+	// body-size cap of its own — this app has no max upload size by design
+	// (LocalDiskStorage/S3 both stream arbitrarily large files), so the only
+	// place a limit was ever actually being enforced was this proxy's default
+	// 10MB, silently truncating any upload larger than that in dev. Raised
+	// well past any real file this product expects to move.
+	experimental: {
+		proxyClientMaxBodySize: "5gb",
+	},
 };
 
 export default nextConfig;

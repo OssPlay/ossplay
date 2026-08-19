@@ -6,8 +6,6 @@ import {
 	ChevronRightIcon,
 	DownloadIcon,
 	ExternalLinkIcon,
-	EyeIcon,
-	FileTextIcon,
 	InfoIcon,
 	LinkIcon,
 	PlayIcon,
@@ -137,6 +135,17 @@ export function AssetPreview({
 					<span className="truncate text-sm font-medium">{asset.filename}</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
+					{asset.mimeType === "application/pdf" && (
+						<a
+							href={contentUrl}
+							target="_blank"
+							rel="noreferrer"
+							className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+							aria-label="Open in new tab"
+						>
+							<ExternalLinkIcon />
+						</a>
+					)}
 					<Button variant="ghost" size="icon-sm" onClick={handleCopyLink}>
 						<LinkIcon />
 					</Button>
@@ -250,61 +259,20 @@ function AssetBody({
 	}
 
 	if (mimeType === "application/pdf") {
-		// Shown in-app (not a new-tab link) once the user opts in, same
-		// thumbnail-first-then-click pattern as video/audio above — but with
-		// the browser's own PDF viewer toolbar/nav-panes/scrollbar stripped
-		// via the `#toolbar=0...` open-parameters convention every Chromium
-		// and Firefox PDF viewer honors, so it reads as part of the app
-		// instead of an embedded browser chrome.
-		if (playing) {
-			return (
-				<div className="flex h-full w-full flex-col gap-2">
-					<div className="flex shrink-0 justify-end">
-						<a
-							href={contentUrl}
-							target="_blank"
-							rel="noreferrer"
-							className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-						>
-							<ExternalLinkIcon /> Open in new tab
-						</a>
-					</div>
-					<iframe
-						src={`${contentUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-						title={filename}
-						className="min-h-0 w-full flex-1 rounded-md border bg-white"
-					/>
-				</div>
-			);
-		}
-		if (thumbnailUrl) {
-			return (
-				<button
-					type="button"
-					onClick={onPlay}
-					className="group relative flex max-h-[60vh] max-w-full items-center justify-center"
-				>
-					{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
-					<img
-						src={thumbnailUrl}
-						alt={filename}
-						className="max-h-[60vh] max-w-full rounded-md border object-contain shadow-sm"
-					/>
-					<span className="absolute inset-0 flex items-center justify-center rounded-md bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
-						<span className="flex size-14 items-center justify-center rounded-full bg-background/90">
-							<EyeIcon className="size-6" />
-						</span>
-					</span>
-				</button>
-			);
-		}
+		// Auto-shown, same as images — opening a preview already means "show
+		// me the file", so there's no separate click-to-view step. The
+		// browser's own PDF viewer toolbar/nav-panes/scrollbar is stripped via
+		// the `#toolbar=0...` open-parameters convention every Chromium and
+		// Firefox PDF viewer honors, so it reads as part of the app instead of
+		// an embedded browser chrome; "Open in new tab" lives in the header
+		// now, next to Copy Link/Download, rather than floating above the
+		// iframe.
 		return (
-			<div className="flex flex-col items-center gap-3">
-				<FileTextIcon className="size-16 text-muted-foreground" />
-				<Button onClick={onPlay}>
-					<EyeIcon /> View PDF
-				</Button>
-			</div>
+			<iframe
+				src={`${contentUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+				title={filename}
+				className="h-full w-full rounded-md border bg-white"
+			/>
 		);
 	}
 
@@ -363,6 +331,16 @@ function PannableImage({ src, alt }: { src: string; alt: string }) {
 		return { x: clamp(next.x, -maxX, maxX), y: clamp(next.y, -maxY, maxY) };
 	}
 
+	// Re-clamps (and, at the fully-zoomed-out floor, snaps to dead center)
+	// on every scale change — not just while dragging. Without this, zooming
+	// out via the wheel left whatever pan offset was already set unchanged,
+	// so the image drifted further off-center the more you zoomed out
+	// instead of recentering, since only a drag ever re-clamped it before.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: clampOffset reads containerRef (a ref, stable identity) and MIN_SCALE (a module constant) — neither needs to be a dependency, only `scale` should re-trigger this.
+	useEffect(() => {
+		setOffset((prev) => (scale <= MIN_SCALE ? { x: 0, y: 0 } : clampOffset(prev, scale)));
+	}, [scale]);
+
 	function handlePointerDown(e: React.PointerEvent) {
 		if (scale <= 1) return;
 		e.currentTarget.setPointerCapture(e.pointerId);
@@ -395,12 +373,9 @@ function PannableImage({ src, alt }: { src: string; alt: string }) {
 	}
 
 	function handleDoubleClick() {
-		if (scale > 1) {
-			setScale(1);
-			setOffset({ x: 0, y: 0 });
-		} else {
-			setScale(2);
-		}
+		// Offset re-clamps itself via the effect above whenever scale changes,
+		// so this only needs to set the scale.
+		setScale(scale > 1 ? 1 : 2);
 	}
 
 	return (
