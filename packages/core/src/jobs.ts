@@ -56,7 +56,7 @@ export type VariantSpec =
 			format: "webp" | "avif" | "jpeg" | "png" | "original";
 			maxDimension: 1024 | 2048 | 4096 | "original";
 	  }
-	| { kind: "video-transcode"; height: 480 | 720 | 1080 }
+	| { kind: "video-transcode"; height: 480 | 720 | 1080; format: "mp4" | "webm" }
 	| { kind: "audio-transcode"; bitrate: "96k" | "128k" | "192k" | "320k" };
 
 // Canonical cache key for a spec — two different requested combos must
@@ -69,7 +69,7 @@ export function computeSpecKey(spec: VariantSpec): string {
 		case "image-format":
 			return `${spec.format}-${spec.maxDimension}`;
 		case "video-transcode":
-			return `${spec.height}p-mp4`;
+			return `${spec.height}p-${spec.format}`;
 		case "audio-transcode":
 			return `${spec.bitrate}-mp3`;
 	}

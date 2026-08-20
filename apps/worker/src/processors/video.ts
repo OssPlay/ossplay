@@ -21,12 +21,13 @@ import { run } from "./spawn";
 
 // Upload-time processing is thumbnail-only by design (see the plan's
 // per-mimetype variant matrix) — the eager HLS packaging this used to do
-// (segments/manifest/key per upload) is gone; on-demand MP4 transcoding
-// (the `requestedVariant` branch below) replaces it. ProjectRules'
-// `hlsSegmentDuration`/`drmAes128` fields are left in the schema but are
-// now unreachable — a deliberate, flagged gap (see the plan's Phase 7
-// note), not a silent removal; a real multi-rendition HLS feature is a
-// follow-up decision, not something this pass repurposes them for.
+// (segments/manifest/key per upload) is gone; on-demand transcoding (the
+// `requestedVariant` branch below, mp4 or webm depending on the requested
+// spec) replaces it. ProjectRules' `hlsSegmentDuration`/`drmAes128` fields
+// are left in the schema but are still unreachable — a deliberate, flagged
+// gap, not a silent removal; true adaptive-bitrate HLS/DASH streaming and
+// DRM remain a further follow-up, not something the embed feature
+// (2026-08-20) repurposes these fixed-rendition fields for.
 export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> {
 	const { assetId, projectId, requestedVariant } = job.data;
 
@@ -48,23 +49,45 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			if (requestedVariant.spec.kind !== "video-transcode") {
 				throw new Error(`Unexpected variant kind for video asset: ${requestedVariant.spec.kind}`);
 			}
-			const outputPath = join(workDir, "output.mp4");
-			await run("ffmpeg", [
-				"-y",
-				"-i",
-				inputPath,
-				"-vf",
-				`scale=-2:min(${requestedVariant.spec.height}\\,ih)`,
-				"-c:v",
-				"libx264",
-				"-crf",
-				"23",
-				"-c:a",
-				"aac",
-				"-movflags",
-				"+faststart",
-				outputPath,
-			]);
+			const { height, format } = requestedVariant.spec;
+			const scaleFilter = `scale=-2:min(${height}\\,ih)`;
+			const outputPath = join(workDir, `output.${format}`);
+			await run(
+				"ffmpeg",
+				format === "webm"
+					? [
+							"-y",
+							"-i",
+							inputPath,
+							"-vf",
+							scaleFilter,
+							"-c:v",
+							"libvpx-vp9",
+							"-crf",
+							"32",
+							"-b:v",
+							"0",
+							"-c:a",
+							"libopus",
+							outputPath,
+						]
+					: [
+							"-y",
+							"-i",
+							inputPath,
+							"-vf",
+							scaleFilter,
+							"-c:v",
+							"libx264",
+							"-crf",
+							"23",
+							"-c:a",
+							"aac",
+							"-movflags",
+							"+faststart",
+							outputPath,
+						],
+			);
 			const output = await readFile(outputPath);
 			await finalizeVariant(requestedVariant.variantAssetId, storage, new Uint8Array(output));
 			return;

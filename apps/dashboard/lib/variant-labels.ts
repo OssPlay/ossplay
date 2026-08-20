@@ -9,6 +9,10 @@ export const FORMAT_LABELS: Record<string, string> = {
 	jpeg: "JPEG",
 	png: "PNG",
 };
+export const VIDEO_FORMAT_LABELS: Record<string, string> = {
+	mp4: "MP4",
+	webm: "WebM",
+};
 export const SIZE_LABELS: Record<string, string> = {
 	original: "Original size",
 	"1024": "1024px",

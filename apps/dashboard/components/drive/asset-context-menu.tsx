@@ -1,6 +1,8 @@
 "use client";
 
 import {
+	CaptionsIcon,
+	CodeIcon,
 	CopyIcon,
 	DownloadIcon,
 	ExternalLinkIcon,
@@ -53,6 +55,8 @@ export function AssetContextMenuContent({
 	onDownloadAs,
 	onCopyLink,
 	onDetails,
+	onEmbed,
+	onAddSubtitle,
 	onDuplicate,
 	onMoveTo,
 	onTrash,
@@ -64,6 +68,8 @@ export function AssetContextMenuContent({
 	onDownloadAs: () => void;
 	onCopyLink: () => void;
 	onDetails: () => void;
+	onEmbed: () => void;
+	onAddSubtitle: () => void;
 	onDuplicate: () => void;
 	onMoveTo: () => void;
 	onTrash: () => void;
@@ -103,6 +109,16 @@ export function AssetContextMenuContent({
 			<ContextMenuItem onClick={onCopyLink}>
 				<LinkIcon /> Copy link
 			</ContextMenuItem>
+			{asset.mimeType.startsWith("video/") && (
+				<>
+					<ContextMenuItem onClick={onEmbed}>
+						<CodeIcon /> Embed…
+					</ContextMenuItem>
+					<ContextMenuItem onClick={onAddSubtitle}>
+						<CaptionsIcon /> Add subtitle…
+					</ContextMenuItem>
+				</>
+			)}
 			<ContextMenuSeparator />
 			<ContextMenuItem onClick={onDuplicate}>
 				<CopyIcon /> Make a copy

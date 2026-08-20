@@ -1,9 +1,7 @@
 import {
 	buildAssetKey,
 	collectLiveOriginalAssetsUnderFolders,
-	computeSpecKey,
 	FolderCycleError,
-	findCachedVariant,
 	insertFolderWithAncestors,
 	LocalDiskStorage,
 	moveFolderSubtree,
@@ -14,25 +12,16 @@ import {
 	shouldServeStatic,
 	tryDispatchToComputeDestination,
 	type StorageDriver,
-	type VariantSpec,
 } from "@ossplay/core";
-import {
-	type Asset,
-	assetActivity,
-	assetShareLinks,
-	assets,
-	folderClosure,
-	folders,
-	getDb,
-	users,
-} from "@ossplay/db";
+import { type Asset, assetActivity, assets, folderClosure, folders, getDb, users } from "@ossplay/db";
 import { downloadZip } from "client-zip";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { generateToken, hashToken } from "../lib/auth/tokens";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
+import { mintAssetShareLink } from "../lib/share-links";
+import { listVariants, requestVariant, variantSpecSchema } from "../lib/variants";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -356,21 +345,77 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate,
 	const asset = await requireAsset(projectId, assetId);
 	if (!asset) return c.json({ error: "Asset not found" }, 404);
 
-	const variants = await getDb()
-		.select()
-		.from(assets)
-		.where(eq(assets.parentAssetId, assetId))
-		.orderBy(desc(assets.createdAt));
-
-	return c.json({ variants });
+	return c.json({ variants: await listVariants(assetId) });
 });
 
-const SHARE_LINK_DURATIONS = {
-	"1h": 60 * 60,
-	"1d": 24 * 60 * 60,
-	"7d": 7 * 24 * 60 * 60,
-	"30d": 30 * 24 * 60 * 60,
-} as const;
+// "HH:MM:SS,mmm" -> "HH:MM:SS.mmm" plus a WEBVTT header — the only real
+// difference between SRT and WebVTT cue syntax; numeric cue-identifier
+// lines SRT uses are valid (optional) in WebVTT too, so nothing else needs
+// touching. No ffmpeg shell-out needed for a transform this small.
+function srtToVtt(content: string): string {
+	const body = content.replace(/\r+/g, "").replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
+	return `WEBVTT\n\n${body.trim()}\n`;
+}
+
+const createSubtitleSchema = z.object({
+	language: z.string().trim().min(1).max(20),
+	label: z.string().trim().min(1).max(100),
+	format: z.enum(["srt", "vtt"]),
+	content: z.string().trim().min(1).max(2_000_000),
+});
+
+// A subtitle is a small, user-supplied companion file, not an auto-generated
+// derivative — represented the same way every other derived/attached file
+// already is (an `assets` row with `parentAssetId` set, see
+// project.schema.ts's comment on that column), just tagged
+// `metadata.variant: "subtitle"` instead of "thumbnail"/"on-demand". Stored
+// as WebVTT always (native <track> support), converting synchronously if
+// the input was SRT — small enough that no worker job is warranted.
+assetsRoute.post(
+	"/:orgId/projects/:projectId/assets/:assetId/subtitles",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const original = await requireAsset(projectId, assetId);
+		if (!original || original.deletedAt) return c.json({ error: "Asset not found" }, 404);
+		if (!original.mimeType.startsWith("video/")) {
+			return c.json({ error: "Subtitles can only be attached to video assets" }, 400);
+		}
+
+		const parsed = createSubtitleSchema.safeParse(await c.req.json().catch(() => null));
+		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+		const { language, label, format, content } = parsed.data;
+
+		const vtt = format === "srt" ? srtToVtt(content) : content;
+		const storage = resolveStorageDriver(project);
+		const subtitleId = crypto.randomUUID();
+		const filename = `${original.filename.replace(/\.[^.]+$/, "")}-${language}.vtt`;
+		const key = buildAssetKey(projectId, subtitleId, filename);
+		const bytes = new TextEncoder().encode(vtt);
+		await storage.uploadObject(key, bytes, { mimeType: "text/vtt" });
+
+		await getDb()
+			.insert(assets)
+			.values({
+				id: subtitleId,
+				projectId,
+				folderId: original.folderId,
+				filename,
+				mimeType: "text/vtt",
+				s3Path: key,
+				size: bytes.byteLength,
+				parentAssetId: assetId,
+				status: "ready",
+				metadata: { variant: "subtitle", language, label },
+			});
+
+		const created = await requireAsset(projectId, subtitleId);
+		return c.json({ asset: created }, 201);
+	},
+);
+
 const createShareLinkSchema = z.object({
 	duration: z.enum(["1h", "1d", "7d", "30d"]),
 });
@@ -379,7 +424,8 @@ const createShareLinkSchema = z.object({
 // project's asset — see packages/db/src/share-link.schema.ts's comment.
 // The returned URL points at /v1 (the public consumer API, not this
 // session-authed route), so it works for whoever it's shared with, not
-// just someone logged into this dashboard.
+// just someone logged into this dashboard. mintAssetShareLink (lib/
+// share-links.ts) is the same helper v1.ts's embed-token route uses.
 assetsRoute.post(
 	"/:orgId/projects/:projectId/assets/:assetId/share-links",
 	...gate,
@@ -393,14 +439,8 @@ assetsRoute.post(
 		const parsed = createShareLinkSchema.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
-		const secret = generateToken();
-		const id = await hashToken(secret);
-		const expiresAt = new Date(Date.now() + SHARE_LINK_DURATIONS[parsed.data.duration] * 1000);
 		const actor = c.get("user");
-
-		await getDb()
-			.insert(assetShareLinks)
-			.values({ id, assetId, expiresAt, createdByUserId: actor.id });
+		const { secret } = await mintAssetShareLink(assetId, parsed.data.duration, actor.id);
 
 		return c.json({ url: `/api/v1/${projectId}/${assetId}?share=${secret}` }, 201);
 	},
@@ -485,63 +525,15 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 	return c.json({ asset: created }, 201);
 });
 
-const variantSpecSchema = z.discriminatedUnion("kind", [
-	z.object({
-		kind: z.literal("image-format"),
-		format: z.enum(["webp", "avif", "jpeg", "png", "original"]),
-		maxDimension: z.union([
-			z.literal(1024),
-			z.literal(2048),
-			z.literal(4096),
-			z.literal("original"),
-		]),
-	}),
-	z.object({
-		kind: z.literal("video-transcode"),
-		height: z.union([z.literal(480), z.literal(720), z.literal(1080)]),
-	}),
-	z.object({
-		kind: z.literal("audio-transcode"),
-		bitrate: z.enum(["96k", "128k", "192k", "320k"]),
-	}),
-]);
 const requestVariantSchema = z.object({ spec: variantSpecSchema });
 
-// mimeType/filename the placeholder row gets — must match what each
-// worker processor's requestedVariant branch actually produces
-// (image.ts/video.ts/audio.ts), since finalizeVariant uploads bytes back
-// to this row's already-decided s3Path/mimeType rather than the worker
-// deciding either.
-function outputForSpec(spec: VariantSpec, originalFilename: string, originalMimeType: string) {
-	const base = originalFilename.replace(/\.[^.]+$/, "");
-	switch (spec.kind) {
-		case "image-format":
-			return spec.format === "original"
-				? { filename: originalFilename, mimeType: originalMimeType }
-				: { filename: `${base}.${spec.format}`, mimeType: `image/${spec.format}` };
-		case "video-transcode":
-			return { filename: `${base}.mp4`, mimeType: "video/mp4" };
-		case "audio-transcode":
-			return { filename: `${base}.mp3`, mimeType: "audio/mpeg" };
-	}
-}
-
-// A variant spec is only meaningful for the mimetype family it targets —
-// requesting a video-transcode of an image asset (or vice versa) is a
-// client bug, not a 404/500.
-function specMatchesMimeType(spec: VariantSpec, mimeType: string): boolean {
-	if (spec.kind === "image-format") return mimeType.startsWith("image/");
-	if (spec.kind === "video-transcode") return mimeType.startsWith("video/");
-	return mimeType.startsWith("audio/");
-}
-
 // On-demand conversion: check the cache first (an identical spec requested
-// twice is an instant hit, no new job — see the plan's Phase 8 verify
-// step), else insert a placeholder `assets` row synchronously (so this
-// call can return an id/key immediately) and enqueue a "variant"-named job
-// for the worker's requestedVariant branch to fill in. PDF has no
-// on-demand path this pass — specMatchesMimeType naturally 400s it, since
-// no VariantSpec kind targets application/pdf.
+// twice is an instant hit, no new job), else insert a placeholder `assets`
+// row synchronously and enqueue a "variant"-named job for the worker's
+// requestedVariant branch to fill in. PDF has no on-demand path this pass —
+// specMatchesMimeType naturally 400s it, since no VariantSpec kind targets
+// application/pdf. requestVariant (lib/variants.ts) is the same helper
+// v1.ts's public POST .../variants route uses.
 assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate, async (c) => {
 	const { orgId, projectId, assetId } = c.req.param();
 	const project = await requireProject(orgId, projectId);
@@ -551,61 +543,10 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/variants", ...gate
 
 	const parsed = requestVariantSchema.safeParse(await c.req.json().catch(() => null));
 	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
-	const { spec } = parsed.data;
 
-	if (!specMatchesMimeType(spec, original.mimeType)) {
-		return c.json({ error: "This variant type doesn't apply to this asset's file type" }, 400);
-	}
-	// Same read as the file itself — nothing to generate or cache.
-	if (
-		spec.kind === "image-format" &&
-		spec.format === "original" &&
-		spec.maxDimension === "original"
-	) {
-		return c.json(
-			{ error: "That combination is just the original file — download it directly" },
-			400,
-		);
-	}
-
-	const specKey = computeSpecKey(spec);
-	const db = getDb();
-	const cached = await findCachedVariant(db, assetId, specKey);
-	if (cached && cached.status !== "failed") {
-		return c.json({ asset: cached }, cached.status === "ready" ? 200 : 202);
-	}
-
-	const variantId = crypto.randomUUID();
-	const { filename, mimeType } = outputForSpec(spec, original.filename, original.mimeType);
-	const key = buildAssetKey(projectId, variantId, filename);
-	await db.insert(assets).values({
-		id: variantId,
-		projectId,
-		folderId: original.folderId,
-		filename,
-		mimeType,
-		s3Path: key,
-		parentAssetId: assetId,
-		status: "processing",
-		metadata: { variant: "on-demand", specKey },
-	});
-
-	// Guaranteed non-null: specMatchesMimeType already ruled out any
-	// mimetype (like application/pdf) that queueForMimeType routes to null.
-	const queueName = queueForMimeType(original.mimeType);
-	if (!queueName) throw new Error(`No processing queue for mimetype ${original.mimeType}`);
-	const jobData = {
-		assetId,
-		projectId,
-		s3Path: original.s3Path,
-		mimeType: original.mimeType,
-		requestedVariant: { variantAssetId: variantId, spec },
-	};
-	const dispatched = await tryDispatchToComputeDestination(queueName, "variant", jobData);
-	if (!dispatched) await getQueue(queueName).add("variant", jobData, PROCESSING_JOB_OPTS);
-
-	const created = await requireAsset(projectId, variantId);
-	return c.json({ asset: created }, 202);
+	const result = await requestVariant(project, original, parsed.data.spec);
+	if (!result.ok) return c.json({ error: result.error }, result.status);
+	return c.json({ asset: result.asset }, result.created ? 202 : result.asset.status === "ready" ? 200 : 202);
 });
 
 assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/trash", ...gate, async (c) => {

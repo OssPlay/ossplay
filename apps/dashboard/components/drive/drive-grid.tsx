@@ -9,10 +9,12 @@ import type { DriveSelection } from "@/hooks/use-drive-selection";
 import { openContextMenu } from "@/lib/open-context-menu";
 import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
+import { AddSubtitleDialog } from "./add-subtitle-dialog";
 import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
 import { AssetDetailsPanel } from "./asset-details-panel";
 import { CopyLinkDialog } from "./copy-link-dialog";
 import { DownloadAsDialog } from "./download-as-dialog";
+import { EmbedDialog } from "./embed-dialog";
 import { FolderContextMenuContent } from "./folder-context-menu";
 import { RenameDialog } from "./rename-dialog";
 
@@ -54,6 +56,8 @@ export function DriveGrid({
 	const [downloadAsTarget, setDownloadAsTarget] = useState<DriveAsset | null>(null);
 	const [copyLinkTarget, setCopyLinkTarget] = useState<DriveAsset | null>(null);
 	const [detailsTarget, setDetailsTarget] = useState<DriveAsset | null>(null);
+	const [embedTarget, setEmbedTarget] = useState<DriveAsset | null>(null);
+	const [addSubtitleTarget, setAddSubtitleTarget] = useState<DriveAsset | null>(null);
 
 	const {
 		base,
@@ -238,6 +242,8 @@ export function DriveGrid({
 								onDownloadAs={() => setDownloadAsTarget(asset)}
 								onCopyLink={() => handleCopyLink(asset)}
 								onDetails={() => setDetailsTarget(asset)}
+								onEmbed={() => setEmbedTarget(asset)}
+								onAddSubtitle={() => setAddSubtitleTarget(asset)}
 								onDuplicate={() => duplicateAssetAndRefresh(asset.id)}
 								onMoveTo={onMoveTo}
 								onTrash={() => trashAssetAndRefresh(asset.id)}
@@ -305,6 +311,32 @@ export function DriveGrid({
 					onOpenChange={(open) => {
 						if (!open) setDetailsTarget(null);
 					}}
+				/>
+			)}
+
+			{embedTarget && (
+				<EmbedDialog
+					orgId={orgId}
+					projectId={projectId}
+					projectVisibility={projectVisibility}
+					asset={embedTarget}
+					open={Boolean(embedTarget)}
+					onOpenChange={(open) => {
+						if (!open) setEmbedTarget(null);
+					}}
+				/>
+			)}
+
+			{addSubtitleTarget && (
+				<AddSubtitleDialog
+					orgId={orgId}
+					projectId={projectId}
+					asset={addSubtitleTarget}
+					open={Boolean(addSubtitleTarget)}
+					onOpenChange={(open) => {
+						if (!open) setAddSubtitleTarget(null);
+					}}
+					onAdded={onRefresh}
 				/>
 			)}
 		</div>

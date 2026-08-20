@@ -16,6 +16,11 @@ const ALWAYS_PUBLIC_PREFIXES = [
 	"/reset-password",
 	"/login/2fa",
 	"/statics/",
+	// The video embed player — an anonymous third-party page's <iframe>
+	// visitor never has a dashboard session (and shouldn't need one; access
+	// is controlled by the asset's own visibility/share-token, checked by
+	// the /v1 routes the page itself calls, not by a login gate here).
+	"/embed/",
 ];
 const AUTH_PAGES = ["/setup", "/login"];
 const ONBOARDING_PREFIX = "/onboarding";

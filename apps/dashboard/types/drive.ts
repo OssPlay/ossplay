@@ -53,7 +53,7 @@ export type VariantSpec =
 			format: "webp" | "avif" | "jpeg" | "png" | "original";
 			maxDimension: 1024 | 2048 | 4096 | "original";
 	  }
-	| { kind: "video-transcode"; height: 480 | 720 | 1080 }
+	| { kind: "video-transcode"; height: 480 | 720 | 1080; format: "mp4" | "webm" }
 	| { kind: "audio-transcode"; bitrate: "96k" | "128k" | "192k" | "320k" };
 
 export interface DriveActivityEntry {

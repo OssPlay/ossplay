@@ -7,7 +7,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatBytes } from "@/lib/format-bytes";
 import { cn, formatDatetime } from "@/lib/utils";
-import { BITRATE_LABELS, FORMAT_LABELS, HEIGHT_LABELS, SIZE_LABELS } from "@/lib/variant-labels";
+import {
+	BITRATE_LABELS,
+	FORMAT_LABELS,
+	HEIGHT_LABELS,
+	SIZE_LABELS,
+	VIDEO_FORMAT_LABELS,
+} from "@/lib/variant-labels";
 import type { DriveActivityEntry, DriveAsset } from "@/types/drive";
 
 type Tab = "details" | "variants" | "activity";
@@ -30,9 +36,12 @@ function labelForSpecKey(specKey: string): string {
 		const quality = q === "default" ? "" : ` q${q}`;
 		return `${format}${dims}${quality}`.trim();
 	}
-	if (specKey.endsWith("p-mp4")) {
-		const height = specKey.replace("p-mp4", "");
-		return HEIGHT_LABELS[height] ? `${HEIGHT_LABELS[height]} video` : specKey;
+	const video = specKey.match(/^(\d+)p-(mp4|webm)$/);
+	if (video) {
+		const [, height, videoFormat] = video;
+		return HEIGHT_LABELS[height ?? ""]
+			? `${HEIGHT_LABELS[height ?? ""]} ${VIDEO_FORMAT_LABELS[videoFormat ?? ""] ?? videoFormat}`
+			: specKey;
 	}
 	if (specKey.endsWith("-mp3")) {
 		const bitrate = specKey.replace("-mp3", "");
@@ -157,9 +166,11 @@ export function AssetDetailsPanel({
 											<span className="truncate text-sm">
 												{variant.metadata?.variant === "thumbnail"
 													? "Thumbnail"
-													: variant.metadata?.specKey
-														? labelForSpecKey(variant.metadata.specKey)
-														: variant.filename}
+													: variant.metadata?.variant === "subtitle"
+														? `Subtitle: ${String(variant.metadata.label ?? variant.metadata.language ?? "")}`
+														: variant.metadata?.specKey
+															? labelForSpecKey(variant.metadata.specKey)
+															: variant.filename}
 											</span>
 											<span className="text-xs text-muted-foreground">
 												{variant.size != null ? formatBytes(variant.size) : "—"} · {variant.status}

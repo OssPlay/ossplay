@@ -14,10 +14,14 @@ import {
 	tryDispatchToComputeDestination,
 } from "@ossplay/core";
 import { type Asset, assetShareLinks, assets, folders, getDb } from "@ossplay/db";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { Hono, type Context } from "hono";
+import { z } from "zod";
 import { hashToken } from "../lib/auth/tokens";
+import { getPublicUrl } from "../lib/auth/request-info";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
+import { mintAssetShareLink } from "../lib/share-links";
+import { listVariants, requestVariant, variantSpecSchema } from "../lib/variants";
 import { requireApiKey, verifyProjectApiKey } from "../middleware/require-api-key";
 import type { AppEnv } from "../types";
 
@@ -31,22 +35,33 @@ import type { AppEnv } from "../types";
 // visibility policy (a public project needs no key to read).
 export const v1Route = new Hono<AppEnv>();
 
-// A dashboard-issued "Copy link" grant for one private asset (see
+// A dashboard-issued "Copy link"/embed grant for one asset (see
 // packages/db/src/share-link.schema.ts) — checked as a second fallback
 // alongside a full project API key, so a share link reuses this route's
 // entire existing serving logic (local-disk streaming, S3 redirect,
-// disposition, transforms) instead of a parallel code path.
-async function verifyAssetShareToken(c: Context<AppEnv>, assetId: string): Promise<boolean> {
+// disposition, transforms) instead of a parallel code path. Matches the
+// token against *either* the requested asset's own id or its parent's —
+// a share link is always minted for an original (see assets.ts's POST
+// .../share-links and v1.ts's POST .../embed-token), so without the parent
+// fallback, fetching one of that original's own variants/thumbnails/
+// subtitles directly (their `:item` id differs from the original's) would
+// 401 even with a valid token for the original itself.
+async function verifyAssetShareToken(
+	c: Context<AppEnv>,
+	assetId: string,
+	parentAssetId?: string | null,
+): Promise<boolean> {
 	const presented = c.req.query("share");
 	if (!presented) return false;
 	const hash = await hashToken(presented);
+	const candidateIds = parentAssetId ? [assetId, parentAssetId] : [assetId];
 	const [link] = await getDb()
 		.select({ id: assetShareLinks.id })
 		.from(assetShareLinks)
 		.where(
 			and(
 				eq(assetShareLinks.id, hash),
-				eq(assetShareLinks.assetId, assetId),
+				inArray(assetShareLinks.assetId, candidateIds),
 				gt(assetShareLinks.expiresAt, new Date()),
 			),
 		);
@@ -62,9 +77,10 @@ async function authorizeRead(
 	projectId: string,
 	visibility: "public" | "private",
 	assetId?: string,
+	parentAssetId?: string | null,
 ): Promise<boolean> {
 	if (visibility === "public") return true;
-	if (assetId && (await verifyAssetShareToken(c, assetId))) return true;
+	if (assetId && (await verifyAssetShareToken(c, assetId, parentAssetId))) return true;
 	return verifyProjectApiKey(c, projectId);
 }
 
@@ -359,7 +375,7 @@ v1Route.get("/:project/:item", async (c) => {
 		.from(assets)
 		.where(and(eq(assets.id, assetId), eq(assets.projectId, projectId)));
 	if (!asset || asset.deletedAt) return c.json({ error: "Asset not found" }, 404);
-	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId, asset.parentAssetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
@@ -397,4 +413,87 @@ v1Route.delete("/:project/:assetId", requireApiKey, async (c) => {
 	// that already asked to delete needs a second stage for.
 	await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: assetId });
 	return c.body(null, 204);
+});
+
+async function requireV1Asset(projectId: string, assetId: string): Promise<Asset | null> {
+	const [asset] = await getDb()
+		.select()
+		.from(assets)
+		.where(and(eq(assets.id, assetId), eq(assets.projectId, projectId)));
+	return asset && !asset.deletedAt ? asset : null;
+}
+
+// Same on-demand conversion flow assets.ts's session-authed POST
+// .../variants uses (requestVariant, lib/variants.ts) — exposed here too so
+// an SDK caller (project API key, no dashboard session) and the embed
+// player (a share token, no session either) can both request a specific
+// rendition, not just a logged-in dashboard user.
+v1Route.post("/:project/:assetId/variants", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const original = await requireV1Asset(projectId, assetId);
+	if (!original) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	const parsed = z
+		.object({ spec: variantSpecSchema })
+		.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+	const result = await requestVariant(project, original, parsed.data.spec);
+	if (!result.ok) return c.json({ error: result.error }, result.status);
+	return c.json(
+		{ asset: result.asset },
+		result.created ? 202 : result.asset.status === "ready" ? 200 : 202,
+	);
+});
+
+v1Route.get("/:project/:assetId/variants", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const asset = await requireV1Asset(projectId, assetId);
+	if (!asset) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	return c.json({ variants: await listVariants(assetId) });
+});
+
+const embedTokenSchema = z.object({ duration: z.enum(["1h", "1d", "7d", "30d"]).default("30d") });
+
+// Returns the ready-to-use embed player URL (apps/dashboard's /embed/:id) —
+// a public project's video needs no token at all, same as every other
+// public-project read; a private one requires proving project-level access
+// (a real API key, never a share token — minting a fresh long-lived grant
+// from an existing short-lived one would let a temporary read grant
+// escalate into an indefinite one) before minting the share link
+// (mintAssetShareLink, lib/share-links.ts — the same grant the dashboard's
+// "Copy link"/Embed dialog use) that makes the private embed URL work.
+v1Route.post("/:project/:assetId/embed-token", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const asset = await requireV1Asset(projectId, assetId);
+	if (!asset) return c.json({ error: "Asset not found" }, 404);
+
+	const embedUrl = `${getPublicUrl(c)}/embed/${projectId}/${assetId}`;
+	if (project.visibility === "public") {
+		return c.json({ url: embedUrl });
+	}
+
+	if (!(await verifyProjectApiKey(c, projectId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+	const parsed = embedTokenSchema.safeParse(await c.req.json().catch(() => ({})));
+	if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+	const { secret } = await mintAssetShareLink(assetId, parsed.data.duration, null);
+	return c.json({ url: `${embedUrl}?share=${secret}` });
 });

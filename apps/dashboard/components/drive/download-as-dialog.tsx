@@ -18,7 +18,13 @@ import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/com
 import { useAction } from "@/hooks/use-action";
 import { usePolledAsset } from "@/hooks/use-polled-asset";
 import { apiFetch, errorMessage } from "@/lib/api";
-import { BITRATE_LABELS, FORMAT_LABELS, HEIGHT_LABELS, SIZE_LABELS } from "@/lib/variant-labels";
+import {
+	BITRATE_LABELS,
+	FORMAT_LABELS,
+	HEIGHT_LABELS,
+	SIZE_LABELS,
+	VIDEO_FORMAT_LABELS,
+} from "@/lib/variant-labels";
 import type { DriveAsset, VariantSpec } from "@/types/drive";
 
 type Family = "image" | "video" | "audio";
@@ -35,6 +41,7 @@ function specFromSelection(
 	format: string,
 	size: string,
 	height: string,
+	videoFormat: string,
 	bitrate: string,
 ): VariantSpec {
 	if (family === "image") {
@@ -45,7 +52,11 @@ function specFromSelection(
 		};
 	}
 	if (family === "video") {
-		return { kind: "video-transcode", height: Number(height) as 480 | 720 | 1080 };
+		return {
+			kind: "video-transcode",
+			height: Number(height) as 480 | 720 | 1080,
+			format: videoFormat as "mp4" | "webm",
+		};
 	}
 	return { kind: "audio-transcode", bitrate: bitrate as "96k" | "128k" | "192k" | "320k" };
 }
@@ -77,6 +88,7 @@ export function DownloadAsDialog({
 	const [format, setFormat] = useState("webp");
 	const [size, setSize] = useState("2048");
 	const [height, setHeight] = useState("720");
+	const [videoFormat, setVideoFormat] = useState("mp4");
 	const [bitrate, setBitrate] = useState("192k");
 	const [requestedAssetId, setRequestedAssetId] = useState<string | null>(null);
 	const transfer = useTransfer();
@@ -128,7 +140,7 @@ export function DownloadAsDialog({
 	async function handlePrepare() {
 		try {
 			const { asset: created } = await request.trigger(
-				specFromSelection(family as Family, format, size, height, bitrate),
+				specFromSelection(family as Family, format, size, height, videoFormat, bitrate),
 			);
 			setRequestedAssetId(created.id);
 			// A retry after a failed conversion re-runs this from scratch — reset
@@ -213,21 +225,38 @@ export function DownloadAsDialog({
 						</>
 					)}
 					{family === "video" && (
-						<div className="flex flex-col gap-1.5">
-							<Label>Resolution</Label>
-							<Select value={height} onValueChange={(v) => setHeight(String(v))}>
-								<SelectTrigger className="w-full">
-									<SelectValue items={HEIGHT_LABELS} />
-								</SelectTrigger>
-								<SelectContent>
-									{Object.keys(HEIGHT_LABELS).map((key) => (
-										<SelectItem key={key} value={key}>
-											{HEIGHT_LABELS[key]}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
+						<>
+							<div className="flex flex-col gap-1.5">
+								<Label>Format</Label>
+								<Select value={videoFormat} onValueChange={(v) => setVideoFormat(String(v))}>
+									<SelectTrigger className="w-full">
+										<SelectValue items={VIDEO_FORMAT_LABELS} />
+									</SelectTrigger>
+									<SelectContent>
+										{Object.keys(VIDEO_FORMAT_LABELS).map((key) => (
+											<SelectItem key={key} value={key}>
+												{VIDEO_FORMAT_LABELS[key]}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Label>Resolution</Label>
+								<Select value={height} onValueChange={(v) => setHeight(String(v))}>
+									<SelectTrigger className="w-full">
+										<SelectValue items={HEIGHT_LABELS} />
+									</SelectTrigger>
+									<SelectContent>
+										{Object.keys(HEIGHT_LABELS).map((key) => (
+											<SelectItem key={key} value={key}>
+												{HEIGHT_LABELS[key]}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						</>
 					)}
 					{family === "audio" && (
 						<div className="flex flex-col gap-1.5">
