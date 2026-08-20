@@ -497,3 +497,168 @@ v1Route.post("/:project/:assetId/embed-token", async (c) => {
 	const { secret } = await mintAssetShareLink(assetId, parsed.data.duration, null);
 	return c.json({ url: `${embedUrl}?share=${secret}` });
 });
+
+// --- On-demand HLS manifest + segment serving -----------------------------
+// Keyed by the ORIGINAL video's assetId everywhere below (never the internal
+// hls-package asset's own id) so a caller only ever needs the one id it
+// already has from GET .../variants, same as every other route in this file.
+
+const HLS_MIME = "application/vnd.apple.mpegurl";
+
+function shareQuery(c: Context<AppEnv>): string {
+	const share = c.req.query("share");
+	return share ? `share=${share}` : "";
+}
+
+// A relative-URI HLS playlist, fetched with ?share=xyz, does NOT propagate
+// that query string to its own relative sub-requests — a browser/hls.js
+// resolving a relative URI against a base URL drops the base's query,
+// keeping only the path. Without this, a private video's rung-playlist and
+// segment requests would silently lose the share token and 401.
+function appendQueryToUris(text: string, query: string): string {
+	if (!query) return text;
+	return text
+		.split("\n")
+		.map((line) => (line && !line.startsWith("#") ? `${line}?${query}` : line))
+		.join("\n");
+}
+
+// Injects EXT-X-MEDIA subtitle groups + a SUBTITLES attribute on every
+// EXT-X-STREAM-INF line at serve time, not baked into the stored master
+// playlist — subtitles can be attached after the HLS package already
+// exists, and this keeps them showing up without repackaging video.
+function injectSubtitleGroup(masterText: string, subtitles: Asset[], query: string): string {
+	if (subtitles.length === 0) return masterText;
+	const mediaLines = subtitles.map((sub) => {
+		const label = typeof sub.metadata?.label === "string" ? sub.metadata.label : "Subtitles";
+		const language = typeof sub.metadata?.language === "string" ? sub.metadata.language : "en";
+		const uri = `subs/${sub.id}.m3u8${query ? `?${query}` : ""}`;
+		return `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${label}",LANGUAGE="${language}",URI="${uri}",AUTOSELECT=YES`;
+	});
+	const withGroups = masterText.replace(
+		"#EXT-X-VERSION:3\n",
+		`#EXT-X-VERSION:3\n${mediaLines.join("\n")}\n`,
+	);
+	return withGroups.replace(/^#EXT-X-STREAM-INF:(.*)$/gm, `#EXT-X-STREAM-INF:$1,SUBTITLES="subs"`);
+}
+
+async function resolveHlsPackage(
+	projectId: string,
+	assetId: string,
+): Promise<{ original: Asset; pkg: Asset } | null> {
+	const original = await requireV1Asset(projectId, assetId);
+	if (!original) return null;
+	const variants = await listVariants(assetId);
+	const pkg = variants.find((v) => v.metadata?.specKey === "hls" && v.status === "ready");
+	return pkg ? { original, pkg } : null;
+}
+
+// Mirrors respondWithAsset's local-disk-stream vs S3-redirect-to-presigned-
+// URL split exactly, just against a constructed key instead of an asset
+// row's own s3Path (an HLS segment has no `assets` row of its own).
+async function respondWithHlsFile(
+	c: Context<AppEnv>,
+	project: ProjectWithDestination,
+	key: string,
+	mimeType: string,
+): Promise<Response> {
+	const storage = resolveStorageDriver(project);
+	if (storage instanceof LocalDiskStorage) {
+		const stream = await storage.readObject(key);
+		if (!stream) return c.json({ error: "File not found in storage" }, 404);
+		return new Response(stream, { headers: { "content-type": mimeType } });
+	}
+	const url = storage.createDownloadUrl(key, { static: shouldServeStatic(project, mimeType) });
+	return c.redirect(url, 302);
+}
+
+v1Route.get("/:project/:assetId/hls/master.m3u8", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const resolved = await resolveHlsPackage(projectId, assetId);
+	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	const storage = resolveStorageDriver(project);
+	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/master.m3u8`);
+	const text = new TextDecoder().decode(bytes);
+	const query = shareQuery(c);
+	const subtitles = (await listVariants(assetId)).filter(
+		(v) => v.metadata?.variant === "subtitle" && v.status === "ready",
+	);
+	const rewritten = appendQueryToUris(injectSubtitleGroup(text, subtitles, query), query);
+	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
+});
+
+// Per the HLS spec, an EXT-X-MEDIA subtitle URI must point at a
+// sub-playlist wrapping the WebVTT file as a single "segment," not the raw
+// .vtt directly — generated on the fly here, its one EXTINF line reusing
+// the existing, unmodified asset content route (no new subtitle-serving
+// code needed).
+v1Route.get("/:project/:assetId/hls/subs/:subtitleAssetId", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const subtitleAssetId = parseItemParam(c.req.param("subtitleAssetId"));
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const original = await requireV1Asset(projectId, assetId);
+	if (!original) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	const query = shareQuery(c);
+	const durationSeconds =
+		typeof original.metadata?.durationSeconds === "number" ? original.metadata.durationSeconds : 36000;
+	const vttUrl = `/api/v1/${projectId}/${subtitleAssetId}${query ? `?${query}` : ""}`;
+	const playlist = [
+		"#EXTM3U",
+		"#EXT-X-VERSION:3",
+		`#EXT-X-TARGETDURATION:${Math.ceil(durationSeconds)}`,
+		"#EXT-X-MEDIA-SEQUENCE:0",
+		"#EXT-X-PLAYLIST-TYPE:VOD",
+		`#EXTINF:${durationSeconds},`,
+		vttUrl,
+		"#EXT-X-ENDLIST",
+		"",
+	].join("\n");
+	return new Response(playlist, { headers: { "content-type": HLS_MIME } });
+});
+
+v1Route.get("/:project/:assetId/hls/:rung/index.m3u8", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const rung = c.req.param("rung");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const resolved = await resolveHlsPackage(projectId, assetId);
+	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	const storage = resolveStorageDriver(project);
+	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/${rung}/index.m3u8`);
+	const rewritten = appendQueryToUris(new TextDecoder().decode(bytes), shareQuery(c));
+	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
+});
+
+v1Route.get("/:project/:assetId/hls/:rung/:segment", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const rung = c.req.param("rung");
+	const segment = c.req.param("segment");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const resolved = await resolveHlsPackage(projectId, assetId);
+	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	return respondWithHlsFile(c, project, `${resolved.pkg.s3Path}/${rung}/${segment}`, "video/mp2t");
+});

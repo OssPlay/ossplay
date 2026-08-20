@@ -8,6 +8,14 @@ export function buildAssetKey(projectId: string, assetId: string, originalFilena
 	return `${projectId}/${assetId}${extname(originalFilename)}`;
 }
 
+// An HLS package is many small files (master playlist, per-rendition
+// playlists, segments) under one prefix, not a single blob at one key —
+// every file is stored/served relative to this prefix instead of a single
+// buildAssetKey extension.
+export function buildHlsPrefix(projectId: string, assetId: string): string {
+	return `${projectId}/${assetId}-hls`;
+}
+
 // Small, closed mapping — not a general mime-database dependency — covering
 // the formats this app's own pipelines actually produce (jobs.ts's
 // VariantSpec) plus the handful of common originals users upload. Used by

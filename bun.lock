@@ -39,6 +39,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@base-ui/react": "^1.6.0",
+        "@ossplay/player": "file:../../../player-js/packages/react/ossplay-player-0.1.0.tgz",
         "@simplewebauthn/browser": "^13.3.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -496,6 +497,8 @@
     "@ossplay/jobs": ["@ossplay/jobs@workspace:apps/jobs"],
 
     "@ossplay/mail": ["@ossplay/mail@workspace:packages/mail"],
+
+    "@ossplay/player": ["@ossplay/player@../../../player-js/packages/react/ossplay-player-0.1.0.tgz", { "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-DUgJmKksoraXLQT5WkBInMJbwyfy3qlJl2JCSNolYfsTGyO2zbN7GmuvDwqvyp9VaJgrL9w6myr7sKK89xWFCA=="],
 
     "@ossplay/templates": ["@ossplay/templates@workspace:apps/templates"],
 

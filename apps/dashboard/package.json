@@ -11,6 +11,7 @@
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.6.0",
+		"@ossplay/player": "file:../../../player-js/packages/react/ossplay-player-0.1.0.tgz",
 		"@simplewebauthn/browser": "^13.3.0",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",

@@ -60,6 +60,32 @@ export async function finalizeVariant(
 		.where(eq(assets.id, variantAssetId));
 }
 
+// The hls-package counterpart to finalizeVariant: an HLS package is many
+// small files (master playlist, per-rendition playlists, segments) instead
+// of one blob, so each gets uploaded to its own key under the placeholder
+// row's s3Path (already an HLS prefix, not a single-file key — see
+// buildHlsPrefix). `size` is the sum of every file, not just the manifest,
+// so storage-usage reporting stays accurate.
+export async function finalizeHlsVariant(
+	variantAssetId: string,
+	storage: StorageDriver,
+	files: { relativePath: string; data: Uint8Array; mimeType: string }[],
+): Promise<void> {
+	const [existing] = await getDb().select().from(assets).where(eq(assets.id, variantAssetId));
+	if (!existing) throw new Error(`Variant asset ${variantAssetId} not found`);
+	let totalSize = 0;
+	for (const file of files) {
+		await storage.uploadObject(`${existing.s3Path}/${file.relativePath}`, file.data, {
+			mimeType: file.mimeType,
+		});
+		totalSize += file.data.byteLength;
+	}
+	await getDb()
+		.update(assets)
+		.set({ size: totalSize, status: "ready" })
+		.where(eq(assets.id, variantAssetId));
+}
+
 export async function markAssetStatus(
 	assetId: string,
 	status: "ready" | "failed",

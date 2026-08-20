@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	getProjectWithDestination,
 	resolveStorageDriver,
+	type StorageDriver,
 	type VideoProcessingJob,
 } from "@ossplay/core";
 import { assets, getDb } from "@ossplay/db";
@@ -13,11 +14,18 @@ import sharp from "sharp";
 import {
 	createVariant,
 	ffprobeJson,
+	finalizeHlsVariant,
 	finalizeVariant,
 	markAssetStatus,
 	parseFrameRate,
 } from "./shared";
 import { run } from "./spawn";
+
+// The rendition ladder for on-demand HLS packaging — filtered down to
+// heights at or below the source's own resolution at package time (never
+// upscale), same fixed-tier philosophy as VariantSpec's video-transcode
+// heights.
+const HLS_RUNGS = [1080, 720, 480, 360] as const;
 
 // Upload-time processing is thumbnail-only by design (see the plan's
 // per-mimetype variant matrix) — the eager HLS packaging this used to do
@@ -46,6 +54,10 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 		await writeFile(inputPath, bytes);
 
 		if (requestedVariant) {
+			if (requestedVariant.spec.kind === "hls-package") {
+				await packageHls(inputPath, workDir, requestedVariant.variantAssetId, storage);
+				return;
+			}
 			if (requestedVariant.spec.kind !== "video-transcode") {
 				throw new Error(`Unexpected variant kind for video asset: ${requestedVariant.spec.kind}`);
 			}
@@ -152,6 +164,105 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 	} finally {
 		await rm(workDir, { force: true, recursive: true });
 	}
+}
+
+// Encodes an HLS rendition ladder + master playlist and hands every file
+// (master + each rung's playlist + segments) to finalizeHlsVariant in one
+// batch — see MEMORY.md/the plan doc for why this is generated on-demand
+// (first real request through the adaptive player) rather than eagerly.
+async function packageHls(
+	inputPath: string,
+	workDir: string,
+	variantAssetId: string,
+	storage: StorageDriver,
+): Promise<void> {
+	const probe = await ffprobeJson(inputPath);
+	const videoStream = probe.streams?.find((s) => s.codec_type === "video");
+	const sourceHeight = videoStream?.height ?? 1080;
+	const aspect =
+		videoStream?.width && videoStream?.height ? videoStream.width / videoStream.height : 16 / 9;
+
+	const ladder: number[] = HLS_RUNGS.filter((h) => h <= sourceHeight);
+	if (ladder.length === 0) ladder.push(sourceHeight);
+
+	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [];
+	const streamInfLines: string[] = [];
+
+	for (const height of ladder) {
+		const rungDir = join(workDir, `${height}p`);
+		await mkdir(rungDir, { recursive: true });
+		// Forced keyframe interval (-g/-sc_threshold 0) keeps segment
+		// boundaries fixed at exactly hls_time regardless of scene cuts —
+		// without it, ffmpeg's default GOP placement drifts, which breaks
+		// strict HLS clients expecting uniform segment durations.
+		await run("ffmpeg", [
+			"-y",
+			"-i",
+			inputPath,
+			"-vf",
+			`scale=-2:min(${height}\\,ih)`,
+			"-c:v",
+			"libx264",
+			"-preset",
+			"veryfast",
+			"-crf",
+			"23",
+			"-g",
+			"48",
+			"-keyint_min",
+			"48",
+			"-sc_threshold",
+			"0",
+			"-c:a",
+			"aac",
+			"-b:a",
+			"128k",
+			"-hls_time",
+			"6",
+			"-hls_playlist_type",
+			"vod",
+			"-hls_segment_filename",
+			join(rungDir, "seg%05d.ts"),
+			join(rungDir, "index.m3u8"),
+		]);
+
+		const entries = await readdir(rungDir);
+		const segmentFiles = entries.filter((f) => f.endsWith(".ts")).sort();
+		let rungBytes = 0;
+		for (const seg of segmentFiles) {
+			const data = await readFile(join(rungDir, seg));
+			rungBytes += data.byteLength;
+			files.push({ relativePath: `${height}p/${seg}`, data: new Uint8Array(data), mimeType: "video/mp2t" });
+		}
+		const playlistText = await readFile(join(rungDir, "index.m3u8"), "utf8");
+		files.push({
+			relativePath: `${height}p/index.m3u8`,
+			data: new TextEncoder().encode(playlistText),
+			mimeType: "application/vnd.apple.mpegurl",
+		});
+
+		const durationSeconds = probe.format?.duration ? Number.parseFloat(probe.format.duration) : null;
+		// A real measured bitrate from the actual encoded output, not a
+		// guessed constant — falls back only if duration couldn't be probed.
+		const bandwidth =
+			durationSeconds && durationSeconds > 0 ? Math.round((rungBytes * 8) / durationSeconds) : 2_000_000;
+		const width = Math.round((aspect * height) / 2) * 2;
+		streamInfLines.push(
+			`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}\n${height}p/index.m3u8`,
+		);
+	}
+
+	// ffmpeg only produces each rung's own playlist — the master referencing
+	// all of them is assembled here since the rungs were encoded as separate
+	// invocations, not one multi-output ffmpeg call.
+	const masterText = `#EXTM3U\n#EXT-X-VERSION:3\n${streamInfLines.join("\n")}\n`;
+	files.push({
+		relativePath: "master.m3u8",
+		data: new TextEncoder().encode(masterText),
+		mimeType: "application/vnd.apple.mpegurl",
+	});
+
+	await finalizeHlsVariant(variantAssetId, storage, files);
 }
 
 function replaceExt(filename: string, ext: string, suffix = ""): string {

@@ -1,5 +1,6 @@
 import {
 	buildAssetKey,
+	buildHlsPrefix,
 	computeSpecKey,
 	findCachedVariant,
 	type ProjectWithDestination,
@@ -30,6 +31,7 @@ export const variantSpecSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("audio-transcode"),
 		bitrate: z.enum(["96k", "128k", "192k", "320k"]),
 	}),
+	z.object({ kind: z.literal("hls-package") }),
 ]);
 
 // mimeType/filename the placeholder row gets — must match what each worker
@@ -50,6 +52,8 @@ function outputForSpec(spec: VariantSpec, originalFilename: string, originalMime
 			};
 		case "audio-transcode":
 			return { filename: `${base}.mp3`, mimeType: "audio/mpeg" };
+		case "hls-package":
+			return { filename: `${base}.m3u8`, mimeType: "application/vnd.apple.mpegurl" };
 	}
 }
 
@@ -58,7 +62,9 @@ function outputForSpec(spec: VariantSpec, originalFilename: string, originalMime
 // client bug, not a 404/500.
 export function specMatchesMimeType(spec: VariantSpec, mimeType: string): boolean {
 	if (spec.kind === "image-format") return mimeType.startsWith("image/");
-	if (spec.kind === "video-transcode") return mimeType.startsWith("video/");
+	if (spec.kind === "video-transcode" || spec.kind === "hls-package") {
+		return mimeType.startsWith("video/");
+	}
 	return mimeType.startsWith("audio/");
 }
 
@@ -99,7 +105,12 @@ export async function requestVariant(
 
 	const variantId = crypto.randomUUID();
 	const { filename, mimeType } = outputForSpec(spec, original.filename, original.mimeType);
-	const key = buildAssetKey(project.id, variantId, filename);
+	// hls-package has no single output file — every rendition's playlist and
+	// segments live under this prefix instead (see buildHlsPrefix's comment).
+	const key =
+		spec.kind === "hls-package"
+			? buildHlsPrefix(project.id, variantId)
+			: buildAssetKey(project.id, variantId, filename);
 	await db.insert(assets).values({
 		id: variantId,
 		projectId: project.id,

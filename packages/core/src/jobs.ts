@@ -57,7 +57,14 @@ export type VariantSpec =
 			maxDimension: 1024 | 2048 | 4096 | "original";
 	  }
 	| { kind: "video-transcode"; height: 480 | 720 | 1080; format: "mp4" | "webm" }
-	| { kind: "audio-transcode"; bitrate: "96k" | "128k" | "192k" | "320k" };
+	| { kind: "audio-transcode"; bitrate: "96k" | "128k" | "192k" | "320k" }
+	// On-demand HLS packaging (segments + multi-rendition manifest) for real
+	// adaptive-bitrate playback in the embed player (2026-08-20) — no fields,
+	// since the rendition ladder is derived from the source's own resolution
+	// at packaging time, not requested per-call. Still on-demand/cached-once,
+	// same as every other VariantSpec kind — see MEMORY.md for why this
+	// doesn't reverse the 2026-08-10 eager-HLS removal.
+	| { kind: "hls-package" };
 
 // Canonical cache key for a spec — two different requested combos must
 // never collide, and the same combo requested twice must always produce
@@ -72,6 +79,8 @@ export function computeSpecKey(spec: VariantSpec): string {
 			return `${spec.height}p-${spec.format}`;
 		case "audio-transcode":
 			return `${spec.bitrate}-mp3`;
+		case "hls-package":
+			return "hls";
 	}
 }
 
