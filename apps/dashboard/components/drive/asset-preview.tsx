@@ -1,7 +1,7 @@
 "use client";
 
 import "@ossplay/player/styles.css";
-import { VideoPlayer, type VideoPlayerTrack } from "@ossplay/player";
+import { type ScrubThumbnails, VideoPlayer, type VideoPlayerTrack } from "@ossplay/player";
 import {
 	ArrowLeftIcon,
 	ChevronLeftIcon,
@@ -91,8 +91,20 @@ export function AssetPreview({
 	// this and its derived `subtitleTracks` live up here instead, guarding
 	// on `asset` explicitly rather than relying on the early return.
 	const isVideo = asset?.mimeType.startsWith("video/") ?? false;
-	const { data: variantsData } = useSWR<{ variants: DriveAsset[] }>(
+	const { data: variantsData, mutate: mutateVariants } = useSWR<{ variants: DriveAsset[] }>(
 		isVideo && asset ? `${base}/assets/${asset.id}/variants` : null,
+		{
+			// Only polls while actually watching, and only until the seek-bar
+			// preview sprite is done (or fails) — no reason to keep hitting this
+			// endpoint once there's nothing pending, or before playback has even
+			// started (see the scrub-thumbnails request effect below, which is
+			// what puts a "processing" row here in the first place).
+			refreshInterval: (d) => {
+				if (!playing) return 0;
+				const scrub = d?.variants.find((v) => v.metadata?.specKey === "scrub");
+				return scrub && (scrub.status === "ready" || scrub.status === "failed") ? 0 : 1500;
+			},
+		},
 	);
 	const subtitleTracks: VideoPlayerTrack[] = (variantsData?.variants ?? [])
 		.filter((v) => v.metadata?.variant === "subtitle" && v.status === "ready")
@@ -101,6 +113,26 @@ export function AssetPreview({
 			label: String(v.metadata?.label ?? v.metadata?.language ?? "Subtitles"),
 			language: String(v.metadata?.language ?? ""),
 		}));
+	const scrubVariant = variantsData?.variants.find((v) => v.metadata?.specKey === "scrub");
+	const scrubThumbnails = scrubThumbnailsFromVariant(scrubVariant, base);
+
+	// Requested lazily, only once the viewer actually starts playing (not on
+	// every preview open) — same on-demand shape as ConvertedVideoPreview's
+	// video-transcode request below, just for the seek-bar hover sprite
+	// instead of a playable rendition.
+	const scrubRequestedRef = useRef(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: base is derived from orgId/projectId, stable for this component's lifetime; only playing/asset/variantsData deciding whether to fire the one-time request should retrigger this.
+	useEffect(() => {
+		if (!playing || !asset || !isVideo) return;
+		if (!variantsData || scrubVariant || scrubRequestedRef.current) return;
+		scrubRequestedRef.current = true;
+		apiFetch(`${base}/assets/${asset.id}/variants`, {
+			method: "POST",
+			body: JSON.stringify({ spec: { kind: "scrub-thumbnails" } }),
+		})
+			.then(() => mutateVariants())
+			.catch(() => {});
+	}, [playing, asset, isVideo, variantsData, scrubVariant]);
 
 	function navigateTo(id: string) {
 		router.replace(`/project/${projectId}/open?id=${id}`);
@@ -211,6 +243,7 @@ export function AssetPreview({
 					tracks={subtitleTracks}
 					videoWidth={videoWidth}
 					videoHeight={videoHeight}
+					scrubThumbnails={scrubThumbnails}
 					playing={playing}
 					onPlay={() => setPlaying(true)}
 				/>
@@ -245,24 +278,64 @@ export function AssetPreview({
 // worth trading a click for.
 // Sized intrinsically within a max-height/max-width box at the video's OWN
 // aspect ratio — not the package's fixed 16:9 base CSS, which would
-// letterbox or stretch anything that isn't actually 16:9. Both width and
-// height left `auto` with an explicit `aspectRatio` is the standard CSS
-// pattern for "shrink to fit both max bounds, preserving ratio" (this
-// container is a flex child with non-stretch alignment, so `auto` here
-// means "size to content," not "fill the flex line"). Falls back to a
-// fixed height for the rare pre-existing asset with no stored dimensions
-// (uploaded before this metadata was captured).
+// letterbox or stretch anything that isn't actually 16:9.
+//
+// `width: auto` + an explicit `aspectRatio` reads like "shrink to fit both
+// max bounds," but that's only true for a normal in-flow block box. This
+// box is a flex item (of AssetPreview's centering container), and a flex
+// item's `width: auto` resolves via *content-based* sizing (its
+// max-content size), not "fill available space" — so it only reaches the
+// 60vh cap when its content happens to be big enough to exceed it. That's
+// true for the real <video> element once metadata loads (its native
+// resolution), which is why this looked right for the player, but false
+// for the pre-play thumbnail: the generated thumbnail JPEG is downscaled to
+// at most 1024px, so at anything under roughly 576px tall it never hit the
+// cap and just rendered at its own small native size — a visible jump the
+// moment playback swapped it for the full-size player.
+// `calc(60vh * ratio)` computes the width explicitly instead, so both boxes
+// size identically regardless of what's inside them.
 function videoPreviewStyle(width: number | null, height: number | null) {
 	if (width && height) {
 		return {
 			aspectRatio: `${width} / ${height}`,
-			width: "auto",
+			width: `min(100%, calc(60vh * ${width / height}))`,
 			height: "auto",
-			maxWidth: "100%",
 			maxHeight: "60vh",
 		} as const;
 	}
 	return { height: "60vh", width: "auto", maxWidth: "100%" } as const;
+}
+
+// The scrub-thumbnails variant (see apps/worker's packageScrubThumbnails)
+// stores its sprite layout in `metadata` and the sprite image itself as the
+// variant's own content — this just reshapes a ready one into the exact
+// shape @ossplay/player's ProgressBar expects, or `undefined` if it's
+// missing/not-yet-ready/malformed.
+function scrubThumbnailsFromVariant(
+	variant: DriveAsset | undefined,
+	base: string,
+): ScrubThumbnails | undefined {
+	if (variant?.status !== "ready") return undefined;
+	const m = variant.metadata ?? {};
+	if (
+		typeof m.interval !== "number" ||
+		typeof m.columns !== "number" ||
+		typeof m.rows !== "number" ||
+		typeof m.tileWidth !== "number" ||
+		typeof m.tileHeight !== "number" ||
+		typeof m.count !== "number"
+	) {
+		return undefined;
+	}
+	return {
+		src: `/api${base}/assets/${variant.id}/content`,
+		interval: m.interval,
+		columns: m.columns,
+		rows: m.rows,
+		tileWidth: m.tileWidth,
+		tileHeight: m.tileHeight,
+		count: m.count,
+	};
 }
 
 function AssetBody({
@@ -276,6 +349,7 @@ function AssetBody({
 	tracks,
 	videoWidth,
 	videoHeight,
+	scrubThumbnails,
 	playing,
 	onPlay,
 }: {
@@ -289,6 +363,7 @@ function AssetBody({
 	tracks: VideoPlayerTrack[];
 	videoWidth: number | null;
 	videoHeight: number | null;
+	scrubThumbnails: ScrubThumbnails | undefined;
 	playing: boolean;
 	onPlay: () => void;
 }) {
@@ -312,6 +387,7 @@ function AssetBody({
 						<VideoPlayer
 							sources={[{ src: contentUrl, type: mimeType.includes("webm") ? "webm" : "mp4" }]}
 							tracks={tracks}
+							scrubThumbnails={scrubThumbnails}
 							autoPlay
 							style={videoPreviewStyle(videoWidth, videoHeight)}
 						/>
@@ -323,6 +399,7 @@ function AssetBody({
 						projectId={projectId}
 						assetId={assetId}
 						tracks={tracks}
+						scrubThumbnails={scrubThumbnails}
 						videoWidth={videoWidth}
 						videoHeight={videoHeight}
 					/>
@@ -332,24 +409,38 @@ function AssetBody({
 			return <audio src={contentUrl} controls autoPlay className="w-full max-w-md" />;
 		}
 		if (thumbnailUrl) {
+			// Sized with the exact same `videoPreviewStyle` box the player itself
+			// uses once playing starts — matching sizing algorithms here (instead
+			// of this button's own independent Tailwind max-h/max-w) is what
+			// keeps the transition from thumbnail to player from visibly
+			// jumping size the moment playback begins.
 			return (
-				<button
-					type="button"
+				// A plain div, not a <button> — role="button" + tabIndex +
+				// onKeyDown keep it keyboard-operable without the native
+				// element, whose own widget-layout sizing rules fight the
+				// explicit box size videoPreviewStyle computes below.
+				// biome-ignore lint/a11y/useSemanticElements: a real <button> here sizes to its own content regardless of CSS width/height overrides, breaking the aspect-ratio box below — see videoPreviewStyle's comment.
+				<div
+					role="button"
+					tabIndex={0}
 					onClick={onPlay}
-					className="group relative flex max-h-[60vh] max-w-full items-center justify-center"
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") {
+							e.preventDefault();
+							onPlay();
+						}
+					}}
+					className="group relative block cursor-pointer"
+					style={videoPreviewStyle(videoWidth, videoHeight)}
 				>
 					{/* biome-ignore lint/performance/noImgElement: dynamic, arbitrary-origin content */}
-					<img
-						src={thumbnailUrl}
-						alt={filename}
-						className="max-h-[60vh] max-w-full object-contain"
-					/>
+					<img src={thumbnailUrl} alt={filename} className="size-full object-contain" />
 					<span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">
 						<span className="flex size-14 items-center justify-center rounded-full bg-background/90">
 							<PlayIcon className="size-6 translate-x-0.5" />
 						</span>
 					</span>
-				</button>
+				</div>
 			);
 		}
 		return (
@@ -400,6 +491,7 @@ function ConvertedVideoPreview({
 	projectId,
 	assetId,
 	tracks,
+	scrubThumbnails,
 	videoWidth,
 	videoHeight,
 }: {
@@ -407,6 +499,7 @@ function ConvertedVideoPreview({
 	projectId: string;
 	assetId: string;
 	tracks: VideoPlayerTrack[];
+	scrubThumbnails: ScrubThumbnails | undefined;
 	videoWidth: number | null;
 	videoHeight: number | null;
 }) {
@@ -458,6 +551,7 @@ function ConvertedVideoPreview({
 		<VideoPlayer
 			sources={[{ src: `/api${base}/assets/${target.id}/content`, type: "mp4" }]}
 			tracks={tracks}
+			scrubThumbnails={scrubThumbnails}
 			autoPlay
 			style={videoPreviewStyle(videoWidth, videoHeight)}
 		/>

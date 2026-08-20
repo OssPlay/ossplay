@@ -19,6 +19,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
+import { serveLocalDiskAsset } from "../lib/http/serve-asset";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { mintAssetShareLink } from "../lib/share-links";
 import { listVariants, requestVariant, variantSpecSchema } from "../lib/variants";
@@ -291,13 +292,12 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId/content", ...gate, 
 	const storage = resolveStorageDriver(project);
 
 	if (storage instanceof LocalDiskStorage) {
-		const stream = await storage.readObject(asset.s3Path);
-		if (!stream) return c.json({ error: "File not found in storage" }, 404);
-		return new Response(stream, {
-			headers: {
-				"content-type": asset.mimeType,
-				"content-disposition": `${disposition}; filename="${encodeURIComponent(asset.filename)}"`,
-			},
+		return serveLocalDiskAsset(storage, {
+			key: asset.s3Path,
+			mimeType: asset.mimeType,
+			filename: asset.filename,
+			disposition,
+			rangeHeader: c.req.header("range") ?? null,
 		});
 	}
 

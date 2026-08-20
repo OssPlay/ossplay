@@ -34,5 +34,9 @@ export interface StorageDriver {
 // once a presigned URL is issued).
 export interface LocalFileIo {
 	writeObject(key: string, data: ReadableStream | Uint8Array): Promise<void>;
-	readObject(key: string): Promise<ReadableStream | null>;
+	// `range` (inclusive byte bounds) serves just that slice — needed so a
+	// local-disk-backed <video> is actually seekable: without it the browser
+	// has no way to re-fetch an arbitrary byte offset and reports the whole
+	// resource as unseekable regardless of how much is already buffered.
+	readObject(key: string, range?: { start: number; end: number }): Promise<ReadableStream | null>;
 }

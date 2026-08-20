@@ -62,9 +62,18 @@ export class LocalDiskStorage implements StorageDriver, LocalFileIo {
 		await writeFile(path, bytes);
 	}
 
-	async readObject(key: string): Promise<ReadableStream | null> {
+	async readObject(key: string, range?: { start: number; end: number }): Promise<ReadableStream | null> {
+		const path = this.pathFor(key);
+		if (range) {
+			// Bun.file's slice is lazy (no whole-file read) — the right tool for
+			// a byte-range request, unlike readFile below which always loads the
+			// full file into memory.
+			const file = Bun.file(path);
+			if (!(await file.exists())) return null;
+			return file.slice(range.start, range.end + 1).stream();
+		}
 		try {
-			const bytes = await readFile(this.pathFor(key));
+			const bytes = await readFile(path);
 			return new Response(bytes).body;
 		} catch {
 			return null;
