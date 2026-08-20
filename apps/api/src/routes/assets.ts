@@ -388,6 +388,13 @@ assetsRoute.post(
 		if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 		const { language, label, format, content } = parsed.data;
 
+		const existingSubtitles = (await listVariants(assetId)).filter(
+			(v) => v.metadata?.variant === "subtitle" && !v.deletedAt,
+		);
+		if (existingSubtitles.some((v) => v.metadata?.language === language)) {
+			return c.json({ error: `A subtitle for "${language}" already exists on this video` }, 400);
+		}
+
 		const vtt = format === "srt" ? srtToVtt(content) : content;
 		const storage = resolveStorageDriver(project);
 		const subtitleId = crypto.randomUUID();
@@ -413,6 +420,33 @@ assetsRoute.post(
 
 		const created = await requireAsset(projectId, subtitleId);
 		return c.json({ asset: created }, 201);
+	},
+);
+
+// A subtitle's whole lifecycle is instant (add/remove), unlike a real asset —
+// it never goes through the recycle bin, so this deletes immediately rather
+// than requiring the trash-first step the generic DELETE .../assets/:assetId
+// route below enforces. Scoped tightly (parentAssetId + metadata.variant
+// check) so this can't become a side-door around that requirement for a
+// non-subtitle asset.
+assetsRoute.delete(
+	"/:orgId/projects/:projectId/assets/:assetId/subtitles/:subtitleId",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId, subtitleId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const subtitle = await requireAsset(projectId, subtitleId);
+		if (
+			!subtitle ||
+			subtitle.parentAssetId !== assetId ||
+			subtitle.metadata?.variant !== "subtitle"
+		) {
+			return c.json({ error: "Subtitle not found" }, 404);
+		}
+
+		await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: subtitleId });
+		return c.body(null, 204);
 	},
 );
 

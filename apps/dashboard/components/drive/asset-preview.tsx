@@ -1,5 +1,7 @@
 "use client";
 
+import "@ossplay/player/styles.css";
+import { VideoPlayer } from "@ossplay/player";
 import {
 	ArrowLeftIcon,
 	ChevronLeftIcon,
@@ -222,13 +224,32 @@ function AssetBody({
 
 	if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
 		if (playing) {
-			return mimeType.startsWith("video/") ? (
-				// biome-ignore lint/a11y/useMediaCaption: no captions track exists for user-uploaded originals
-				<video src={contentUrl} controls autoPlay className="max-h-[60vh] max-w-full" />
-			) : (
-				// biome-ignore lint/a11y/useMediaCaption: no captions track exists for user-uploaded originals
-				<audio src={contentUrl} controls autoPlay className="w-full max-w-md" />
-			);
+			if (mimeType.startsWith("video/")) {
+				// Plays the original directly — a progressive mp4/webm source,
+				// never "hls" — so this never requests/triggers HLS packaging
+				// (that only happens for the embed player, via OssPlayVideo).
+				// Same VideoPlayer component either way, just a different
+				// source list, so the Drive preview gets the same controls
+				// (quality menu only appears when there's more than one
+				// source to switch between, which a plain original doesn't
+				// have — captions/speed/fullscreen/PiP still do).
+				return (
+					<VideoPlayer
+						sources={[{ src: contentUrl, type: mimeType.includes("webm") ? "webm" : "mp4" }]}
+						autoPlay
+						// Inline, not Tailwind classes — the package's own base
+						// CSS sets width:100%/aspect-ratio:16:9 (right for
+						// filling a fixed-size container like the embed page),
+						// which would fight a max-height class here for
+						// cascade priority depending on import order. Explicit
+						// height + width:auto instead lets aspect-ratio derive
+						// the width, same as a plain <video> shrinking to fit.
+						style={{ height: "60vh", width: "auto", maxWidth: "100%" }}
+					/>
+				);
+			}
+			// biome-ignore lint/a11y/useMediaCaption: no captions track exists for user-uploaded originals
+			return <audio src={contentUrl} controls autoPlay className="w-full max-w-md" />;
 		}
 		if (thumbnailUrl) {
 			return (

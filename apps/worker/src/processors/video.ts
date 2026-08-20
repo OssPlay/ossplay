@@ -7,13 +7,14 @@ import {
 	type StorageDriver,
 	type VideoProcessingJob,
 } from "@ossplay/core";
-import { assets, getDb } from "@ossplay/db";
+import { type Asset, assets, getDb } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
 import {
 	createVariant,
 	ffprobeJson,
+	type FfprobeStream,
 	finalizeHlsVariant,
 	finalizeVariant,
 	markAssetStatus,
@@ -26,6 +27,41 @@ import { run } from "./spawn";
 // upscale), same fixed-tier philosophy as VariantSpec's video-transcode
 // heights.
 const HLS_RUNGS = [1080, 720, 480, 360] as const;
+
+// ffmpeg can transcode these subtitle codecs directly to WebVTT — bitmap
+// formats (PGS/VobSub, burned-in image subtitles some MKVs carry) aren't
+// text at all, so there's no text to convert; those streams are skipped
+// rather than attempted and failed.
+const CONVERTIBLE_SUBTITLE_CODECS = new Set(["subrip", "ass", "ssa", "mov_text", "webvtt", "text"]);
+
+// ffprobe reports ISO 639-2 (3-letter) tags; the rest of this app's
+// subtitle UI (dashboard's language picker, the player's caption default)
+// works in ISO 639-1 (2-letter) — this maps the common ones, since MKV's
+// `tags.language` is exactly where an embedded track's language actually
+// comes from. An unmapped tag is used as-is rather than dropped.
+const ISO_639_2_TO_1: Record<string, { code: string; label: string }> = {
+	eng: { code: "en", label: "English" },
+	spa: { code: "es", label: "Spanish" },
+	fra: { code: "fr", label: "French" },
+	fre: { code: "fr", label: "French" },
+	deu: { code: "de", label: "German" },
+	ger: { code: "de", label: "German" },
+	ita: { code: "it", label: "Italian" },
+	por: { code: "pt", label: "Portuguese" },
+	jpn: { code: "ja", label: "Japanese" },
+	kor: { code: "ko", label: "Korean" },
+	zho: { code: "zh", label: "Chinese" },
+	chi: { code: "zh", label: "Chinese" },
+	hin: { code: "hi", label: "Hindi" },
+	ara: { code: "ar", label: "Arabic" },
+	rus: { code: "ru", label: "Russian" },
+};
+
+const SCRUB_TILE_WIDTH = 160;
+const SCRUB_TILE_HEIGHT = 90;
+const SCRUB_TARGET_COUNT = 100;
+const SCRUB_MIN_INTERVAL = 2;
+const SCRUB_MAX_INTERVAL = 30;
 
 // Upload-time processing is thumbnail-only by design (see the plan's
 // per-mimetype variant matrix) — the eager HLS packaging this used to do
@@ -55,7 +91,11 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 
 		if (requestedVariant) {
 			if (requestedVariant.spec.kind === "hls-package") {
-				await packageHls(inputPath, workDir, requestedVariant.variantAssetId, storage);
+				await packageHls(inputPath, workDir, requestedVariant.variantAssetId, storage, original);
+				return;
+			}
+			if (requestedVariant.spec.kind === "scrub-thumbnails") {
+				await packageScrubThumbnails(inputPath, workDir, requestedVariant.variantAssetId, storage);
 				return;
 			}
 			if (requestedVariant.spec.kind !== "video-transcode") {
@@ -170,11 +210,17 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 // (master + each rung's playlist + segments) to finalizeHlsVariant in one
 // batch — see MEMORY.md/the plan doc for why this is generated on-demand
 // (first real request through the adaptive player) rather than eagerly.
+// Also extracts any text-based subtitle tracks embedded in the source
+// container (e.g. an uploaded MKV with muxed subtitle streams) as real
+// subtitle assets, same as one added by hand via the dashboard — a
+// multi-track source shouldn't need every language re-attached manually
+// just because it happened to be muxed in already.
 async function packageHls(
 	inputPath: string,
 	workDir: string,
 	variantAssetId: string,
 	storage: StorageDriver,
+	original: Asset,
 ): Promise<void> {
 	const probe = await ffprobeJson(inputPath);
 	const videoStream = probe.streams?.find((s) => s.codec_type === "video");
@@ -263,6 +309,117 @@ async function packageHls(
 	});
 
 	await finalizeHlsVariant(variantAssetId, storage, files);
+
+	await extractEmbeddedSubtitles(inputPath, workDir, probe.streams ?? [], original, storage);
+}
+
+// Pulls every convertible embedded subtitle stream out of the source
+// container and stores each as its own subtitle asset — best-effort: one
+// stream failing to extract (an unusual codec variant, a malformed track)
+// shouldn't fail the HLS packaging job that already succeeded above, so
+// every failure is caught and skipped rather than propagated.
+async function extractEmbeddedSubtitles(
+	inputPath: string,
+	workDir: string,
+	streams: FfprobeStream[],
+	original: Asset,
+	storage: StorageDriver,
+): Promise<void> {
+	const subtitleStreams = streams.filter(
+		(s) =>
+			s.codec_type === "subtitle" &&
+			s.codec_name &&
+			CONVERTIBLE_SUBTITLE_CODECS.has(s.codec_name) &&
+			s.index !== undefined,
+	);
+	if (subtitleStreams.length === 0) return;
+
+	const existingLanguages = new Set(
+		(await getDb().select().from(assets).where(eq(assets.parentAssetId, original.id)))
+			.filter((a) => a.metadata?.variant === "subtitle")
+			.map((a) => a.metadata?.language)
+			.filter((l): l is string => typeof l === "string"),
+	);
+
+	let trackNumber = 0;
+	for (const stream of subtitleStreams) {
+		trackNumber += 1;
+		const tag = stream.tags?.language;
+		const mapped = tag ? ISO_639_2_TO_1[tag.toLowerCase()] : undefined;
+		const language = mapped?.code ?? tag ?? `track${trackNumber}`;
+		if (existingLanguages.has(language)) continue;
+		const label = mapped?.label ?? stream.tags?.title ?? tag ?? `Track ${trackNumber}`;
+
+		try {
+			const outputPath = join(workDir, `sub-${stream.index}.vtt`);
+			await run("ffmpeg", ["-y", "-i", inputPath, "-map", `0:${stream.index}`, "-c:s", "webvtt", outputPath]);
+			const vtt = await readFile(outputPath, "utf8");
+			await createVariant({
+				projectId: original.projectId,
+				folderId: original.folderId,
+				parentAssetId: original.id,
+				filename: replaceExt(original.filename, "vtt", `-${language}`),
+				mimeType: "text/vtt",
+				storage,
+				data: new TextEncoder().encode(vtt),
+				metadata: { variant: "subtitle", language, label },
+			});
+			existingLanguages.add(language);
+		} catch {
+			// Unsupported codec variant or malformed track — skip it, the
+			// video itself (and any other extractable track) still succeeds.
+		}
+	}
+}
+
+// Builds one sprite image (a grid of small frames sampled at a fixed
+// interval) for the embed player's seek-bar hover preview. Grid layout is
+// derived from the source's own duration, aiming for ~SCRUB_TARGET_COUNT
+// tiles without going below/above a sane per-tile interval.
+async function packageScrubThumbnails(
+	inputPath: string,
+	workDir: string,
+	variantAssetId: string,
+	storage: StorageDriver,
+): Promise<void> {
+	const probe = await ffprobeJson(inputPath);
+	const duration = probe.format?.duration ? Number.parseFloat(probe.format.duration) : 0;
+	if (!duration || duration <= 0) {
+		throw new Error("Could not determine video duration for scrub thumbnails");
+	}
+
+	const interval = Math.min(
+		SCRUB_MAX_INTERVAL,
+		Math.max(SCRUB_MIN_INTERVAL, duration / SCRUB_TARGET_COUNT),
+	);
+	const count = Math.max(1, Math.floor(duration / interval));
+	const columns = Math.ceil(Math.sqrt(count));
+	const rows = Math.ceil(count / columns);
+
+	const outputPath = join(workDir, "scrub.jpg");
+	await run("ffmpeg", [
+		"-y",
+		"-i",
+		inputPath,
+		"-vf",
+		`fps=1/${interval},scale=${SCRUB_TILE_WIDTH}:${SCRUB_TILE_HEIGHT},tile=${columns}x${rows}`,
+		"-frames:v",
+		"1",
+		"-q:v",
+		"4",
+		outputPath,
+	]);
+
+	const bytes = await readFile(outputPath);
+	await finalizeVariant(variantAssetId, storage, new Uint8Array(bytes));
+	await markAssetStatus(variantAssetId, "ready", {
+		interval,
+		columns,
+		rows,
+		tileWidth: SCRUB_TILE_WIDTH,
+		tileHeight: SCRUB_TILE_HEIGHT,
+		count,
+	});
 }
 
 function replaceExt(filename: string, ext: string, suffix = ""): string {

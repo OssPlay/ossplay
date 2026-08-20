@@ -139,6 +139,8 @@ export function withFailureHandling<T extends BaseAssetJob>(
 }
 
 export interface FfprobeStream {
+	/** Absolute stream index within the file — what `-map 0:N` expects, needed to pull a single subtitle/audio stream out of a multi-track container (e.g. MKV) by itself. */
+	index?: number;
 	codec_type?: string;
 	codec_name?: string;
 	width?: number;
@@ -147,6 +149,7 @@ export interface FfprobeStream {
 	sample_rate?: string;
 	channels?: number;
 	bit_rate?: string;
+	tags?: { language?: string; title?: string };
 }
 
 export interface FfprobeOutput {

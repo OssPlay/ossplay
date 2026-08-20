@@ -64,7 +64,13 @@ export type VariantSpec =
 	// at packaging time, not requested per-call. Still on-demand/cached-once,
 	// same as every other VariantSpec kind — see MEMORY.md for why this
 	// doesn't reverse the 2026-08-10 eager-HLS removal.
-	| { kind: "hls-package" };
+	| { kind: "hls-package" }
+	// A single sprite image (a grid of small frames sampled at a fixed
+	// interval) for the embed player's seek-bar hover preview — the grid
+	// layout/interval are computed from the source's own duration at
+	// packaging time (see apps/worker/src/processors/video.ts), not
+	// requested, same as hls-package's ladder.
+	| { kind: "scrub-thumbnails" };
 
 // Canonical cache key for a spec — two different requested combos must
 // never collide, and the same combo requested twice must always produce
@@ -81,6 +87,8 @@ export function computeSpecKey(spec: VariantSpec): string {
 			return `${spec.bitrate}-mp3`;
 		case "hls-package":
 			return "hls";
+		case "scrub-thumbnails":
+			return "scrub";
 	}
 }
 

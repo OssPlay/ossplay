@@ -32,6 +32,7 @@ export const variantSpecSchema = z.discriminatedUnion("kind", [
 		bitrate: z.enum(["96k", "128k", "192k", "320k"]),
 	}),
 	z.object({ kind: z.literal("hls-package") }),
+	z.object({ kind: z.literal("scrub-thumbnails") }),
 ]);
 
 // mimeType/filename the placeholder row gets — must match what each worker
@@ -54,6 +55,8 @@ function outputForSpec(spec: VariantSpec, originalFilename: string, originalMime
 			return { filename: `${base}.mp3`, mimeType: "audio/mpeg" };
 		case "hls-package":
 			return { filename: `${base}.m3u8`, mimeType: "application/vnd.apple.mpegurl" };
+		case "scrub-thumbnails":
+			return { filename: `${base}-scrub.jpg`, mimeType: "image/jpeg" };
 	}
 }
 
@@ -62,7 +65,11 @@ function outputForSpec(spec: VariantSpec, originalFilename: string, originalMime
 // client bug, not a 404/500.
 export function specMatchesMimeType(spec: VariantSpec, mimeType: string): boolean {
 	if (spec.kind === "image-format") return mimeType.startsWith("image/");
-	if (spec.kind === "video-transcode" || spec.kind === "hls-package") {
+	if (
+		spec.kind === "video-transcode" ||
+		spec.kind === "hls-package" ||
+		spec.kind === "scrub-thumbnails"
+	) {
 		return mimeType.startsWith("video/");
 	}
 	return mimeType.startsWith("audio/");
