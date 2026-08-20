@@ -231,8 +231,22 @@ async function packageHls(
 	const ladder: number[] = HLS_RUNGS.filter((h) => h <= sourceHeight);
 	if (ladder.length === 0) ladder.push(sourceHeight);
 
+	const audioStreams = (probe.streams ?? []).filter((s) => s.codec_type === "audio");
+	// Only worth a separate AUDIO group (and the extra encodes/segments it
+	// costs) when there's genuinely a choice to offer — a single audio
+	// track stays muxed into each video rendition exactly as before, zero
+	// behavior change for the overwhelmingly common case.
+	const multiAudio = audioStreams.length > 1;
+
 	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [];
 	const streamInfLines: string[] = [];
+	const audioMediaLines: string[] = [];
+
+	if (multiAudio) {
+		const audioResult = await packageAudioTracks(inputPath, workDir, audioStreams);
+		files.push(...audioResult.files);
+		audioMediaLines.push(...audioResult.mediaLines);
+	}
 
 	for (const height of ladder) {
 		const rungDir = join(workDir, `${height}p`);
@@ -240,7 +254,10 @@ async function packageHls(
 		// Forced keyframe interval (-g/-sc_threshold 0) keeps segment
 		// boundaries fixed at exactly hls_time regardless of scene cuts —
 		// without it, ffmpeg's default GOP placement drifts, which breaks
-		// strict HLS clients expecting uniform segment durations.
+		// strict HLS clients expecting uniform segment durations. Video-only
+		// (-an) when audio ships as its own selectable AUDIO group instead —
+		// muxing the default track in too would make it play twice (once
+		// from the video rendition, once from the audio group).
 		await run("ffmpeg", [
 			"-y",
 			"-i",
@@ -259,10 +276,7 @@ async function packageHls(
 			"48",
 			"-sc_threshold",
 			"0",
-			"-c:a",
-			"aac",
-			"-b:a",
-			"128k",
+			...(multiAudio ? ["-an"] : ["-c:a", "aac", "-b:a", "128k"]),
 			"-hls_time",
 			"6",
 			"-hls_playlist_type",
@@ -294,14 +308,16 @@ async function packageHls(
 			durationSeconds && durationSeconds > 0 ? Math.round((rungBytes * 8) / durationSeconds) : 2_000_000;
 		const width = Math.round((aspect * height) / 2) * 2;
 		streamInfLines.push(
-			`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}\n${height}p/index.m3u8`,
+			`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}${multiAudio ? ',AUDIO="audio"' : ""}\n${height}p/index.m3u8`,
 		);
 	}
 
 	// ffmpeg only produces each rung's own playlist — the master referencing
 	// all of them is assembled here since the rungs were encoded as separate
-	// invocations, not one multi-output ffmpeg call.
-	const masterText = `#EXTM3U\n#EXT-X-VERSION:3\n${streamInfLines.join("\n")}\n`;
+	// invocations, not one multi-output ffmpeg call. Per the HLS spec, an
+	// EXT-X-MEDIA group must be declared before any EXT-X-STREAM-INF line
+	// that references it via the AUDIO attribute.
+	const masterText = `#EXTM3U\n#EXT-X-VERSION:3\n${audioMediaLines.length ? `${audioMediaLines.join("\n")}\n` : ""}${streamInfLines.join("\n")}\n`;
 	files.push({
 		relativePath: "master.m3u8",
 		data: new TextEncoder().encode(masterText),
@@ -311,6 +327,76 @@ async function packageHls(
 	await finalizeHlsVariant(variantAssetId, storage, files);
 
 	await extractEmbeddedSubtitles(inputPath, workDir, probe.streams ?? [], original, storage);
+}
+
+// Encodes every audio stream as its own selectable HLS audio-only
+// rendition (AAC, segmented the same way a video rung is) and builds the
+// EXT-X-MEDIA:TYPE=AUDIO lines the master playlist references by group —
+// only called when there's more than one audio track (see multiAudio
+// above); a single-track source stays muxed into the video renditions,
+// no separate audio group at all.
+async function packageAudioTracks(
+	inputPath: string,
+	workDir: string,
+	audioStreams: FfprobeStream[],
+): Promise<{
+	files: { relativePath: string; data: Uint8Array; mimeType: string }[];
+	mediaLines: string[];
+}> {
+	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [];
+	const mediaLines: string[] = [];
+
+	let trackNumber = 0;
+	for (const stream of audioStreams) {
+		trackNumber += 1;
+		const tag = stream.tags?.language;
+		const mapped = tag ? ISO_639_2_TO_1[tag.toLowerCase()] : undefined;
+		const language = mapped?.code ?? tag ?? `track${trackNumber}`;
+		const label = mapped?.label ?? stream.tags?.title ?? tag ?? `Track ${trackNumber}`;
+
+		const audioDir = join(workDir, "audio", language);
+		await mkdir(audioDir, { recursive: true });
+		await run("ffmpeg", [
+			"-y",
+			"-i",
+			inputPath,
+			"-map",
+			`0:${stream.index}`,
+			"-c:a",
+			"aac",
+			"-b:a",
+			"128k",
+			"-hls_time",
+			"6",
+			"-hls_playlist_type",
+			"vod",
+			"-hls_segment_filename",
+			join(audioDir, "seg%05d.ts"),
+			join(audioDir, "index.m3u8"),
+		]);
+
+		const entries = await readdir(audioDir);
+		for (const seg of entries.filter((f) => f.endsWith(".ts")).sort()) {
+			const data = await readFile(join(audioDir, seg));
+			files.push({
+				relativePath: `audio/${language}/${seg}`,
+				data: new Uint8Array(data),
+				mimeType: "video/mp2t",
+			});
+		}
+		const playlistText = await readFile(join(audioDir, "index.m3u8"), "utf8");
+		files.push({
+			relativePath: `audio/${language}/index.m3u8`,
+			data: new TextEncoder().encode(playlistText),
+			mimeType: "application/vnd.apple.mpegurl",
+		});
+
+		mediaLines.push(
+			`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${label}",LANGUAGE="${language}",AUTOSELECT=YES,DEFAULT=${trackNumber === 1 ? "YES" : "NO"},URI="audio/${language}/index.m3u8"`,
+		);
+	}
+
+	return { files, mediaLines };
 }
 
 // Pulls every convertible embedded subtitle stream out of the source

@@ -1,7 +1,7 @@
 "use client";
 
 import "@ossplay/player/styles.css";
-import { VideoPlayer } from "@ossplay/player";
+import { VideoPlayer, type VideoPlayerTrack } from "@ossplay/player";
 import {
 	ArrowLeftIcon,
 	ChevronLeftIcon,
@@ -18,13 +18,22 @@ import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { usePolledAsset } from "@/hooks/use-polled-asset";
+import { apiFetch } from "@/lib/api";
 import { copyPublicAssetLink } from "@/lib/copy-link";
 import { useProjectContext } from "@/lib/current-project";
 import { cn } from "@/lib/utils";
-import type { DriveBrowseResponse } from "@/types/drive";
+import type { DriveAsset, DriveBrowseResponse } from "@/types/drive";
 import { iconForMimeType } from "./asset-context-menu";
 import { AssetDetailsPanel } from "./asset-details-panel";
 import { CopyLinkDialog } from "./copy-link-dialog";
+
+// Every browser plays these natively; nothing else is safe to hand to a
+// plain <video> — an uploaded .avi/.wmv/.mkv/.mov has no browser decoder at
+// all (or an unreliable one), so a preview of one of those requests an
+// on-demand mp4 rendition (the same video-transcode spec "Download as…"
+// already uses) instead of rendering a player against a source that won't
+// actually decode.
+const NATIVELY_PLAYABLE_VIDEO_MIMETYPES = new Set(["video/mp4", "video/webm", "video/ogg"]);
 
 // The one preview surface for an asset, shared by the intercepted modal
 // route and the full-page route (see app/(app)/project/[projectId]/open/) —
@@ -74,6 +83,25 @@ export function AssetPreview({
 	const nextId =
 		currentIndex >= 0 && currentIndex < siblingIds.length - 1 ? siblingIds[currentIndex + 1] : null;
 
+	// Same SWR key the Variants tab and the Add/manage-subtitles dialog
+	// already use for this asset — sharing it means attaching a subtitle
+	// from either of those makes it show up here too, no extra plumbing.
+	// Hooks can't follow the `if (!asset) return` early-return below (Rules
+	// of Hooks — every hook must run in the same order every render), so
+	// this and its derived `subtitleTracks` live up here instead, guarding
+	// on `asset` explicitly rather than relying on the early return.
+	const isVideo = asset?.mimeType.startsWith("video/") ?? false;
+	const { data: variantsData } = useSWR<{ variants: DriveAsset[] }>(
+		isVideo && asset ? `${base}/assets/${asset.id}/variants` : null,
+	);
+	const subtitleTracks: VideoPlayerTrack[] = (variantsData?.variants ?? [])
+		.filter((v) => v.metadata?.variant === "subtitle" && v.status === "ready")
+		.map((v) => ({
+			src: `/api${base}/assets/${v.id}/content`,
+			label: String(v.metadata?.label ?? v.metadata?.language ?? "Subtitles"),
+			language: String(v.metadata?.language ?? ""),
+		}));
+
 	function navigateTo(id: string) {
 		router.replace(`/project/${projectId}/open?id=${id}`);
 	}
@@ -102,6 +130,12 @@ export function AssetPreview({
 	const thumbnailUrl = asset.thumbnailAssetId
 		? `/api${base}/assets/${asset.thumbnailAssetId}/content`
 		: null;
+
+	// Set at upload time from the real decoded stream (apps/worker's
+	// processVideo) — used to size the preview player at the video's own
+	// aspect ratio instead of stretching it to a fixed 16:9 box.
+	const videoWidth = typeof asset.metadata?.width === "number" ? asset.metadata.width : null;
+	const videoHeight = typeof asset.metadata?.height === "number" ? asset.metadata.height : null;
 
 	// `asset?.id ?? assetId` rather than `asset.id` — TS can't carry the
 	// `if (!asset) return` guard above into this nested function
@@ -167,10 +201,16 @@ export function AssetPreview({
 
 			<div className="flex flex-1 items-center justify-center overflow-auto bg-muted/30 p-6">
 				<AssetBody
+					orgId={orgId}
+					projectId={projectId}
+					assetId={asset.id}
 					mimeType={asset.mimeType}
 					filename={asset.filename}
 					contentUrl={contentUrl}
 					thumbnailUrl={thumbnailUrl}
+					tracks={subtitleTracks}
+					videoWidth={videoWidth}
+					videoHeight={videoHeight}
 					playing={playing}
 					onPlay={() => setPlaying(true)}
 				/>
@@ -203,18 +243,52 @@ export function AssetPreview({
 // look at the actual file, so an image (never more than a moderate photo)
 // just shows the original directly; there's no lower-resolution version
 // worth trading a click for.
+// Sized intrinsically within a max-height/max-width box at the video's OWN
+// aspect ratio — not the package's fixed 16:9 base CSS, which would
+// letterbox or stretch anything that isn't actually 16:9. Both width and
+// height left `auto` with an explicit `aspectRatio` is the standard CSS
+// pattern for "shrink to fit both max bounds, preserving ratio" (this
+// container is a flex child with non-stretch alignment, so `auto` here
+// means "size to content," not "fill the flex line"). Falls back to a
+// fixed height for the rare pre-existing asset with no stored dimensions
+// (uploaded before this metadata was captured).
+function videoPreviewStyle(width: number | null, height: number | null) {
+	if (width && height) {
+		return {
+			aspectRatio: `${width} / ${height}`,
+			width: "auto",
+			height: "auto",
+			maxWidth: "100%",
+			maxHeight: "60vh",
+		} as const;
+	}
+	return { height: "60vh", width: "auto", maxWidth: "100%" } as const;
+}
+
 function AssetBody({
+	orgId,
+	projectId,
+	assetId,
 	mimeType,
 	filename,
 	contentUrl,
 	thumbnailUrl,
+	tracks,
+	videoWidth,
+	videoHeight,
 	playing,
 	onPlay,
 }: {
+	orgId: string;
+	projectId: string;
+	assetId: string;
 	mimeType: string;
 	filename: string;
 	contentUrl: string;
 	thumbnailUrl: string | null;
+	tracks: VideoPlayerTrack[];
+	videoWidth: number | null;
+	videoHeight: number | null;
 	playing: boolean;
 	onPlay: () => void;
 }) {
@@ -233,18 +307,24 @@ function AssetBody({
 				// (quality menu only appears when there's more than one
 				// source to switch between, which a plain original doesn't
 				// have — captions/speed/fullscreen/PiP still do).
+				if (NATIVELY_PLAYABLE_VIDEO_MIMETYPES.has(mimeType)) {
+					return (
+						<VideoPlayer
+							sources={[{ src: contentUrl, type: mimeType.includes("webm") ? "webm" : "mp4" }]}
+							tracks={tracks}
+							autoPlay
+							style={videoPreviewStyle(videoWidth, videoHeight)}
+						/>
+					);
+				}
 				return (
-					<VideoPlayer
-						sources={[{ src: contentUrl, type: mimeType.includes("webm") ? "webm" : "mp4" }]}
-						autoPlay
-						// Inline, not Tailwind classes — the package's own base
-						// CSS sets width:100%/aspect-ratio:16:9 (right for
-						// filling a fixed-size container like the embed page),
-						// which would fight a max-height class here for
-						// cascade priority depending on import order. Explicit
-						// height + width:auto instead lets aspect-ratio derive
-						// the width, same as a plain <video> shrinking to fit.
-						style={{ height: "60vh", width: "auto", maxWidth: "100%" }}
+					<ConvertedVideoPreview
+						orgId={orgId}
+						projectId={projectId}
+						assetId={assetId}
+						tracks={tracks}
+						videoWidth={videoWidth}
+						videoHeight={videoHeight}
 					/>
 				);
 			}
@@ -306,6 +386,81 @@ function AssetBody({
 				<DownloadIcon /> Download to view
 			</a>
 		</div>
+	);
+}
+
+// The original file's container isn't browser-playable (.avi/.wmv/.mkv/a
+// codec-incompatible .mov) — requests the same 720p mp4 on-demand
+// rendition "Download as…" already offers, polls until it's ready, then
+// plays that instead of the raw original. Same request-then-poll shape
+// OssPlayVideo (player-js) uses for the embed player, just against the
+// dashboard's session-authed route instead of the public /v1 one.
+function ConvertedVideoPreview({
+	orgId,
+	projectId,
+	assetId,
+	tracks,
+	videoWidth,
+	videoHeight,
+}: {
+	orgId: string;
+	projectId: string;
+	assetId: string;
+	tracks: VideoPlayerTrack[];
+	videoWidth: number | null;
+	videoHeight: number | null;
+}) {
+	const base = `/organizations/${orgId}/projects/${projectId}`;
+	const requestedRef = useRef(false);
+	const { data, mutate } = useSWR<{ variants: DriveAsset[] }>(
+		`${base}/assets/${assetId}/variants`,
+		{
+			refreshInterval: (d) => {
+				const target = d?.variants.find((v) => v.metadata?.specKey === "720p-mp4");
+				return target && (target.status === "ready" || target.status === "failed") ? 0 : 1500;
+			},
+		},
+	);
+	const target = data?.variants.find((v) => v.metadata?.specKey === "720p-mp4");
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: base/assetId/mutate are stable for the lifetime of this component (keyed by assetId itself); only `data`/`target` deciding whether to fire the one-time request should retrigger this.
+	useEffect(() => {
+		if (data && !target && !requestedRef.current) {
+			requestedRef.current = true;
+			apiFetch(`${base}/assets/${assetId}/variants`, {
+				method: "POST",
+				body: JSON.stringify({ spec: { kind: "video-transcode", height: 720, format: "mp4" } }),
+			})
+				.then(() => mutate())
+				.catch(() => {
+					// Surfaced by the next poll tick still finding no ready
+					// variant — the "failed" branch below covers the visible
+					// error state once the worker actually marks it so.
+				});
+		}
+	}, [data, target]);
+
+	if (target?.status === "failed") {
+		return (
+			<div className="flex flex-col items-center gap-3 text-center text-sm text-muted-foreground">
+				<p>This video's format couldn't be converted for preview.</p>
+			</div>
+		);
+	}
+	if (target?.status !== "ready") {
+		return (
+			<div className="flex flex-col items-center gap-3 text-center text-sm text-muted-foreground">
+				<p>Converting for preview…</p>
+			</div>
+		);
+	}
+	return (
+		<VideoPlayer
+			sources={[{ src: `/api${base}/assets/${target.id}/content`, type: "mp4" }]}
+			tracks={tracks}
+			autoPlay
+			style={videoPreviewStyle(videoWidth, videoHeight)}
+		/>
 	);
 }
 

@@ -523,6 +523,19 @@ function appendQueryToUris(text: string, query: string): string {
 		.join("\n");
 }
 
+// The AUDIO group's EXT-X-MEDIA lines are baked into the stored master
+// playlist at packaging time (unlike the subtitle group, injected fresh
+// per request below, whose URI already carries the query at construction)
+// — their inline URI="..." attribute still needs the caller's token
+// appended at serve time, same reasoning as appendQueryToUris above, just
+// for a query embedded inside a line instead of the whole next line. The
+// `[^"?]` exclusion makes this safe to run unconditionally after subtitle
+// injection without double-appending a query that's already there.
+function appendQueryToInlineUris(text: string, query: string): string {
+	if (!query) return text;
+	return text.replace(/URI="([^"?]+)"/g, `URI="$1?${query}"`);
+}
+
 // Injects EXT-X-MEDIA subtitle groups + a SUBTITLES attribute on every
 // EXT-X-STREAM-INF line at serve time, not baked into the stored master
 // playlist — subtitles can be attached after the HLS package already
@@ -590,7 +603,8 @@ v1Route.get("/:project/:assetId/hls/master.m3u8", async (c) => {
 	const subtitles = (await listVariants(assetId)).filter(
 		(v) => v.metadata?.variant === "subtitle" && v.status === "ready",
 	);
-	const rewritten = appendQueryToUris(injectSubtitleGroup(text, subtitles, query), query);
+	const withSubtitles = injectSubtitleGroup(text, subtitles, query);
+	const rewritten = appendQueryToInlineUris(appendQueryToUris(withSubtitles, query), query);
 	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
 });
 
@@ -627,6 +641,40 @@ v1Route.get("/:project/:assetId/hls/subs/:subtitleAssetId", async (c) => {
 		"",
 	].join("\n");
 	return new Response(playlist, { headers: { "content-type": HLS_MIME } });
+});
+
+v1Route.get("/:project/:assetId/hls/audio/:lang/index.m3u8", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const lang = c.req.param("lang");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const resolved = await resolveHlsPackage(projectId, assetId);
+	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	const storage = resolveStorageDriver(project);
+	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/audio/${lang}/index.m3u8`);
+	const rewritten = appendQueryToUris(new TextDecoder().decode(bytes), shareQuery(c));
+	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
+});
+
+v1Route.get("/:project/:assetId/hls/audio/:lang/:segment", async (c) => {
+	const projectId = c.req.param("project");
+	const assetId = c.req.param("assetId");
+	const lang = c.req.param("lang");
+	const segment = c.req.param("segment");
+	const project = await getProjectWithDestination(projectId);
+	if (!project) return c.json({ error: "Project not found" }, 404);
+	const resolved = await resolveHlsPackage(projectId, assetId);
+	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
+		return c.json({ error: "Missing or invalid API key" }, 401);
+	}
+
+	return respondWithHlsFile(c, project, `${resolved.pkg.s3Path}/audio/${lang}/${segment}`, "video/mp2t");
 });
 
 v1Route.get("/:project/:assetId/hls/:rung/index.m3u8", async (c) => {
