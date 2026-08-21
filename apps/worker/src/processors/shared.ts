@@ -176,6 +176,43 @@ export async function ffprobeJson(inputPath: string): Promise<FfprobeOutput> {
 	return JSON.parse(stdout) as FfprobeOutput;
 }
 
+// A minority of real-world containers (some Matroska files in particular —
+// including this repo's own MKV test fixtures, deliberately muxed as
+// validation edge cases) omit Segment Duration from their metadata
+// entirely: ffprobe then reports no format.duration and no per-stream
+// duration either, even though the file plays back and has a perfectly
+// well-defined length. Every duration-dependent step (the eager
+// thumbnail's frame timestamp, HLS's measured-bitrate calc, the scrub
+// sprite's tile count) used to just take `undefined`/fall back to a
+// constant for this case — except packageScrubThumbnails, which threw
+// outright, previously only surfaced if someone happened to open a
+// preview for one of these specific files, now hit on every such upload
+// once video processing went eager. Prefers the free, already-probed
+// value; only pays for a full decode pass (rare) when that's missing.
+export async function resolveDurationSeconds(
+	inputPath: string,
+	probe: FfprobeOutput,
+): Promise<number | null> {
+	const reported = probe.format?.duration ? Number.parseFloat(probe.format.duration) : null;
+	if (reported && reported > 0) return reported;
+
+	// -c copy remuxes instead of decoding, so this reads through the file at
+	// close to disk speed, not real playback speed, even for a large source.
+	// ffmpeg writes its progress (including a running `time=`) to stderr as
+	// it goes; the last such line reflects how far it actually got, which is
+	// the file's real duration once it reaches EOF.
+	const proc = Bun.spawn(["ffmpeg", "-i", inputPath, "-map", "0", "-c", "copy", "-f", "null", "-"], {
+		stdout: "ignore",
+		stderr: "pipe",
+	});
+	const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+	const matches = [...stderr.matchAll(/time=(\d+):(\d\d):(\d\d(?:\.\d+)?)/g)];
+	const last = matches.at(-1);
+	if (!last) return null;
+	const [, hours, minutes, seconds] = last;
+	return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+}
+
 // "30000/1001" -> 29.97, "25/1" -> 25 — ffprobe reports frame rate as a
 // rational string, not a plain number.
 export function parseFrameRate(rate: string | undefined): number | null {

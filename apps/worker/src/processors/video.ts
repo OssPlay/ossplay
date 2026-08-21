@@ -19,6 +19,7 @@ import {
 	finalizeVariant,
 	markAssetStatus,
 	parseFrameRate,
+	resolveDurationSeconds,
 } from "./shared";
 import { run } from "./spawn";
 
@@ -147,9 +148,7 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 
 		const probe = await ffprobeJson(inputPath);
 		const videoStream = probe.streams?.find((s) => s.codec_type === "video");
-		const durationSeconds = probe.format?.duration
-			? Number.parseFloat(probe.format.duration)
-			: null;
+		const durationSeconds = await resolveDurationSeconds(inputPath, probe);
 		// Avoids grabbing a black/title-card frame at 0 — halfway into the
 		// clip (capped at 3s for anything short) is a much more
 		// representative preview.
@@ -231,6 +230,10 @@ async function packageHls(
 	const ladder: number[] = HLS_RUNGS.filter((h) => h <= sourceHeight);
 	if (ladder.length === 0) ladder.push(sourceHeight);
 
+	// Same value every rung's bandwidth calc below needs — resolved once
+	// up front rather than re-probed/re-decoded per rung.
+	const durationSeconds = await resolveDurationSeconds(inputPath, probe);
+
 	const audioStreams = (probe.streams ?? []).filter((s) => s.codec_type === "audio");
 	// Only worth a separate AUDIO group (and the extra encodes/segments it
 	// costs) when there's genuinely a choice to offer — a single audio
@@ -301,7 +304,6 @@ async function packageHls(
 			mimeType: "application/vnd.apple.mpegurl",
 		});
 
-		const durationSeconds = probe.format?.duration ? Number.parseFloat(probe.format.duration) : null;
 		// A real measured bitrate from the actual encoded output, not a
 		// guessed constant — falls back only if duration couldn't be probed.
 		const bandwidth =
@@ -469,7 +471,7 @@ async function packageScrubThumbnails(
 	storage: StorageDriver,
 ): Promise<void> {
 	const probe = await ffprobeJson(inputPath);
-	const duration = probe.format?.duration ? Number.parseFloat(probe.format.duration) : 0;
+	const duration = await resolveDurationSeconds(inputPath, probe);
 	if (!duration || duration <= 0) {
 		throw new Error("Could not determine video duration for scrub thumbnails");
 	}
