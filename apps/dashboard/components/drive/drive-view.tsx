@@ -94,7 +94,10 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 			refreshInterval: (latestData) => {
 				const hasInFlight = (latestData ?? []).some((page) =>
 					page?.childAssets.items.some(
-						(asset) => asset.status === "pending" || asset.status === "processing",
+						(asset) =>
+							asset.status === "pending" ||
+							asset.status === "processing" ||
+							asset.hasProcessingVariants === true,
 					),
 				);
 				return hasInFlight ? 5000 : 0;

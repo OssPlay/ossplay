@@ -32,7 +32,11 @@ import { CopyLinkDialog } from "./copy-link-dialog";
 // all (or an unreliable one), so a preview of one of those requests an
 // on-demand mp4 rendition (the same video-transcode spec "Download as…"
 // already uses) instead of rendering a player against a source that won't
-// actually decode.
+// actually decode. Kept in sync by hand with the server-side twin,
+// `NATIVELY_PLAYABLE_VIDEO_MIMETYPES` in packages/core/src/jobs.ts (not
+// imported directly — this app doesn't otherwise depend on @ossplay/core,
+// whose barrel re-exports Node-only storage drivers a client bundle
+// shouldn't pull in for one constant).
 const NATIVELY_PLAYABLE_VIDEO_MIMETYPES = new Set(["video/mp4", "video/webm", "video/ogg"]);
 
 // The one preview surface for an asset, shared by the intercepted modal

@@ -22,11 +22,16 @@ import { getProjectWithDestination } from "../lib/drive/resolve-project";
 import { serveLocalDiskAsset } from "../lib/http/serve-asset";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { mintAssetShareLink } from "../lib/share-links";
-import { listVariants, requestVariant, variantSpecSchema } from "../lib/variants";
+import {
+	listVariants,
+	requestVariant,
+	triggerEagerVideoVariants,
+	variantSpecSchema,
+} from "../lib/variants";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
-import { attachThumbnails } from "./folders";
+import { attachProcessingVariants, attachThumbnails } from "./folders";
 
 export const assetsRoute = new Hono<AppEnv>();
 
@@ -85,7 +90,9 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId", ...gate, async (c
 	const asset = await requireAsset(projectId, assetId);
 	if (!asset || asset.deletedAt) return c.json({ error: "Asset not found" }, 404);
 	const [assetWithThumbnail] = await attachThumbnails(getDb(), [asset]);
-	return c.json({ asset: assetWithThumbnail });
+	if (!assetWithThumbnail) return c.json({ error: "Asset not found" }, 404);
+	const [assetWithProcessing] = await attachProcessingVariants(getDb(), [assetWithThumbnail]);
+	return c.json({ asset: assetWithProcessing });
 });
 
 const createUploadSchema = z.object({
@@ -253,6 +260,7 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/confirm", ...gate,
 		const jobData = { assetId, projectId, s3Path: asset.s3Path, mimeType: asset.mimeType };
 		const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
 		if (!dispatched) await getQueue(queueName).add("process", jobData, PROCESSING_JOB_OPTS);
+		await triggerEagerVideoVariants(project, asset);
 	}
 
 	const updated = await requireAsset(projectId, assetId);
@@ -556,6 +564,7 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 	}
 
 	const created = await requireAsset(projectId, newId);
+	if (queueName && created) await triggerEagerVideoVariants(project, created);
 	return c.json({ asset: created }, 201);
 });
 

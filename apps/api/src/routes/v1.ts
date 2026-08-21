@@ -22,7 +22,12 @@ import { getPublicUrl } from "../lib/auth/request-info";
 import { serveLocalDiskAsset } from "../lib/http/serve-asset";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { mintAssetShareLink } from "../lib/share-links";
-import { listVariants, requestVariant, variantSpecSchema } from "../lib/variants";
+import {
+	listVariants,
+	requestVariant,
+	triggerEagerVideoVariants,
+	variantSpecSchema,
+} from "../lib/variants";
 import { requireApiKey, verifyProjectApiKey } from "../middleware/require-api-key";
 import type { AppEnv } from "../types";
 
@@ -183,20 +188,24 @@ v1Route.post("/:project/upload", requireApiKey, async (c) => {
 		await storage.uploadObject(key, bytes, { mimeType });
 
 		const queueName = queueForMimeType(mimeType);
-		await db.insert(assets).values({
-			id: assetId,
-			projectId,
-			folderId: null,
-			filename: file.name,
-			mimeType,
-			s3Path: key,
-			size: bytes.byteLength,
-			status: queueName ? "processing" : "ready",
-		});
+		const [inserted] = await db
+			.insert(assets)
+			.values({
+				id: assetId,
+				projectId,
+				folderId: null,
+				filename: file.name,
+				mimeType,
+				s3Path: key,
+				size: bytes.byteLength,
+				status: queueName ? "processing" : "ready",
+			})
+			.returning();
 		if (queueName) {
 			const jobData = { assetId, projectId, s3Path: key, mimeType };
 			const dispatched = await tryDispatchToComputeDestination(queueName, "process", jobData);
 			if (!dispatched) await getQueue(queueName).add("process", jobData, PROCESSING_JOB_OPTS);
+			if (inserted) await triggerEagerVideoVariants(project, inserted);
 		}
 		created.push({ assetId, filename: file.name, mimeType, size: bytes.byteLength });
 	}

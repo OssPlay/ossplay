@@ -25,6 +25,16 @@ export interface DriveAsset {
 	// attachThumbnails), null on responses that don't attach it (trash,
 	// single-asset fetch).
 	thumbnailAssetId?: string | null;
+	// True while this asset has at least one on-demand variant (adaptive HLS,
+	// the seek-bar scrub sprite, an eagerly-triggered compatibility transcode
+	// — see apps/api/src/lib/variants.ts's triggerEagerVideoVariants) still
+	// short of ready/failed — attached by apps/api/src/routes/folders.ts's
+	// attachProcessingVariants, same "only present where it's computed"
+	// pattern as thumbnailAssetId above. This is independent of `status`:
+	// the row itself can already be "ready" (its own eager thumbnail+probe
+	// finished fast) while this stays true until the heavier renditions
+	// catch up, so Drive keeps showing it as still processing.
+	hasProcessingVariants?: boolean;
 	// Only present on a GET .../assets/:assetId/variants row (a variant is
 	// itself just an `assets` row with parentAssetId set) — never on a
 	// regular original. `metadata.variant` is "thumbnail" for eager

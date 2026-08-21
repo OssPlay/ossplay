@@ -92,6 +92,18 @@ export function computeSpecKey(spec: VariantSpec): string {
 	}
 }
 
+// Every browser plays these natively; nothing else is safe to hand to a
+// plain <video> — an uploaded .avi/.wmv/.mkv/.mov has no browser decoder at
+// all (or an unreliable one). Used server-side to decide whether an
+// eagerly-triggered upload also needs a 720p-mp4 compatibility transcode
+// (apps/api/src/lib/variants.ts's triggerEagerVideoVariants). Deliberately
+// NOT imported by apps/dashboard, which keeps its own copy in
+// asset-preview.tsx — that app doesn't otherwise depend on @ossplay/core,
+// and this package's barrel re-exports storage drivers with real Node
+// dependencies a Next.js client bundle shouldn't pull in for one constant.
+// Keep both lists in sync by hand if this set ever changes.
+export const NATIVELY_PLAYABLE_VIDEO_MIMETYPES = new Set(["video/mp4", "video/webm", "video/ogg"]);
+
 export type BaseAssetJob = {
 	assetId: string;
 	projectId: string;

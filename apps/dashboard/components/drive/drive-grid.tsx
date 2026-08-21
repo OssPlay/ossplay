@@ -174,7 +174,10 @@ export function DriveGrid({
 					const thumbnailUrl = asset.thumbnailAssetId
 						? `/api${base}/assets/${asset.thumbnailAssetId}/content`
 						: null;
-					const isProcessing = asset.status === "pending" || asset.status === "processing";
+					const isProcessing =
+						asset.status === "pending" ||
+						asset.status === "processing" ||
+						asset.hasProcessingVariants === true;
 					return (
 						<ContextMenu key={asset.id}>
 							<ContextMenuTrigger>

@@ -3,6 +3,7 @@ import {
 	buildHlsPrefix,
 	computeSpecKey,
 	findCachedVariant,
+	NATIVELY_PLAYABLE_VIDEO_MIMETYPES,
 	type ProjectWithDestination,
 	queueForMimeType,
 	tryDispatchToComputeDestination,
@@ -147,6 +148,32 @@ export async function requestVariant(
 	const [created] = await db.select().from(assets).where(eq(assets.id, variantId));
 	if (!created) throw new Error("Variant placeholder insert did not return the expected row");
 	return { ok: true, asset: created, created: true };
+}
+
+// Video's on-demand pipelines (adaptive HLS + its embedded-subtitle
+// extraction, the seek-bar scrub sprite, and — for a container no browser
+// decodes — a 720p-mp4 compatibility transcode) now fire automatically at
+// upload instead of waiting for a viewer to open a preview/embed. This is
+// purely a trigger-timing change: it just calls requestVariant, the same
+// function every on-demand call site already calls, so those call sites
+// (asset-preview.tsx, download-as-dialog.tsx) need no changes — their own
+// requestVariant call hits findCachedVariant's cache (often already
+// "ready" by the time anyone looks) instead of starting a fresh job. Scoped
+// to video only — image/audio/PDF stay exactly as on-demand as before; see
+// MEMORY.md for why this doesn't extend to those.
+export async function triggerEagerVideoVariants(
+	project: ProjectWithDestination,
+	asset: Asset,
+): Promise<void> {
+	if (!asset.mimeType.startsWith("video/")) return;
+	const requests: Promise<RequestVariantResult>[] = [
+		requestVariant(project, asset, { kind: "hls-package" }),
+		requestVariant(project, asset, { kind: "scrub-thumbnails" }),
+	];
+	if (!NATIVELY_PLAYABLE_VIDEO_MIMETYPES.has(asset.mimeType)) {
+		requests.push(requestVariant(project, asset, { kind: "video-transcode", height: 720, format: "mp4" }));
+	}
+	await Promise.all(requests);
 }
 
 export async function listVariants(assetId: string): Promise<Asset[]> {

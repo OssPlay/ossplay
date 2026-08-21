@@ -132,7 +132,7 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		.where(assetWhere);
 	const total = totalRow?.count ?? 0;
 
-	const childAssetsWithThumbnails = await attachThumbnails(db, childAssets);
+	const childAssetsWithThumbnails = await attachProcessingVariants(db, await attachThumbnails(db, childAssets));
 
 	return c.json({
 		folder,
@@ -172,6 +172,36 @@ export async function attachThumbnails<T extends { id: string }>(
 		);
 	const thumbnailByParent = new Map(thumbnails.map((t) => [t.parentAssetId, t.id]));
 	return rows.map((row) => ({ ...row, thumbnailAssetId: thumbnailByParent.get(row.id) ?? null }));
+}
+
+// True for a row with at least one on-demand variant (see apps/api/src/lib/
+// variants.ts's requestVariant, and triggerEagerVideoVariants which now
+// calls it automatically for every uploaded video) still short of a
+// terminal state — the Drive list/preview keep showing this row as
+// "processing" until every such variant settles, even though the row's own
+// `status` may already be "ready" (the eager thumbnail+probe step is fast;
+// adaptive HLS packaging isn't). Same batched-query shape as
+// attachThumbnails, one extra query per listing rather than N+1.
+export async function attachProcessingVariants<T extends { id: string }>(
+	db: ReturnType<typeof getDb>,
+	rows: T[],
+): Promise<(T & { hasProcessingVariants: boolean })[]> {
+	if (rows.length === 0) return [];
+	const processing = await db
+		.selectDistinct({ parentAssetId: assets.parentAssetId })
+		.from(assets)
+		.where(
+			and(
+				inArray(
+					assets.parentAssetId,
+					rows.map((r) => r.id),
+				),
+				sql`${assets.metadata} ->> 'variant' = 'on-demand'`,
+				inArray(assets.status, ["pending", "processing"]),
+			),
+		);
+	const processingParents = new Set(processing.map((p) => p.parentAssetId));
+	return rows.map((row) => ({ ...row, hasProcessingVariants: processingParents.has(row.id) }));
 }
 
 const createFolderSchema = z.object({

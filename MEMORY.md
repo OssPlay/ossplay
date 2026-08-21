@@ -6,6 +6,24 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-21 — Video processing moved from on-demand to eager on upload (scoped to video only)
+
+**Status:** Decided — partially reverses 2026-08-12's "Drive overhaul" entry below, for video only
+
+**Superseded (for video only):** the 2026-08-12 entry's "Upload-time processing is now thumbnail-only by design; everything else moved on-demand" no longer holds for video's `hls-package`/`scrub-thumbnails`/unsupported-container `video-transcode` — see below. It still holds unchanged for images, audio, and PDF, and for video's arbitrary user-selected "Download as…" conversions.
+
+By explicit user request: every uploaded video now gets its adaptive-HLS package (with embedded-subtitle extraction), seek-bar scrub sprite, and — for a container no browser decodes natively (avi/wmv/mkv/mov) — a 720p-mp4 compatibility transcode, all requested automatically the moment the upload is confirmed, instead of waiting for a viewer to first open a preview/embed. The reasoning behind the 2026-08-12 decision ("multiplying `assets` rows" for renditions nobody watches) is a deliberately accepted tradeoff here, not overlooked — the difference is that every uploaded video is now presumed watched, unlike an eager webp/avif format choice nobody asked for.
+
+- **Purely a trigger-timing change, not a new pipeline.** `apps/api/src/lib/variants.ts`'s new `triggerEagerVideoVariants(project, asset)` just calls the existing `requestVariant` — the exact function every on-demand call site (`asset-preview.tsx`'s `ConvertedVideoPreview`/scrub-thumbnails-on-play, `download-as-dialog.tsx`, `player-js`'s `OssPlayVideo`) already calls. Since `requestVariant` checks `findCachedVariant` first and no-ops if a matching variant already exists in any non-`"failed"` status, none of those call sites needed to change at all — they now just hit an already-`"ready"` cache far more often instead of starting a fresh job. The on-demand machinery (`requestVariant`, the worker's `requestedVariant` branch, `packageHls`/`packageScrubThumbnails`) is completely untouched and stays load-bearing as the fallback path — for an asset uploaded before this change, or if eager triggering silently didn't fire for some reason, the exact same on-demand request-on-first-view still works.
+- **Called from all three upload entrypoints that queue the eager `"process"` job**: `apps/api/src/routes/assets.ts`'s `/confirm` and `/duplicate` routes, and `apps/api/src/routes/v1.ts`'s public `/:project/upload` route — same `if (queueName)` guard each already had, so it's skipped for anything that wouldn't get eager processing at all.
+- **Arbitrary "Download as…" height/format combinations stay on-demand** — there's no bounded set to eagerly generate, and pre-generating every possible combination is exactly the kind of unbounded row-multiplication the 2026-08-12 decision was protecting against. Only the two fixed-shape pipelines (`hls-package`, `scrub-thumbnails`) and the one conditional compatibility transcode are eager.
+- **The Drive list/grid's existing processing spinner now also covers "still building a rendition,"** independent of the asset's own `status`: a new `attachProcessingVariants` (`apps/api/src/routes/folders.ts`, same batched-query shape as the neighboring `attachThumbnails`) flags any row with an incomplete on-demand variant, exposed as `hasProcessingVariants` on `DriveAsset`. This matters because the original row's own `status` flips to `"ready"` fast (the eager probe+thumbnail step is unchanged and quick) while HLS packaging in particular can take much longer — without this, the Drive grid would show a video as done long before it actually was. `drive-list.tsx`/`drive-grid.tsx`'s `isProcessing` check and `drive-view.tsx`'s list-level poll both widened by one `||` clause each; no new UI component. Deliberately generic (not video-mimetype-gated in the query itself) — it happens to only ever be populated by the new eager-video trigger today, but also incidentally covers a user-initiated on-demand request for any mimetype that hasn't finished yet.
+- **Explicit non-goals, called out rather than silently deferred:** no BullMQ concurrency/priority tuning (every media queue still processes one job at a time — a video now queues 2-3 jobs instead of 1, so total processing time per upload is longer, and a burst of uploads clears more slowly; a real problem if it bites, but not one this pass re-tunes); no backfill for already-uploaded videos (only new uploads going forward — an existing video stays on-demand exactly as before until someone next views/downloads it); no extension of `failed-asset-retry.ts`'s cron to cover a failed eager variant beyond the retry-for-free-on-next-request behavior it already relies on for every on-demand variant (a video whose eager `hls-package` failed and is never subsequently previewed/embedded would sit `"failed"` with no automatic cron recovery — same as any on-demand variant today, not a new gap this pass introduced).
+
+**Artifacts updated:** No `docs` repo change — nothing about the public `/v1` API surface or its documented behavior changed; `hls-package`/`scrub-thumbnails`/`video-transcode` are requested the same way through the same routes, just triggered automatically instead of by a client.
+
+---
+
 ## 2026-08-20 — Fixed four regressions from the settings-panel/sizing pass: no Range support, form-control aspect-ratio quirk, auto-hide swallowing clicks
 
 **Status:** Decided
@@ -97,7 +115,7 @@ Drive's UI didn't match the rest of the app (a real `setState`-in-render console
 
 ## 2026-08-12 — Drive overhaul: real multi-select/DnD/grid-list UI, on-demand variant pipeline, bulk zip download
 
-**Status:** Decided
+**Status:** Decided — the "upload-time processing is thumbnail-only" bullet below is **Superseded for video only** by the 2026-08-21 entry above (video's `hls-package`/`scrub-thumbnails`/unsupported-container transcode now trigger eagerly on upload); unchanged for images, audio, PDF, and video's arbitrary "Download as…" conversions.
 
 The Drive feature shipped 2026-08-10 covered the basics (grid, single-select, right-click rename/trash) but was missing what makes a drive product actually usable day to day: proper multi-select, drag-and-drop, a list view, real sort/filter, infinite scroll, and — the largest piece — a way to get a file in a format/quality other than whatever upload-time processing happened to produce. This pass rebuilt all of it across 9 phases.
 
