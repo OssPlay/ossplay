@@ -19,6 +19,13 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
+import {
+	findReadyHlsPackage,
+	HLS_MIME,
+	injectAudioTrackGroup,
+	injectSubtitleGroup,
+	respondWithHlsFile,
+} from "../lib/hls-serving";
 import { serveLocalDiskAsset } from "../lib/http/serve-asset";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { mintAssetShareLink } from "../lib/share-links";
@@ -454,6 +461,282 @@ assetsRoute.delete(
 		}
 
 		await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: subtitleId });
+		return c.body(null, 204);
+	},
+);
+
+// --- Session-authed HLS manifest + segment serving ------------------------
+// Mirrors apps/api/src/routes/v1.ts's public /hls/* routes exactly, just
+// gated by session auth (`gate`) instead of API-key/share-token
+// (`authorizeRead`) — the underlying resolve/inject/serve logic is shared
+// via ../lib/hls-serving.ts. These are same-origin, cookie-authed requests
+// (the Drive preview, never an embed/SDK caller), so there's no `?share=`
+// token to propagate to sub-requests — every query-rewriting call below
+// passes "", which those shared helpers already treat as a no-op.
+
+// A relative-URI segment/sub-playlist request's last path component may
+// arrive as "<uuid>.m3u8" (the client constructs it that way for
+// readability) — same "strip everything after the last dot" parse v1.ts's
+// own subs-wrapper route uses.
+function parseHlsItemParam(item: string): string {
+	const dot = item.lastIndexOf(".");
+	return dot > 0 ? item.slice(0, dot) : item;
+}
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/master.m3u8",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const original = await requireAsset(projectId, assetId);
+		if (!original) return c.json({ error: "Asset not found" }, 404);
+		const pkg = await findReadyHlsPackage(assetId);
+		if (!pkg) return c.json({ error: "Asset not found" }, 404);
+
+		const storage = resolveStorageDriver(project);
+		const bytes = await storage.downloadObject(`${pkg.s3Path}/master.m3u8`);
+		const text = new TextDecoder().decode(bytes);
+		const variants = await listVariants(assetId);
+		const subtitles = variants.filter(
+			(v) => v.metadata?.variant === "subtitle" && v.status === "ready",
+		);
+		const audioTracks = variants.filter(
+			(v) => v.metadata?.variant === "audio-track" && v.status === "ready",
+		);
+		const withSubtitles = injectSubtitleGroup(text, subtitles, "");
+		const withAudioTracks = injectAudioTrackGroup(withSubtitles, audioTracks);
+		return new Response(withAudioTracks, { headers: { "content-type": HLS_MIME } });
+	},
+);
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/subs/:subtitleAssetId",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const subtitleAssetId = parseHlsItemParam(c.req.param("subtitleAssetId"));
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const original = await requireAsset(projectId, assetId);
+		if (!original) return c.json({ error: "Asset not found" }, 404);
+
+		const durationSeconds =
+			typeof original.metadata?.durationSeconds === "number"
+				? original.metadata.durationSeconds
+				: 36000;
+		const vttUrl = `/api/organizations/${orgId}/projects/${projectId}/assets/${subtitleAssetId}/content`;
+		const playlist = [
+			"#EXTM3U",
+			"#EXT-X-VERSION:3",
+			`#EXT-X-TARGETDURATION:${Math.ceil(durationSeconds)}`,
+			"#EXT-X-MEDIA-SEQUENCE:0",
+			"#EXT-X-PLAYLIST-TYPE:VOD",
+			`#EXTINF:${durationSeconds},`,
+			vttUrl,
+			"#EXT-X-ENDLIST",
+			"",
+		].join("\n");
+		return new Response(playlist, { headers: { "content-type": HLS_MIME } });
+	},
+);
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/audio/:lang/index.m3u8",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const lang = c.req.param("lang");
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const pkg = await findReadyHlsPackage(assetId);
+		if (!pkg) return c.json({ error: "Asset not found" }, 404);
+
+		const storage = resolveStorageDriver(project);
+		const bytes = await storage.downloadObject(`${pkg.s3Path}/audio/${lang}/index.m3u8`);
+		return new Response(new TextDecoder().decode(bytes), { headers: { "content-type": HLS_MIME } });
+	},
+);
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/audio/:lang/:segment",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const lang = c.req.param("lang");
+		const segment = c.req.param("segment");
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const pkg = await findReadyHlsPackage(assetId);
+		if (!pkg) return c.json({ error: "Asset not found" }, 404);
+
+		return respondWithHlsFile(c, project, `${pkg.s3Path}/audio/${lang}/${segment}`, "video/mp2t");
+	},
+);
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/:rung/index.m3u8",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const rung = c.req.param("rung");
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const pkg = await findReadyHlsPackage(assetId);
+		if (!pkg) return c.json({ error: "Asset not found" }, 404);
+
+		const storage = resolveStorageDriver(project);
+		const bytes = await storage.downloadObject(`${pkg.s3Path}/${rung}/index.m3u8`);
+		return new Response(new TextDecoder().decode(bytes), { headers: { "content-type": HLS_MIME } });
+	},
+);
+
+assetsRoute.get(
+	"/:orgId/projects/:projectId/assets/:assetId/hls/:rung/:segment",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const rung = c.req.param("rung");
+		const segment = c.req.param("segment");
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const pkg = await findReadyHlsPackage(assetId);
+		if (!pkg) return c.json({ error: "Asset not found" }, 404);
+
+		return respondWithHlsFile(c, project, `${pkg.s3Path}/${rung}/${segment}`, "video/mp2t");
+	},
+);
+
+// A manually-attached audio track (a dub/commentary track uploaded after
+// the video already exists) — same "small, user-supplied companion file"
+// shape as a subtitle (metadata.variant tag, parentAssetId, no trash
+// stage), but unlike a subtitle's synchronous SRT->VTT conversion, this
+// genuinely needs an ffmpeg encode, so it goes through a real worker job
+// (see video.ts's attachAudioTrack) — the placeholder row starts
+// "processing", not "ready".
+assetsRoute.post(
+	"/:orgId/projects/:projectId/assets/:assetId/audio-tracks",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const original = await requireAsset(projectId, assetId);
+		if (!original || original.deletedAt) return c.json({ error: "Asset not found" }, 404);
+		if (!original.mimeType.startsWith("video/")) {
+			return c.json({ error: "Audio tracks can only be attached to video assets" }, 400);
+		}
+
+		const body = await c.req.parseBody().catch(() => null);
+		if (!body) return c.json({ error: "Invalid multipart body" }, 400);
+		const file = body.file;
+		const language = typeof body.language === "string" ? body.language.trim() : "";
+		const label = typeof body.label === "string" ? body.label.trim() : "";
+		if (!(file instanceof File) || !file.type.startsWith("audio/")) {
+			return c.json({ error: "An audio file is required" }, 400);
+		}
+		if (!language || language.length > 20 || !label || label.length > 100) {
+			return c.json({ error: "Invalid input" }, 400);
+		}
+
+		const existingTracks = (await listVariants(assetId)).filter(
+			(v) => v.metadata?.variant === "audio-track" && !v.deletedAt,
+		);
+		if (existingTracks.some((v) => v.metadata?.language === language)) {
+			return c.json({ error: `An audio track for "${language}" already exists on this video` }, 400);
+		}
+
+		// The video's hls-package variant needs to already be -an/audio-group
+		// capable (see finalizeHlsVariant's audioGroupCapable stamp) before a
+		// track can be attached — a package built before that change instead
+		// muxed its own audio directly into every rendition, so attaching a
+		// track to it would play both at once. Self-healing: delete the
+		// stale row and trigger a fresh repackage, same "not ready yet, poll
+		// again" shape as any other on-demand request.
+		const existingVariants = await listVariants(assetId);
+		const hlsVariant = existingVariants.find((v) => v.metadata?.specKey === "hls");
+		const isStale =
+			hlsVariant && hlsVariant.status === "ready" && hlsVariant.metadata?.audioGroupCapable !== true;
+		if (!hlsVariant || isStale) {
+			if (hlsVariant) {
+				await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: hlsVariant.id });
+			}
+			const result = await requestVariant(project, original, { kind: "hls-package" });
+			if (!result.ok) return c.json({ error: result.error }, result.status);
+			// Not an error — the video itself is still (re)packaging, so
+			// there's genuinely no track to attach to yet. 202 + the
+			// in-progress hls variant, same "not ready, poll and retry"
+			// shape POST .../variants already uses for a fresh request.
+			return c.json({ asset: result.asset, processing: true }, 202);
+		}
+		if (hlsVariant.status !== "ready") {
+			return c.json({ asset: hlsVariant, processing: true }, 202);
+		}
+
+		const storage = resolveStorageDriver(project);
+		const tempAudioId = crypto.randomUUID();
+		const tempAudioKey = buildAssetKey(projectId, tempAudioId, file.name);
+		const audioBytes = new Uint8Array(await file.arrayBuffer());
+		await storage.uploadObject(tempAudioKey, audioBytes, { mimeType: file.type });
+
+		const trackAssetId = crypto.randomUUID();
+		const filename = `${original.filename.replace(/\.[^.]+$/, "")}-${language}-audio`;
+		await getDb()
+			.insert(assets)
+			.values({
+				id: trackAssetId,
+				projectId,
+				folderId: original.folderId,
+				filename,
+				mimeType: "application/vnd.apple.mpegurl",
+				s3Path: `${hlsVariant.s3Path}/audio/${trackAssetId}`,
+				parentAssetId: assetId,
+				status: "processing",
+				metadata: { variant: "audio-track", language, label },
+			});
+
+		const queueName = queueForMimeType(original.mimeType);
+		if (!queueName) throw new Error(`No processing queue for mimetype ${original.mimeType}`);
+		const jobData = {
+			attachAudioTrack: {
+				videoAssetId: assetId,
+				projectId,
+				trackAssetId,
+				hlsPrefix: hlsVariant.s3Path,
+				tempAudioKey,
+			},
+		};
+		const dispatched = await tryDispatchToComputeDestination(queueName, "attach-audio-track", jobData);
+		if (!dispatched) {
+			await getQueue(queueName).add("attach-audio-track", jobData, PROCESSING_JOB_OPTS);
+		}
+
+		const created = await requireAsset(projectId, trackAssetId);
+		return c.json({ asset: created }, 201);
+	},
+);
+
+// Instant delete, same as a subtitle — no trash stage. permanentlyDeleteSubtree
+// tries to delete the track's own s3Path (its `audio/{trackId}` prefix,
+// not a single real object) — that specific delete best-effort-fails and
+// is logged rather than thrown (see recycle.ts's deleteKeys), same as
+// deleting any other HLS-prefix-shaped row already does, so the segments/
+// playlist under it are harmlessly orphaned rather than blocking the row
+// from being removed.
+assetsRoute.delete(
+	"/:orgId/projects/:projectId/assets/:assetId/audio-tracks/:trackId",
+	...gate,
+	async (c) => {
+		const { orgId, projectId, assetId, trackId } = c.req.param();
+		const project = await requireProject(orgId, projectId);
+		if (!project) return c.json({ error: "Project not found" }, 404);
+		const track = await requireAsset(projectId, trackId);
+		if (!track || track.parentAssetId !== assetId || track.metadata?.variant !== "audio-track") {
+			return c.json({ error: "Audio track not found" }, 404);
+		}
+
+		await permanentlyDeleteSubtree(getDb(), project, { kind: "asset", id: trackId });
 		return c.body(null, 204);
 	},
 );

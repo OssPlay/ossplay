@@ -6,6 +6,73 @@ Add new entries at the top. Mark a decision `Superseded` (don't delete it) if a 
 
 ---
 
+## 2026-08-21 — Drive preview plays via HLS; manual "add audio track" attach feature
+
+**Status:** Decided
+
+Multi-audio HLS already worked end-to-end (confirmed via the embed page) — the actual bug was
+narrower: the Drive preview never used HLS at all, always playing either the raw original file or
+the unsupported-container mp4 fallback, both structurally incapable of exposing more than one
+audio track regardless of how many the source had. Second, related ask: a manual "attach an
+audio track" feature paralleling the existing "Add subtitle" flow.
+
+- **Drive preview now prefers HLS whenever the eagerly-triggered `hls` variant is ready**, for every
+  video mimetype, not just unsupported containers — this gets adaptive-quality switching and
+  multi-audio into the Drive preview for free, using the same engine machinery the embed page
+  already exercised. Falls back to today's native-mp4/`ConvertedVideoPreview` behavior only in the
+  narrow window before HLS finishes (or for a video that predates eager triggering, in which case
+  it's requested lazily the same way scrub-thumbnails already is). New session-authed HLS-serving
+  routes (`GET .../assets/:assetId/hls/...`, `apps/api/src/routes/assets.ts`) mirror `v1.ts`'s public
+  ones exactly, sharing the actual auth-agnostic logic via a new `apps/api/src/lib/hls-serving.ts` —
+  only the surrounding auth check (`gate` vs `authorizeRead`) differs; no `?share=` query-rewriting
+  needed since these are same-origin, cookie-authed requests.
+- **Also removed the redundant eager 720p-mp4 transcode for unsupported containers** (from the
+  2026-08-21 eager-video-processing entry below) — now that Drive preview prefers HLS, which already
+  solves "unsupported container" as a side effect of adaptive streaming, eagerly building a second,
+  redundant compatibility file was pure waste. It's still available fully on-demand (unchanged), just
+  not pre-built.
+- **`packageHls` no longer special-cases `multiAudio`** (`apps/worker/src/processors/video.ts`) —
+  every rendition is now always encoded `-an`, with the source's own audio track(s) always packaged
+  as a real AUDIO group, even for a single track (or zero). This is what makes "attach a track later"
+  cheap: a source that was packaged with muxed audio (the old behavior) would need a full, expensive
+  re-encode to gain a group to attach into. The one-time cost is an extra audio-only encode for the
+  overwhelmingly common single-track case, in exchange for every future package supporting instant
+  track attachment. The `AUDIO="audio"` STREAM-INF attribute itself is *not* baked in at packaging
+  time though — like subtitles' `SUBTITLES` attribute, it's added at serve time
+  (`injectAudioTrackGroup`), since whether the group ends up with any members depends on
+  manually-attached tracks a request-time check can't know about upfront (a zero-embedded-audio
+  source would otherwise get a dangling group reference).
+- **New `POST/DELETE .../assets/:assetId/audio-tracks`** mirror the subtitle routes' shape (instant
+  delete, no trash stage; `metadata.variant: "audio-track"`) but genuinely need a worker job — unlike
+  a subtitle's synchronous SRT→VTT conversion, attaching audio means a real ffmpeg encode. A new
+  `AttachAudioTrackJob` shape (`packages/core/src/jobs.ts`) carries a staged temp-upload key instead
+  of the original asset's own bytes; `finalizeHlsVariant` gained an optional metadata-merge param so
+  `packageHls` can stamp `audioGroupCapable: true` on every package it finalizes — the signal the
+  attach route uses to detect (and self-heal, by silently repackaging) a package built before this
+  change, rather than corrupting playback by attaching into a package whose renditions still have
+  audio muxed in directly.
+- **Bug caught during this pass, unrelated to the design above:** `withFailureHandling` (`apps/worker/
+  src/processors/shared.ts`) was typed `T extends BaseAssetJob`, silently accepted `VideoProcessingJob`
+  (now a union including the new non-`BaseAssetJob`-shaped `AttachAudioTrackJob`) without a real type
+  error, and at runtime read `job.data.assetId` — `undefined` for an attach-audio-track job — causing
+  the failure-reporting path itself to crash with an "undefined parameter" SQL error instead of
+  actually recording the failure. Fixed by widening the constraint and branching on the job's actual
+  shape. A reminder that TS's inference through a callback-typed generic parameter doesn't reliably
+  catch a union member that doesn't satisfy the constraint — this needed a live failure to surface,
+  not typecheck.
+- **Dashboard**: new `AddAudioTrackDialog` (`apps/dashboard/components/drive/add-audio-track-dialog.tsx`),
+  directly modeled on `AddSubtitleDialog` (exports its `COMMON_LANGUAGES`/`OTHER_VALUE` for reuse
+  rather than duplicating the list), wired into the same context-menu spot. Needed a new
+  `apiFetchForm` (`apps/dashboard/lib/api.ts`) alongside `apiFetch`, since the latter unconditionally
+  forces `Content-Type: application/json` (load-bearing for the existing JSON-only call sites'
+  CSRF-passing) — a multipart file upload needs the browser to set its own boundary, which a forced
+  Content-Type would break.
+
+**Artifacts updated:** No `docs` repo change — the new session-authed HLS routes and audio-tracks
+routes are dashboard-internal, not part of the documented public `/v1` surface.
+
+---
+
 ## 2026-08-21 — Video processing moved from on-demand to eager on upload (scoped to video only)
 
 **Status:** Decided — partially reverses 2026-08-12's "Drive overhaul" entry below, for video only

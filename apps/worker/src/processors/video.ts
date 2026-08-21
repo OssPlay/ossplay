@@ -74,6 +74,11 @@ const SCRUB_MAX_INTERVAL = 30;
 // DRM remain a further follow-up, not something the embed feature
 // (2026-08-20) repurposes these fixed-rendition fields for.
 export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> {
+	if ("attachAudioTrack" in job.data) {
+		await attachAudioTrack(job.data.attachAudioTrack);
+		return;
+	}
+
 	const { assetId, projectId, requestedVariant } = job.data;
 
 	const project = await getProjectWithDestination(projectId);
@@ -205,6 +210,41 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 	}
 }
 
+// Encodes a manually-attached audio track (assets.ts's POST
+// .../audio-tracks staged the raw uploaded file at `tempAudioKey` first,
+// since a placeholder `assets` row and this job both need to exist before
+// the actual encode happens). Reuses the exact same per-track encoding
+// packageAudioTracks already uses for the source's own embedded streams —
+// `mapIndex: null` means "the whole input file is the track," no `-map`
+// needed. Segments/playlist upload via finalizeHlsVariant, same as the
+// video package's own files — this row's own s3Path (set by the route to
+// `${hlsPrefix}/audio/${trackAssetId}`) is what determines the final
+// upload location, not the job payload itself.
+async function attachAudioTrack(opts: {
+	videoAssetId: string;
+	projectId: string;
+	trackAssetId: string;
+	hlsPrefix: string;
+	tempAudioKey: string;
+}): Promise<void> {
+	const project = await getProjectWithDestination(opts.projectId);
+	if (!project) throw new Error(`Project ${opts.projectId} not found`);
+	const storage = resolveStorageDriver(project);
+
+	const workDir = await mkdtemp(join(tmpdir(), "ossplay-audio-track-"));
+	try {
+		const bytes = await storage.downloadObject(opts.tempAudioKey);
+		const inputPath = join(workDir, "input");
+		await writeFile(inputPath, bytes);
+
+		const { files } = await packageOneAudioTrack(inputPath, workDir, "", null);
+		await finalizeHlsVariant(opts.trackAssetId, storage, files);
+		await storage.deleteObject(opts.tempAudioKey);
+	} finally {
+		await rm(workDir, { force: true, recursive: true });
+	}
+}
+
 // Encodes an HLS rendition ladder + master playlist and hands every file
 // (master + each rung's playlist + segments) to finalizeHlsVariant in one
 // batch — see MEMORY.md/the plan doc for why this is generated on-demand
@@ -235,21 +275,25 @@ async function packageHls(
 	const durationSeconds = await resolveDurationSeconds(inputPath, probe);
 
 	const audioStreams = (probe.streams ?? []).filter((s) => s.codec_type === "audio");
-	// Only worth a separate AUDIO group (and the extra encodes/segments it
-	// costs) when there's genuinely a choice to offer — a single audio
-	// track stays muxed into each video rendition exactly as before, zero
-	// behavior change for the overwhelmingly common case.
-	const multiAudio = audioStreams.length > 1;
+	// Every rendition is always video-only (-an) now, with the source's own
+	// audio track(s) packaged as their own selectable AUDIO group —
+	// unconditionally, even for a single track (or zero: packageAudioTracks
+	// just no-ops). This used to only happen when the source already had
+	// >1 audio track, muxing audio directly into a single-track source's
+	// renditions instead — but that meant a package built that way could
+	// never gain a manually-attached extra track later without a full,
+	// expensive re-encode (see apps/api/src/routes/assets.ts's
+	// audio-tracks routes). Packaging every video this way costs one extra
+	// audio-only encode over the old single-track case, in exchange for
+	// "attach a track anytime" being cheap forever after.
+	const { files: audioFiles, mediaLines: audioMediaLines } = await packageAudioTracks(
+		inputPath,
+		workDir,
+		audioStreams,
+	);
 
-	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [];
+	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [...audioFiles];
 	const streamInfLines: string[] = [];
-	const audioMediaLines: string[] = [];
-
-	if (multiAudio) {
-		const audioResult = await packageAudioTracks(inputPath, workDir, audioStreams);
-		files.push(...audioResult.files);
-		audioMediaLines.push(...audioResult.mediaLines);
-	}
 
 	for (const height of ladder) {
 		const rungDir = join(workDir, `${height}p`);
@@ -257,9 +301,9 @@ async function packageHls(
 		// Forced keyframe interval (-g/-sc_threshold 0) keeps segment
 		// boundaries fixed at exactly hls_time regardless of scene cuts —
 		// without it, ffmpeg's default GOP placement drifts, which breaks
-		// strict HLS clients expecting uniform segment durations. Video-only
-		// (-an) when audio ships as its own selectable AUDIO group instead —
-		// muxing the default track in too would make it play twice (once
+		// strict HLS clients expecting uniform segment durations. Always
+		// video-only (-an) — audio ships as its own selectable AUDIO group
+		// instead; muxing a track in too would make it play twice (once
 		// from the video rendition, once from the audio group).
 		await run("ffmpeg", [
 			"-y",
@@ -279,7 +323,7 @@ async function packageHls(
 			"48",
 			"-sc_threshold",
 			"0",
-			...(multiAudio ? ["-an"] : ["-c:a", "aac", "-b:a", "128k"]),
+			"-an",
 			"-hls_time",
 			"6",
 			"-hls_playlist_type",
@@ -309,8 +353,17 @@ async function packageHls(
 		const bandwidth =
 			durationSeconds && durationSeconds > 0 ? Math.round((rungBytes * 8) / durationSeconds) : 2_000_000;
 		const width = Math.round((aspect * height) / 2) * 2;
+		// Deliberately no `AUDIO="audio"` attribute baked in here, even
+		// though this rendition is always -an now — whether a STREAM-INF
+		// line should reference the audio group depends on whether one
+		// actually has any members, which a manually-attached track
+		// (apps/api/src/routes/assets.ts's audio-tracks routes) can add
+		// after this file is already written. That attribute is added at
+		// serve time instead (apps/api/src/lib/hls-serving.ts's
+		// injectAudioTrackGroup), the same way subtitles' SUBTITLES
+		// attribute already is, for the same reason.
 		streamInfLines.push(
-			`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}${multiAudio ? ',AUDIO="audio"' : ""}\n${height}p/index.m3u8`,
+			`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height}\n${height}p/index.m3u8`,
 		);
 	}
 
@@ -326,17 +379,75 @@ async function packageHls(
 		mimeType: "application/vnd.apple.mpegurl",
 	});
 
-	await finalizeHlsVariant(variantAssetId, storage, files);
+	// Every rendition this code produces is unconditionally -an/audio-group-
+	// capable (see this function's own comment) — stamped so a later manual
+	// "attach audio track" request can tell this package apart from one
+	// built before that change, without needing to parse master.m3u8.
+	await finalizeHlsVariant(variantAssetId, storage, files, { audioGroupCapable: true });
 
 	await extractEmbeddedSubtitles(inputPath, workDir, probe.streams ?? [], original, storage);
 }
 
-// Encodes every audio stream as its own selectable HLS audio-only
-// rendition (AAC, segmented the same way a video rung is) and builds the
-// EXT-X-MEDIA:TYPE=AUDIO lines the master playlist references by group —
-// only called when there's more than one audio track (see multiAudio
-// above); a single-track source stays muxed into the video renditions,
-// no separate audio group at all.
+// Encodes one audio source — an embedded stream (via `-map 0:N`) or a
+// whole standalone file (`mapIndex: null`, used by the manual
+// "attach audio track" flow, apps/worker/src/processors/video.ts's
+// attachAudioTrack export below) — as its own selectable HLS audio-only
+// rendition (AAC, segmented the same way a video rung is), written under
+// `${outputDir}/${relativePrefix}/`. Shared by packageAudioTracks (one
+// call per embedded stream) and the manual-attach job (one call for the
+// uploaded file), so the encoding logic only exists once.
+async function packageOneAudioTrack(
+	inputPath: string,
+	outputDir: string,
+	relativePrefix: string,
+	mapIndex: number | null,
+): Promise<{ files: { relativePath: string; data: Uint8Array; mimeType: string }[] }> {
+	const audioDir = relativePrefix ? join(outputDir, relativePrefix) : outputDir;
+	await mkdir(audioDir, { recursive: true });
+	await run("ffmpeg", [
+		"-y",
+		"-i",
+		inputPath,
+		...(mapIndex !== null ? ["-map", `0:${mapIndex}`] : []),
+		"-c:a",
+		"aac",
+		"-b:a",
+		"128k",
+		"-hls_time",
+		"6",
+		"-hls_playlist_type",
+		"vod",
+		"-hls_segment_filename",
+		join(audioDir, "seg%05d.ts"),
+		join(audioDir, "index.m3u8"),
+	]);
+
+	const files: { relativePath: string; data: Uint8Array; mimeType: string }[] = [];
+	const entries = await readdir(audioDir);
+	for (const seg of entries.filter((f) => f.endsWith(".ts")).sort()) {
+		const data = await readFile(join(audioDir, seg));
+		files.push({
+			relativePath: relativePrefix ? `${relativePrefix}/${seg}` : seg,
+			data: new Uint8Array(data),
+			mimeType: "video/mp2t",
+		});
+	}
+	const playlistText = await readFile(join(audioDir, "index.m3u8"), "utf8");
+	files.push({
+		relativePath: relativePrefix ? `${relativePrefix}/index.m3u8` : "index.m3u8",
+		data: new TextEncoder().encode(playlistText),
+		mimeType: "application/vnd.apple.mpegurl",
+	});
+	return { files };
+}
+
+// Encodes every one of the source's own embedded audio streams as its own
+// selectable HLS audio-only rendition and builds the EXT-X-MEDIA:TYPE=AUDIO
+// lines the master playlist bakes in at packaging time — unconditionally,
+// even for a single track (or zero, which just no-ops), so a package built
+// today can always accept a manually-attached extra track later purely at
+// serve time. See packageHls's own comment for why this changed from only
+// running when there was already more than one track.
 async function packageAudioTracks(
 	inputPath: string,
 	workDir: string,
@@ -356,42 +467,13 @@ async function packageAudioTracks(
 		const language = mapped?.code ?? tag ?? `track${trackNumber}`;
 		const label = mapped?.label ?? stream.tags?.title ?? tag ?? `Track ${trackNumber}`;
 
-		const audioDir = join(workDir, "audio", language);
-		await mkdir(audioDir, { recursive: true });
-		await run("ffmpeg", [
-			"-y",
-			"-i",
+		const { files: trackFiles } = await packageOneAudioTrack(
 			inputPath,
-			"-map",
-			`0:${stream.index}`,
-			"-c:a",
-			"aac",
-			"-b:a",
-			"128k",
-			"-hls_time",
-			"6",
-			"-hls_playlist_type",
-			"vod",
-			"-hls_segment_filename",
-			join(audioDir, "seg%05d.ts"),
-			join(audioDir, "index.m3u8"),
-		]);
-
-		const entries = await readdir(audioDir);
-		for (const seg of entries.filter((f) => f.endsWith(".ts")).sort()) {
-			const data = await readFile(join(audioDir, seg));
-			files.push({
-				relativePath: `audio/${language}/${seg}`,
-				data: new Uint8Array(data),
-				mimeType: "video/mp2t",
-			});
-		}
-		const playlistText = await readFile(join(audioDir, "index.m3u8"), "utf8");
-		files.push({
-			relativePath: `audio/${language}/index.m3u8`,
-			data: new TextEncoder().encode(playlistText),
-			mimeType: "application/vnd.apple.mpegurl",
-		});
+			workDir,
+			`audio/${language}`,
+			stream.index ?? null,
+		);
+		files.push(...trackFiles);
 
 		mediaLines.push(
 			`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${label}",LANGUAGE="${language}",AUTOSELECT=YES,DEFAULT=${trackNumber === 1 ? "YES" : "NO"},URI="audio/${language}/index.m3u8"`,

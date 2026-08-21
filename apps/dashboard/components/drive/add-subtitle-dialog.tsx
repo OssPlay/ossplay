@@ -27,8 +27,11 @@ import type { DriveAsset } from "@/types/drive";
 
 // A curated common-language list keeps the normal case to two clicks
 // (pick language, pick a file) instead of typing a code by hand — "Other…"
-// still allows a custom code for anything not listed.
-const COMMON_LANGUAGES: { code: string; label: string }[] = [
+// still allows a custom code for anything not listed. Exported for
+// add-audio-track-dialog.tsx's identical language picker — same concept
+// (a language code + display label), reused verbatim rather than
+// duplicating twelve entries in a second file.
+export const COMMON_LANGUAGES: { code: string; label: string }[] = [
 	{ code: "en", label: "English" },
 	{ code: "es", label: "Spanish" },
 	{ code: "fr", label: "French" },
@@ -42,7 +45,7 @@ const COMMON_LANGUAGES: { code: string; label: string }[] = [
 	{ code: "ar", label: "Arabic" },
 	{ code: "ru", label: "Russian" },
 ];
-const OTHER_VALUE = "__other";
+export const OTHER_VALUE = "__other";
 
 interface SubtitleVariant extends DriveAsset {
 	metadata: { variant: string; language?: string; label?: string } | null;

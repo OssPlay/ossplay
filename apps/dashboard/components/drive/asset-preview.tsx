@@ -98,15 +98,19 @@ export function AssetPreview({
 	const { data: variantsData, mutate: mutateVariants } = useSWR<{ variants: DriveAsset[] }>(
 		isVideo && asset ? `${base}/assets/${asset.id}/variants` : null,
 		{
-			// Only polls while actually watching, and only until the seek-bar
-			// preview sprite is done (or fails) — no reason to keep hitting this
-			// endpoint once there's nothing pending, or before playback has even
-			// started (see the scrub-thumbnails request effect below, which is
+			// Only polls while actually watching, and only until both the
+			// seek-bar preview sprite AND the HLS package are settled (ready or
+			// failed) — no reason to keep hitting this endpoint once nothing's
+			// pending, or before playback has even started (see the
+			// scrub-thumbnails/hls-package request effects below, which are
 			// what puts a "processing" row here in the first place).
 			refreshInterval: (d) => {
 				if (!playing) return 0;
-				const scrub = d?.variants.find((v) => v.metadata?.specKey === "scrub");
-				return scrub && (scrub.status === "ready" || scrub.status === "failed") ? 0 : 1500;
+				const settled = (specKey: string) => {
+					const v = d?.variants.find((v) => v.metadata?.specKey === specKey);
+					return v && (v.status === "ready" || v.status === "failed");
+				};
+				return settled("scrub") && settled("hls") ? 0 : 1500;
 			},
 		},
 	);
@@ -119,6 +123,18 @@ export function AssetPreview({
 		}));
 	const scrubVariant = variantsData?.variants.find((v) => v.metadata?.specKey === "scrub");
 	const scrubThumbnails = scrubThumbnailsFromVariant(scrubVariant, base);
+
+	// HLS supersedes both the plain-native-mp4 branch and the unsupported-
+	// container mp4 fallback below — real adaptive quality switching and,
+	// what this feature was actually added for, a multi-audio-track
+	// switcher, neither of which a plain progressive source can ever expose
+	// regardless of container. Eagerly triggered on upload for every new
+	// video (triggerEagerVideoVariants), so this is normally already ready
+	// by the time anyone opens the preview; the request effect below is
+	// only ever needed for a video uploaded before that existed.
+	const hlsVariant = variantsData?.variants.find((v) => v.metadata?.specKey === "hls");
+	const hlsUrl =
+		hlsVariant?.status === "ready" ? `/api${base}/assets/${asset?.id}/hls/master.m3u8` : null;
 
 	// Requested lazily, only once the viewer actually starts playing (not on
 	// every preview open) — same on-demand shape as ConvertedVideoPreview's
@@ -137,6 +153,22 @@ export function AssetPreview({
 			.then(() => mutateVariants())
 			.catch(() => {});
 	}, [playing, asset, isVideo, variantsData, scrubVariant]);
+
+	// Same lazy, once-only request shape as scrub thumbnails above — only
+	// ever fires for a video that predates eager HLS triggering.
+	const hlsRequestedRef = useRef(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: base is derived from orgId/projectId, stable for this component's lifetime; only playing/asset/variantsData deciding whether to fire the one-time request should retrigger this.
+	useEffect(() => {
+		if (!playing || !asset || !isVideo) return;
+		if (!variantsData || hlsVariant || hlsRequestedRef.current) return;
+		hlsRequestedRef.current = true;
+		apiFetch(`${base}/assets/${asset.id}/variants`, {
+			method: "POST",
+			body: JSON.stringify({ spec: { kind: "hls-package" } }),
+		})
+			.then(() => mutateVariants())
+			.catch(() => {});
+	}, [playing, asset, isVideo, variantsData, hlsVariant]);
 
 	function navigateTo(id: string) {
 		router.replace(`/project/${projectId}/open?id=${id}`);
@@ -245,6 +277,7 @@ export function AssetPreview({
 					contentUrl={contentUrl}
 					thumbnailUrl={thumbnailUrl}
 					tracks={subtitleTracks}
+					hlsUrl={hlsUrl}
 					videoWidth={videoWidth}
 					videoHeight={videoHeight}
 					scrubThumbnails={scrubThumbnails}
@@ -351,6 +384,7 @@ function AssetBody({
 	contentUrl,
 	thumbnailUrl,
 	tracks,
+	hlsUrl,
 	videoWidth,
 	videoHeight,
 	scrubThumbnails,
@@ -365,6 +399,7 @@ function AssetBody({
 	contentUrl: string;
 	thumbnailUrl: string | null;
 	tracks: VideoPlayerTrack[];
+	hlsUrl: string | null;
 	videoWidth: number | null;
 	videoHeight: number | null;
 	scrubThumbnails: ScrubThumbnails | undefined;
@@ -378,14 +413,28 @@ function AssetBody({
 	if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
 		if (playing) {
 			if (mimeType.startsWith("video/")) {
-				// Plays the original directly — a progressive mp4/webm source,
-				// never "hls" — so this never requests/triggers HLS packaging
-				// (that only happens for the embed player, via OssPlayVideo).
-				// Same VideoPlayer component either way, just a different
-				// source list, so the Drive preview gets the same controls
-				// (quality menu only appears when there's more than one
-				// source to switch between, which a plain original doesn't
-				// have — captions/speed/fullscreen/PiP still do).
+				// HLS, once ready, supersedes both branches below — real
+				// adaptive-quality switching and a multi-audio-track switcher,
+				// regardless of what the source's own container was. `tracks`
+				// is deliberately omitted here: it's a no-op for an "hls"
+				// source per VideoPlayer's own prop doc — subtitles instead
+				// come from the manifest's SUBTITLES group (already injected
+				// server-side), consumed by the same engine machinery the
+				// embed page already exercises.
+				if (hlsUrl) {
+					return (
+						<VideoPlayer
+							sources={[{ src: hlsUrl, type: "hls" }]}
+							scrubThumbnails={scrubThumbnails}
+							autoPlay
+							style={videoPreviewStyle(videoWidth, videoHeight)}
+						/>
+					);
+				}
+				// Plays the original directly — a progressive mp4/webm source —
+				// while HLS isn't ready yet (only ever the case for a video
+				// uploaded before eager HLS triggering existed; see the
+				// request effect in AssetPreview).
 				if (NATIVELY_PLAYABLE_VIDEO_MIMETYPES.has(mimeType)) {
 					return (
 						<VideoPlayer

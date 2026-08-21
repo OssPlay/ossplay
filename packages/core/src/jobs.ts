@@ -120,7 +120,25 @@ export type BaseAssetJob = {
 
 export type ImageProcessingJob = BaseAssetJob;
 
-export type VideoProcessingJob = BaseAssetJob;
+// A manually-attached audio track (apps/api/src/routes/assets.ts's POST
+// .../audio-tracks) — distinct shape from BaseAssetJob because its input
+// is a separately-uploaded audio file staged at `tempAudioKey`, not the
+// original video's own bytes. `hlsPrefix` is the video's already-ready
+// hls-package variant's own s3Path — the encoded track's segments/playlist
+// get uploaded under `trackAssetId`'s own s3Path (a subdirectory of that
+// prefix, set by the route at insert time), which the master playlist's
+// serve-time injection (apps/api/src/lib/hls-serving.ts) then references.
+export type AttachAudioTrackJob = {
+	attachAudioTrack: {
+		videoAssetId: string;
+		projectId: string;
+		trackAssetId: string;
+		hlsPrefix: string;
+		tempAudioKey: string;
+	};
+};
+
+export type VideoProcessingJob = BaseAssetJob | AttachAudioTrackJob;
 
 export type AudioProcessingJob = BaseAssetJob;
 

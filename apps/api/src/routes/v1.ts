@@ -19,6 +19,15 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { hashToken } from "../lib/auth/tokens";
 import { getPublicUrl } from "../lib/auth/request-info";
+import {
+	appendQueryToInlineUris,
+	appendQueryToUris,
+	findReadyHlsPackage,
+	HLS_MIME,
+	injectAudioTrackGroup,
+	injectSubtitleGroup,
+	respondWithHlsFile,
+} from "../lib/hls-serving";
 import { serveLocalDiskAsset } from "../lib/http/serve-asset";
 import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "../lib/queue";
 import { mintAssetShareLink } from "../lib/share-links";
@@ -512,86 +521,9 @@ v1Route.post("/:project/:assetId/embed-token", async (c) => {
 // hls-package asset's own id) so a caller only ever needs the one id it
 // already has from GET .../variants, same as every other route in this file.
 
-const HLS_MIME = "application/vnd.apple.mpegurl";
-
 function shareQuery(c: Context<AppEnv>): string {
 	const share = c.req.query("share");
 	return share ? `share=${share}` : "";
-}
-
-// A relative-URI HLS playlist, fetched with ?share=xyz, does NOT propagate
-// that query string to its own relative sub-requests — a browser/hls.js
-// resolving a relative URI against a base URL drops the base's query,
-// keeping only the path. Without this, a private video's rung-playlist and
-// segment requests would silently lose the share token and 401.
-function appendQueryToUris(text: string, query: string): string {
-	if (!query) return text;
-	return text
-		.split("\n")
-		.map((line) => (line && !line.startsWith("#") ? `${line}?${query}` : line))
-		.join("\n");
-}
-
-// The AUDIO group's EXT-X-MEDIA lines are baked into the stored master
-// playlist at packaging time (unlike the subtitle group, injected fresh
-// per request below, whose URI already carries the query at construction)
-// — their inline URI="..." attribute still needs the caller's token
-// appended at serve time, same reasoning as appendQueryToUris above, just
-// for a query embedded inside a line instead of the whole next line. The
-// `[^"?]` exclusion makes this safe to run unconditionally after subtitle
-// injection without double-appending a query that's already there.
-function appendQueryToInlineUris(text: string, query: string): string {
-	if (!query) return text;
-	return text.replace(/URI="([^"?]+)"/g, `URI="$1?${query}"`);
-}
-
-// Injects EXT-X-MEDIA subtitle groups + a SUBTITLES attribute on every
-// EXT-X-STREAM-INF line at serve time, not baked into the stored master
-// playlist — subtitles can be attached after the HLS package already
-// exists, and this keeps them showing up without repackaging video.
-function injectSubtitleGroup(masterText: string, subtitles: Asset[], query: string): string {
-	if (subtitles.length === 0) return masterText;
-	const mediaLines = subtitles.map((sub) => {
-		const label = typeof sub.metadata?.label === "string" ? sub.metadata.label : "Subtitles";
-		const language = typeof sub.metadata?.language === "string" ? sub.metadata.language : "en";
-		const uri = `subs/${sub.id}.m3u8${query ? `?${query}` : ""}`;
-		return `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${label}",LANGUAGE="${language}",URI="${uri}",AUTOSELECT=YES`;
-	});
-	const withGroups = masterText.replace(
-		"#EXT-X-VERSION:3\n",
-		`#EXT-X-VERSION:3\n${mediaLines.join("\n")}\n`,
-	);
-	return withGroups.replace(/^#EXT-X-STREAM-INF:(.*)$/gm, `#EXT-X-STREAM-INF:$1,SUBTITLES="subs"`);
-}
-
-async function resolveHlsPackage(
-	projectId: string,
-	assetId: string,
-): Promise<{ original: Asset; pkg: Asset } | null> {
-	const original = await requireV1Asset(projectId, assetId);
-	if (!original) return null;
-	const variants = await listVariants(assetId);
-	const pkg = variants.find((v) => v.metadata?.specKey === "hls" && v.status === "ready");
-	return pkg ? { original, pkg } : null;
-}
-
-// Mirrors respondWithAsset's local-disk-stream vs S3-redirect-to-presigned-
-// URL split exactly, just against a constructed key instead of an asset
-// row's own s3Path (an HLS segment has no `assets` row of its own).
-async function respondWithHlsFile(
-	c: Context<AppEnv>,
-	project: ProjectWithDestination,
-	key: string,
-	mimeType: string,
-): Promise<Response> {
-	const storage = resolveStorageDriver(project);
-	if (storage instanceof LocalDiskStorage) {
-		const stream = await storage.readObject(key);
-		if (!stream) return c.json({ error: "File not found in storage" }, 404);
-		return new Response(stream, { headers: { "content-type": mimeType } });
-	}
-	const url = storage.createDownloadUrl(key, { static: shouldServeStatic(project, mimeType) });
-	return c.redirect(url, 302);
 }
 
 v1Route.get("/:project/:assetId/hls/master.m3u8", async (c) => {
@@ -599,21 +531,26 @@ v1Route.get("/:project/:assetId/hls/master.m3u8", async (c) => {
 	const assetId = c.req.param("assetId");
 	const project = await getProjectWithDestination(projectId);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	const resolved = await resolveHlsPackage(projectId, assetId);
-	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	const original = await requireV1Asset(projectId, assetId);
+	if (!original) return c.json({ error: "Asset not found" }, 404);
+	const pkg = await findReadyHlsPackage(assetId);
+	if (!pkg) return c.json({ error: "Asset not found" }, 404);
 	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
 	const storage = resolveStorageDriver(project);
-	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/master.m3u8`);
+	const bytes = await storage.downloadObject(`${pkg.s3Path}/master.m3u8`);
 	const text = new TextDecoder().decode(bytes);
 	const query = shareQuery(c);
-	const subtitles = (await listVariants(assetId)).filter(
-		(v) => v.metadata?.variant === "subtitle" && v.status === "ready",
+	const variants = await listVariants(assetId);
+	const subtitles = variants.filter((v) => v.metadata?.variant === "subtitle" && v.status === "ready");
+	const audioTracks = variants.filter(
+		(v) => v.metadata?.variant === "audio-track" && v.status === "ready",
 	);
 	const withSubtitles = injectSubtitleGroup(text, subtitles, query);
-	const rewritten = appendQueryToInlineUris(appendQueryToUris(withSubtitles, query), query);
+	const withAudioTracks = injectAudioTrackGroup(withSubtitles, audioTracks);
+	const rewritten = appendQueryToInlineUris(appendQueryToUris(withAudioTracks, query), query);
 	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
 });
 
@@ -658,14 +595,14 @@ v1Route.get("/:project/:assetId/hls/audio/:lang/index.m3u8", async (c) => {
 	const lang = c.req.param("lang");
 	const project = await getProjectWithDestination(projectId);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	const resolved = await resolveHlsPackage(projectId, assetId);
-	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	const pkg = await findReadyHlsPackage(assetId);
+	if (!pkg) return c.json({ error: "Asset not found" }, 404);
 	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
 	const storage = resolveStorageDriver(project);
-	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/audio/${lang}/index.m3u8`);
+	const bytes = await storage.downloadObject(`${pkg.s3Path}/audio/${lang}/index.m3u8`);
 	const rewritten = appendQueryToUris(new TextDecoder().decode(bytes), shareQuery(c));
 	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
 });
@@ -677,13 +614,13 @@ v1Route.get("/:project/:assetId/hls/audio/:lang/:segment", async (c) => {
 	const segment = c.req.param("segment");
 	const project = await getProjectWithDestination(projectId);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	const resolved = await resolveHlsPackage(projectId, assetId);
-	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	const pkg = await findReadyHlsPackage(assetId);
+	if (!pkg) return c.json({ error: "Asset not found" }, 404);
 	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
-	return respondWithHlsFile(c, project, `${resolved.pkg.s3Path}/audio/${lang}/${segment}`, "video/mp2t");
+	return respondWithHlsFile(c, project, `${pkg.s3Path}/audio/${lang}/${segment}`, "video/mp2t");
 });
 
 v1Route.get("/:project/:assetId/hls/:rung/index.m3u8", async (c) => {
@@ -692,14 +629,14 @@ v1Route.get("/:project/:assetId/hls/:rung/index.m3u8", async (c) => {
 	const rung = c.req.param("rung");
 	const project = await getProjectWithDestination(projectId);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	const resolved = await resolveHlsPackage(projectId, assetId);
-	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	const pkg = await findReadyHlsPackage(assetId);
+	if (!pkg) return c.json({ error: "Asset not found" }, 404);
 	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
 	const storage = resolveStorageDriver(project);
-	const bytes = await storage.downloadObject(`${resolved.pkg.s3Path}/${rung}/index.m3u8`);
+	const bytes = await storage.downloadObject(`${pkg.s3Path}/${rung}/index.m3u8`);
 	const rewritten = appendQueryToUris(new TextDecoder().decode(bytes), shareQuery(c));
 	return new Response(rewritten, { headers: { "content-type": HLS_MIME } });
 });
@@ -711,11 +648,11 @@ v1Route.get("/:project/:assetId/hls/:rung/:segment", async (c) => {
 	const segment = c.req.param("segment");
 	const project = await getProjectWithDestination(projectId);
 	if (!project) return c.json({ error: "Project not found" }, 404);
-	const resolved = await resolveHlsPackage(projectId, assetId);
-	if (!resolved) return c.json({ error: "Asset not found" }, 404);
+	const pkg = await findReadyHlsPackage(assetId);
+	if (!pkg) return c.json({ error: "Asset not found" }, 404);
 	if (!(await authorizeRead(c, projectId, project.visibility, assetId))) {
 		return c.json({ error: "Missing or invalid API key" }, 401);
 	}
 
-	return respondWithHlsFile(c, project, `${resolved.pkg.s3Path}/${rung}/${segment}`, "video/mp2t");
+	return respondWithHlsFile(c, project, `${pkg.s3Path}/${rung}/${segment}`, "video/mp2t");
 });

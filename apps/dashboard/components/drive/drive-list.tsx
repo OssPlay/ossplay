@@ -26,6 +26,7 @@ import { formatBytes } from "@/lib/format-bytes";
 import { openContextMenu } from "@/lib/open-context-menu";
 import { cn, formatDatetime } from "@/lib/utils";
 import type { DriveAsset, DriveFolder } from "@/types/drive";
+import { AddAudioTrackDialog } from "./add-audio-track-dialog";
 import { AddSubtitleDialog } from "./add-subtitle-dialog";
 import { AssetContextMenuContent, iconForMimeType } from "./asset-context-menu";
 import { AssetDetailsPanel } from "./asset-details-panel";
@@ -121,6 +122,7 @@ export function DriveList({
 	const [detailsTarget, setDetailsTarget] = useState<DriveAsset | null>(null);
 	const [embedTarget, setEmbedTarget] = useState<DriveAsset | null>(null);
 	const [addSubtitleTarget, setAddSubtitleTarget] = useState<DriveAsset | null>(null);
+	const [addAudioTrackTarget, setAddAudioTrackTarget] = useState<DriveAsset | null>(null);
 
 	const {
 		base,
@@ -335,6 +337,7 @@ export function DriveList({
 										onDetails={() => setDetailsTarget(asset)}
 										onEmbed={() => setEmbedTarget(asset)}
 										onAddSubtitle={() => setAddSubtitleTarget(asset)}
+										onAddAudioTrack={() => setAddAudioTrackTarget(asset)}
 										onDuplicate={() => duplicateAssetAndRefresh(asset.id)}
 										onMoveTo={onMoveTo}
 										onTrash={() => trashAssetAndRefresh(asset.id)}
@@ -428,6 +431,19 @@ export function DriveList({
 					open={Boolean(addSubtitleTarget)}
 					onOpenChange={(open) => {
 						if (!open) setAddSubtitleTarget(null);
+					}}
+					onAdded={onRefresh}
+				/>
+			)}
+
+			{addAudioTrackTarget && (
+				<AddAudioTrackDialog
+					orgId={orgId}
+					projectId={projectId}
+					asset={addAudioTrackTarget}
+					open={Boolean(addAudioTrackTarget)}
+					onOpenChange={(open) => {
+						if (!open) setAddAudioTrackTarget(null);
 					}}
 					onAdded={onRefresh}
 				/>

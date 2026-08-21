@@ -3,7 +3,6 @@ import {
 	buildHlsPrefix,
 	computeSpecKey,
 	findCachedVariant,
-	NATIVELY_PLAYABLE_VIDEO_MIMETYPES,
 	type ProjectWithDestination,
 	queueForMimeType,
 	tryDispatchToComputeDestination,
@@ -151,29 +150,33 @@ export async function requestVariant(
 }
 
 // Video's on-demand pipelines (adaptive HLS + its embedded-subtitle
-// extraction, the seek-bar scrub sprite, and — for a container no browser
-// decodes — a 720p-mp4 compatibility transcode) now fire automatically at
-// upload instead of waiting for a viewer to open a preview/embed. This is
-// purely a trigger-timing change: it just calls requestVariant, the same
-// function every on-demand call site already calls, so those call sites
+// extraction, the seek-bar scrub sprite) now fire automatically at upload
+// instead of waiting for a viewer to open a preview/embed. This is purely
+// a trigger-timing change: it just calls requestVariant, the same function
+// every on-demand call site already calls, so those call sites
 // (asset-preview.tsx, download-as-dialog.tsx) need no changes — their own
 // requestVariant call hits findCachedVariant's cache (often already
 // "ready" by the time anyone looks) instead of starting a fresh job. Scoped
 // to video only — image/audio/PDF stay exactly as on-demand as before; see
 // MEMORY.md for why this doesn't extend to those.
+//
+// Deliberately NOT eager: the 720p-mp4 compatibility transcode for a
+// container no browser decodes natively. Once the Drive preview prefers
+// HLS whenever it's ready (asset-preview.tsx), HLS alone already solves
+// "unsupported container" — every rendition is plain H.264-in-.ts
+// regardless of the source's own container — so eagerly building a
+// redundant mp4 too would just be paying encode cost twice for the same
+// outcome. The 720p-mp4 spec stays fully on-demand, requested only in the
+// narrow window a viewer opens the preview before HLS has finished.
 export async function triggerEagerVideoVariants(
 	project: ProjectWithDestination,
 	asset: Asset,
 ): Promise<void> {
 	if (!asset.mimeType.startsWith("video/")) return;
-	const requests: Promise<RequestVariantResult>[] = [
+	await Promise.all([
 		requestVariant(project, asset, { kind: "hls-package" }),
 		requestVariant(project, asset, { kind: "scrub-thumbnails" }),
-	];
-	if (!NATIVELY_PLAYABLE_VIDEO_MIMETYPES.has(asset.mimeType)) {
-		requests.push(requestVariant(project, asset, { kind: "video-transcode", height: 720, format: "mp4" }));
-	}
-	await Promise.all(requests);
+	]);
 }
 
 export async function listVariants(assetId: string): Promise<Asset[]> {

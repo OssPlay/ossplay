@@ -57,6 +57,7 @@ export function AssetContextMenuContent({
 	onDetails,
 	onEmbed,
 	onAddSubtitle,
+	onAddAudioTrack,
 	onDuplicate,
 	onMoveTo,
 	onTrash,
@@ -70,6 +71,7 @@ export function AssetContextMenuContent({
 	onDetails: () => void;
 	onEmbed: () => void;
 	onAddSubtitle: () => void;
+	onAddAudioTrack: () => void;
 	onDuplicate: () => void;
 	onMoveTo: () => void;
 	onTrash: () => void;
@@ -116,6 +118,9 @@ export function AssetContextMenuContent({
 					</ContextMenuItem>
 					<ContextMenuItem onClick={onAddSubtitle}>
 						<CaptionsIcon /> Add subtitle…
+					</ContextMenuItem>
+					<ContextMenuItem onClick={onAddAudioTrack}>
+						<MusicIcon /> Add audio track…
 					</ContextMenuItem>
 				</>
 			)}

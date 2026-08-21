@@ -1,4 +1,9 @@
-import { type BaseAssetJob, buildAssetKey, type StorageDriver } from "@ossplay/core";
+import {
+	type AttachAudioTrackJob,
+	type BaseAssetJob,
+	buildAssetKey,
+	type StorageDriver,
+} from "@ossplay/core";
 import { type Asset, assets, getDb, systemLogs } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq, sql } from "drizzle-orm";
@@ -70,6 +75,15 @@ export async function finalizeHlsVariant(
 	variantAssetId: string,
 	storage: StorageDriver,
 	files: { relativePath: string; data: Uint8Array; mimeType: string }[],
+	// Merged into the row's existing metadata (not replaced), same as
+	// markAssetStatus below — packageHls uses this to stamp
+	// `audioGroupCapable: true` on every hls-package variant it finalizes,
+	// since that's now unconditionally true for every rendition this code
+	// produces (see video.ts's own comment on why). A package finalized
+	// before that change has no such field, which is exactly the signal
+	// assets.ts's audio-tracks route uses to detect a stale package that
+	// needs repackaging before a manual track can be safely attached.
+	metadata?: Record<string, unknown>,
 ): Promise<void> {
 	const [existing] = await getDb().select().from(assets).where(eq(assets.id, variantAssetId));
 	if (!existing) throw new Error(`Variant asset ${variantAssetId} not found`);
@@ -82,7 +96,15 @@ export async function finalizeHlsVariant(
 	}
 	await getDb()
 		.update(assets)
-		.set({ size: totalSize, status: "ready" })
+		.set({
+			size: totalSize,
+			status: "ready",
+			...(metadata
+				? {
+						metadata: sql`coalesce(${assets.metadata}, '{}'::jsonb) || ${JSON.stringify(metadata)}::jsonb`,
+					}
+				: {}),
+		})
 		.where(eq(assets.id, variantAssetId));
 }
 
@@ -115,7 +137,12 @@ export async function markAssetStatus(
 // page — previously nothing ever wrote there for a processing failure,
 // only apps/api's own request-handling code did). Re-throws afterward so
 // BullMQ's own failure event/attempts/backoff tracking is unaffected.
-export function withFailureHandling<T extends BaseAssetJob>(
+//
+// AttachAudioTrackJob doesn't extend BaseAssetJob (its input is a
+// separately-uploaded file, not the original asset's own bytes — see
+// jobs.ts's own comment), so the id/projectId to report against is pulled
+// from whichever shape the job data actually is.
+export function withFailureHandling<T extends BaseAssetJob | AttachAudioTrackJob>(
 	source: string,
 	processor: (job: Job<T>) => Promise<void>,
 ): (job: Job<T>) => Promise<void> {
@@ -124,14 +151,21 @@ export function withFailureHandling<T extends BaseAssetJob>(
 			await processor(job);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			const failedAssetId = job.data.requestedVariant?.variantAssetId ?? job.data.assetId;
+			const data = job.data;
+			const { failedAssetId, projectId } =
+				"attachAudioTrack" in data
+					? { failedAssetId: data.attachAudioTrack.trackAssetId, projectId: data.attachAudioTrack.projectId }
+					: {
+							failedAssetId: data.requestedVariant?.variantAssetId ?? data.assetId,
+							projectId: data.projectId,
+						};
 			await markAssetStatus(failedAssetId, "failed", { error: message.slice(0, 2000) });
 			await getDb()
 				.insert(systemLogs)
 				.values({
 					source,
 					message: `Processing failed for asset ${failedAssetId}: ${message}`,
-					metadata: { assetId: failedAssetId, projectId: job.data.projectId, jobId: job.id },
+					metadata: { assetId: failedAssetId, projectId, jobId: job.id },
 				});
 			throw err;
 		}
