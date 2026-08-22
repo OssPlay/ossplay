@@ -103,14 +103,16 @@ export function AssetPreview({
 			// failed) — no reason to keep hitting this endpoint once nothing's
 			// pending, or before playback has even started (see the
 			// scrub-thumbnails/hls-package request effects below, which are
-			// what puts a "processing" row here in the first place).
+			// what puts a "processing" row here in the first place). Coarse
+			// fallback only — SseConnection mutate()s this same key on push; see
+			// use-polled-asset.ts's POLL_INTERVAL_MS comment for why 20s is fine.
 			refreshInterval: (d) => {
 				if (!playing) return 0;
 				const settled = (specKey: string) => {
 					const v = d?.variants.find((v) => v.metadata?.specKey === specKey);
 					return v && (v.status === "ready" || v.status === "failed");
 				};
-				return settled("scrub") && settled("hls") ? 0 : 1500;
+				return settled("scrub") && settled("hls") ? 0 : 20_000;
 			},
 		},
 	);
@@ -561,9 +563,10 @@ function ConvertedVideoPreview({
 	const { data, mutate } = useSWR<{ variants: DriveAsset[] }>(
 		`${base}/assets/${assetId}/variants`,
 		{
+			// Coarse fallback only — see the other poll site above.
 			refreshInterval: (d) => {
 				const target = d?.variants.find((v) => v.metadata?.specKey === "720p-mp4");
-				return target && (target.status === "ready" || target.status === "failed") ? 0 : 1500;
+				return target && (target.status === "ready" || target.status === "failed") ? 0 : 20_000;
 			},
 		},
 	);

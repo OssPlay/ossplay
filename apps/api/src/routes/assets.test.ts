@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { assets, getDb } from "@ossplay/db";
 import { app } from "../app";
 import { bootstrapAdmin, jsonRequest, truncateAllTables } from "../test-support";
 
@@ -63,7 +64,7 @@ describe.skipIf(!process.env.DATABASE_URL)("assets", () => {
 		});
 		expect(res.status).toBe(201);
 		const body = (await res.json()) as { assetId: string; uploadTarget: string; key: string };
-		expect(body.key).toBe(`${projectId}/${body.assetId}.txt`);
+		expect(body.key).toBe(`${projectId}/${body.assetId}/original.txt`);
 		expect(body.uploadTarget).toContain("/local-upload");
 		assetId = body.assetId;
 		uploadTarget = body.uploadTarget;
@@ -164,7 +165,14 @@ describe.skipIf(!process.env.DATABASE_URL)("assets", () => {
 		expect(contentAgain.status).toBe(200);
 	});
 
-	it("DELETE forever removes the DB row and the real file", async () => {
+	it("DELETE forever removes the DB row and the whole per-asset storage folder", async () => {
+		// Proves the new deletePrefix fast path actually fired, not just that
+		// one file's key is gone — the asset's whole
+		// `${projectId}/${assetId}/` folder (original + anything nested under
+		// it) should be gone in one shot.
+		const assetFolder = `${SCRATCH_ROOT}/${projectId}/${assetId}`;
+		expect(existsSync(assetFolder)).toBe(true);
+
 		await jsonRequest(`/organizations/${orgId}/projects/${projectId}/assets/${assetId}/trash`, {
 			method: "POST",
 			cookie: ownerCookie,
@@ -180,6 +188,40 @@ describe.skipIf(!process.env.DATABASE_URL)("assets", () => {
 			{ cookie: ownerCookie },
 		);
 		expect(contentRes.status).toBe(404);
+		expect(existsSync(assetFolder)).toBe(false);
+	});
+
+	it("DELETE forever still removes an old-convention (flat-key) asset via the exact-key fallback", async () => {
+		// Simulates an asset uploaded before this reorg shipped: a flat
+		// `${projectId}/${assetId}.${ext}` key, not nested under its own
+		// folder — proves permanentlyDeleteSubtree's backward-compat path
+		// still works, not just the new prefix-delete path above.
+		const legacyId = crypto.randomUUID();
+		const legacyKey = `${projectId}/${legacyId}.txt`;
+		const legacyPath = `${SCRATCH_ROOT}/${legacyKey}`;
+		mkdirSync(`${SCRATCH_ROOT}/${projectId}`, { recursive: true });
+		writeFileSync(legacyPath, "legacy content");
+		await getDb()
+			.insert(assets)
+			.values({
+				id: legacyId,
+				projectId,
+				folderId: null,
+				filename: "legacy.txt",
+				mimeType: "text/plain",
+				s3Path: legacyKey,
+				size: 14,
+				status: "ready",
+				deletedAt: new Date(),
+			});
+
+		expect(existsSync(legacyPath)).toBe(true);
+		const res = await jsonRequest(`/organizations/${orgId}/projects/${projectId}/assets/${legacyId}`, {
+			method: "DELETE",
+			cookie: ownerCookie,
+		});
+		expect(res.status).toBe(204);
+		expect(existsSync(legacyPath)).toBe(false);
 	});
 
 	it("POST .../uploads/batch creates nested folders and pending assets from relative paths", async () => {

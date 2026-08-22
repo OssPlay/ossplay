@@ -1,0 +1,1 @@
+CREATE INDEX "assets_drive_listing_idx" ON "assets" USING btree ("project_id","folder_id","parent_asset_id","deleted_at","filename","id");

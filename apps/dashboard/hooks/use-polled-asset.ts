@@ -3,7 +3,13 @@
 import useSWR from "swr";
 import type { DriveAsset } from "@/types/drive";
 
-const POLL_INTERVAL_MS = 1500;
+// A coarse fallback only — SseConnection (providers/sse-connection.tsx)
+// mutate()s this same key the moment the server pushes an asset.status
+// event, so this interval almost never actually fires the real revalidation
+// itself. It's insurance for "missed an event while the EventSource was
+// disconnected," not the primary mechanism, which is why it can stay this
+// long instead of the sub-2s cadence a poll-only design would need.
+const POLL_INTERVAL_MS = 20_000;
 
 // Thin useSWR wrapper for watching a single asset through
 // processing -> ready/failed — built once, not hand-rolled per call site,

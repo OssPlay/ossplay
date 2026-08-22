@@ -1,3 +1,4 @@
+import { assets, getDb } from "@ossplay/db";
 import { beforeAll, describe, expect, it } from "bun:test";
 import {
 	bootstrapAdmin,
@@ -7,6 +8,8 @@ import {
 } from "../test-support";
 
 type Folder = { id: string; name: string; parentId: string | null; deletedAt: string | null };
+type Asset = { id: string; filename: string };
+type DriveAssetsPage = { childAssets: { items: Asset[]; nextCursor: string | null; pageSize: number } };
 
 describe.skipIf(!process.env.DATABASE_URL)("folders", () => {
 	beforeAll(truncateAllTables);
@@ -188,5 +191,64 @@ describe.skipIf(!process.env.DATABASE_URL)("folders", () => {
 			{ method: "DELETE", cookie: ownerCookie },
 		);
 		expect(res.status).toBe(400);
+	});
+
+	describe("GET .../drive cursor pagination", () => {
+		const assetIds: string[] = [];
+
+		it("seeds 25 root-level assets, named so alphabetical order is predictable", async () => {
+			const db = getDb();
+			for (let i = 0; i < 25; i++) {
+				const id = crypto.randomUUID();
+				assetIds.push(id);
+				await db.insert(assets).values({
+					id,
+					projectId,
+					folderId: null,
+					filename: `cursor-${String(i).padStart(2, "0")}.txt`,
+					mimeType: "text/plain",
+					s3Path: `${projectId}/${id}/original.txt`,
+					status: "ready",
+				});
+			}
+		});
+
+		it("pages through every asset via cursor with no duplicates or gaps, ending in nextCursor: null", async () => {
+			const seen: string[] = [];
+			let cursor: string | null = null;
+			let pageCount = 0;
+			do {
+				const qs = new URLSearchParams({ per_page: "10" });
+				if (cursor) qs.set("cursor", cursor);
+				const res = await jsonRequest(
+					`/organizations/${orgId}/projects/${projectId}/drive?${qs.toString()}`,
+					{ cookie: ownerCookie },
+				);
+				expect(res.status).toBe(200);
+				const body = (await res.json()) as DriveAssetsPage;
+				seen.push(...body.childAssets.items.map((a) => a.id));
+				cursor = body.childAssets.nextCursor;
+				pageCount++;
+				expect(pageCount).toBeLessThan(10); // guard against an infinite loop on a real bug
+			} while (cursor);
+
+			// Exactly the 25 seeded assets, each exactly once, in filename order
+			// (assetIds was populated in that same "cursor-00" .. "cursor-24"
+			// order) — no duplicates or gaps across the three 10/10/5-item pages.
+			expect(seen).toHaveLength(25);
+			expect(new Set(seen).size).toBe(25);
+			expect(seen).toEqual(assetIds);
+			expect(pageCount).toBe(3);
+		});
+
+		it("a page short of a full per_page has no nextCursor", async () => {
+			const res = await jsonRequest(
+				`/organizations/${orgId}/projects/${projectId}/drive?per_page=100`,
+				{ cookie: ownerCookie },
+			);
+			const body = (await res.json()) as DriveAssetsPage;
+			expect(body.childAssets.items.length).toBeGreaterThanOrEqual(25);
+			expect(body.childAssets.nextCursor).toBeNull();
+		});
 	});
 });

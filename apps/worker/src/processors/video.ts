@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	buildSubtitleKey,
+	buildThumbnailKey,
 	getProjectWithDestination,
+	resolveRootAssetId,
 	resolveStorageDriver,
 	type StorageDriver,
 	type VideoProcessingJob,
@@ -101,7 +104,13 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 				return;
 			}
 			if (requestedVariant.spec.kind === "scrub-thumbnails") {
-				await packageScrubThumbnails(inputPath, workDir, requestedVariant.variantAssetId, storage);
+				await packageScrubThumbnails(
+					inputPath,
+					workDir,
+					requestedVariant.variantAssetId,
+					storage,
+					projectId,
+				);
 				return;
 			}
 			if (requestedVariant.spec.kind !== "video-transcode") {
@@ -190,6 +199,7 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			projectId,
 			folderId: original.folderId,
 			parentAssetId: assetId,
+			key: buildThumbnailKey(projectId, assetId),
 			filename: replaceExt(original.filename, "webp", "-thumb"),
 			mimeType: "image/webp",
 			storage,
@@ -197,7 +207,7 @@ export async function processVideo(job: Job<VideoProcessingJob>): Promise<void> 
 			metadata: { variant: "thumbnail", frameTimestamp },
 		});
 
-		await markAssetStatus(assetId, "ready", {
+		await markAssetStatus(assetId, projectId, "ready", {
 			width: videoStream?.width ?? null,
 			height: videoStream?.height ?? null,
 			codec: videoStream?.codec_name ?? null,
@@ -528,6 +538,7 @@ async function extractEmbeddedSubtitles(
 				projectId: original.projectId,
 				folderId: original.folderId,
 				parentAssetId: original.id,
+				key: buildSubtitleKey(original.projectId, resolveRootAssetId(original), language),
 				filename: replaceExt(original.filename, "vtt", `-${language}`),
 				mimeType: "text/vtt",
 				storage,
@@ -551,6 +562,7 @@ async function packageScrubThumbnails(
 	workDir: string,
 	variantAssetId: string,
 	storage: StorageDriver,
+	projectId: string,
 ): Promise<void> {
 	const probe = await ffprobeJson(inputPath);
 	const duration = await resolveDurationSeconds(inputPath, probe);
@@ -582,7 +594,7 @@ async function packageScrubThumbnails(
 
 	const bytes = await readFile(outputPath);
 	await finalizeVariant(variantAssetId, storage, new Uint8Array(bytes));
-	await markAssetStatus(variantAssetId, "ready", {
+	await markAssetStatus(variantAssetId, projectId, "ready", {
 		interval,
 		columns,
 		rows,

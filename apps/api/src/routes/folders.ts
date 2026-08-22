@@ -7,8 +7,8 @@ import {
 	notUnderTrashedAncestor,
 	permanentlyDeleteSubtree,
 } from "@ossplay/core";
-import { assets, type Folder, folderClosure, folders, getDb } from "@ossplay/db";
-import { and, desc, eq, ilike, inArray, isNull, ne, sql } from "drizzle-orm";
+import { type Asset, assets, type Folder, folderClosure, folders, getDb } from "@ossplay/db";
+import { and, type AnyColumn, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { getProjectWithDestination } from "../lib/drive/resolve-project";
@@ -50,6 +50,50 @@ function mimeTypeFamilyCondition(c: Context) {
 	const raw = c.req.query("filter_type");
 	const pattern = raw ? MIME_FAMILY_PATTERNS[raw] : undefined;
 	return pattern ? ilike(assets.mimeType, pattern) : undefined;
+}
+
+// Cursor pagination for the drive listing's asset page — keyset, not
+// offset, since a project's asset count is genuinely unbounded (see
+// packages/db/src/project.schema.ts's assets_drive_listing_idx). `v` is the
+// boundary value in whichever column list-query.ts's parseListQuery
+// resolved `sort` to; `id` is the tiebreaker for rows sharing that value.
+// Dates round-trip through ISO strings since JSON has no Date type.
+interface DriveCursor {
+	v: string | number;
+	id: string;
+}
+
+function encodeCursor(value: string | number | Date, id: string): string {
+	const v = value instanceof Date ? value.toISOString() : value;
+	return Buffer.from(JSON.stringify({ v, id })).toString("base64url");
+}
+
+function decodeCursor(raw: string): DriveCursor | null {
+	try {
+		const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+		if ((typeof parsed?.v !== "string" && typeof parsed?.v !== "number") || typeof parsed?.id !== "string") {
+			return null;
+		}
+		return { v: parsed.v, id: parsed.id };
+	} catch {
+		return null;
+	}
+}
+
+// Only 4 columns are ever sortable here (the drive route's own `sortable`
+// map below) — a plain lookup is simpler and clearer than threading a
+// column->field-name mapping through list-query.ts for its one cursor
+// consumer.
+function driveSortFieldName(column: AnyColumn): keyof Asset {
+	if (column === assets.size) return "size";
+	if (column === assets.updatedAt) return "updatedAt";
+	if (column === assets.createdAt) return "createdAt";
+	return "filename";
+}
+
+function driveCursorValue(column: AnyColumn, cursor: DriveCursor): string | number | Date {
+	if (column === assets.updatedAt || column === assets.createdAt) return new Date(cursor.v);
+	return cursor.v;
 }
 
 // The single browse endpoint backing the whole drive UI. `folderId`
@@ -104,6 +148,23 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		},
 		defaultSort: { key: "name", order: "asc" },
 	});
+	// Keyset, not offset — a project's asset count is unbounded, so `page`/
+	// `offset` (and the count(*) that used to accompany them) are dropped in
+	// favor of a `cursor` naming the last row the client already has, per
+	// (sortColumn, id). See assets_drive_listing_idx and the cursor helpers
+	// above.
+	const sortColumn = query.sortColumn ?? assets.filename;
+	const sortDirection = query.sortColumn ? query.sortDirection : "asc";
+	const cursorParam = c.req.query("cursor");
+	const cursor = cursorParam ? decodeCursor(cursorParam) : null;
+	const cmp = sortDirection === "desc" ? lt : gt;
+	const keysetCondition = cursor
+		? or(
+				cmp(sortColumn, driveCursorValue(sortColumn, cursor)),
+				and(eq(sortColumn, driveCursorValue(sortColumn, cursor)), cmp(assets.id, cursor.id)),
+			)
+		: undefined;
+
 	const assetWhere = and(
 		eq(assets.projectId, projectId),
 		folderId ? eq(assets.folderId, folderId) : isNull(assets.folderId),
@@ -118,21 +179,29 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		isNull(assets.parentAssetId),
 		query.where,
 		mimeTypeFamilyCondition(c),
+		keysetCondition,
 	);
 	const childAssets = await db
 		.select()
 		.from(assets)
 		.where(assetWhere)
-		.orderBy(query.orderBy ?? assets.filename)
-		.limit(query.limit)
-		.offset(query.offset);
-	const [totalRow] = await db
-		.select({ count: sql<number>`count(*)::int` })
-		.from(assets)
-		.where(assetWhere);
-	const total = totalRow?.count ?? 0;
+		.orderBy(
+			sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn),
+			sortDirection === "desc" ? desc(assets.id) : asc(assets.id),
+		)
+		.limit(query.limit);
 
 	const childAssetsWithThumbnails = await attachProcessingVariants(db, await attachThumbnails(db, childAssets));
+
+	// A null sort value (e.g. `size` on an asset still uploading) has no
+	// well-defined keyset boundary — stopping pagination there is safe;
+	// silently skipping past it with a broken cursor wouldn't be.
+	const lastAsset = childAssets.at(-1);
+	const lastSortValue = lastAsset ? lastAsset[driveSortFieldName(sortColumn)] : null;
+	const nextCursor =
+		lastAsset && childAssets.length >= query.pageSize && lastSortValue !== null && lastSortValue !== undefined
+			? encodeCursor(lastSortValue as string | number | Date, lastAsset.id)
+			: null;
 
 	return c.json({
 		folder,
@@ -140,8 +209,7 @@ foldersRoute.get("/:orgId/projects/:projectId/drive", ...gate, async (c) => {
 		childFolders,
 		childAssets: {
 			items: childAssetsWithThumbnails,
-			total,
-			page: query.page,
+			nextCursor,
 			pageSize: query.pageSize,
 		},
 	});

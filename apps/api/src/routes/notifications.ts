@@ -2,6 +2,7 @@ import { getDb, notifications } from "@ossplay/db";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { parseListQuery } from "../lib/http/list-query";
+import { notifyUsersAndPublish } from "../lib/notifications/notify";
 import { requireAuth } from "../middleware/require-auth";
 import type { AppEnv } from "../types";
 
@@ -68,5 +69,20 @@ notificationsRoute.patch("/read-all", async (c) => {
 		.update(notifications)
 		.set({ readAt: new Date() })
 		.where(and(eq(notifications.userId, user.id), isNull(notifications.readAt)));
+	return c.body(null, 204);
+});
+
+// Self-service test notification — lets a logged-in user manually exercise
+// the whole notify -> SSE push -> bell pipeline from the account dropdown,
+// without needing to trigger a real notify-worthy action (an org invite, a
+// project create/delete). Always targets the caller only, so no permission
+// beyond requireAuth is needed.
+notificationsRoute.post("/test", async (c) => {
+	const user = c.get("user");
+	await notifyUsersAndPublish([user.id], {
+		type: "test",
+		title: "Test notification",
+		body: "This is what a live notification looks like.",
+	});
 	return c.body(null, 204);
 });

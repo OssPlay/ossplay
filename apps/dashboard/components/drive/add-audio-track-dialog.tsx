@@ -58,9 +58,11 @@ export function AddAudioTrackDialog({
 	const { data, mutate } = useSWR<{ variants: AudioTrackVariant[] }>(
 		open ? `${base}/assets/${asset.id}/variants` : null,
 		{
+			// Coarse fallback only — SseConnection mutate()s this same key on
+			// push; see use-polled-asset.ts's POLL_INTERVAL_MS comment.
 			refreshInterval: (d) => {
 				const tracks = (d?.variants ?? []).filter((v) => v.metadata?.variant === "audio-track");
-				return tracks.some((v) => v.status === "processing") ? 1500 : 0;
+				return tracks.some((v) => v.status === "processing") ? 20_000 : 0;
 			},
 		},
 	);

@@ -1,4 +1,5 @@
 import {
+	buildThumbnailKey,
 	getProjectWithDestination,
 	type ImageProcessingJob,
 	resolveStorageDriver,
@@ -17,9 +18,8 @@ const THUMBNAIL_MAX_DIMENSION = 512;
 // now on-demand only, requested via the download UI and handled by the
 // `requestedVariant` branch below. `splitTiles` (DeepZoom-style zoomable
 // tile pyramid) remains unimplemented regardless: sharp can produce one
-// (`.tile()`), but that outputs a whole directory tree, which doesn't map
-// onto this project's flat per-asset S3 key convention without the same
-// kind of manifest-rewrite work video.ts's HLS packaging needed.
+// (`.tile()`), but that outputs a whole directory tree, which would need
+// the same kind of manifest-rewrite work video.ts's HLS packaging needed.
 export async function processImage(job: Job<ImageProcessingJob>): Promise<void> {
 	const { assetId, projectId, mimeType, requestedVariant } = job.data;
 
@@ -61,6 +61,7 @@ export async function processImage(job: Job<ImageProcessingJob>): Promise<void> 
 		projectId,
 		folderId: original.folderId,
 		parentAssetId: assetId,
+		key: buildThumbnailKey(projectId, assetId),
 		filename: replaceExt(original.filename, "webp", "-thumb"),
 		mimeType: "image/webp",
 		storage,
@@ -68,7 +69,7 @@ export async function processImage(job: Job<ImageProcessingJob>): Promise<void> 
 		metadata: { variant: "thumbnail", width: meta.width, height: meta.height },
 	});
 
-	await markAssetStatus(assetId, "ready", {
+	await markAssetStatus(assetId, projectId, "ready", {
 		width: meta.width,
 		height: meta.height,
 		mimeType,

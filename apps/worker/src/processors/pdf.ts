@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	buildThumbnailKey,
 	getProjectWithDestination,
 	type PdfProcessingJob,
 	resolveStorageDriver,
@@ -65,6 +66,7 @@ export async function processPdf(job: Job<PdfProcessingJob>): Promise<void> {
 			projectId,
 			folderId: original.folderId,
 			parentAssetId: assetId,
+			key: buildThumbnailKey(projectId, assetId),
 			filename: replaceExt(original.filename, "webp", "-thumb"),
 			mimeType: "image/webp",
 			storage,
@@ -74,7 +76,7 @@ export async function processPdf(job: Job<PdfProcessingJob>): Promise<void> {
 
 		const info = await runCapture("pdfinfo", [inputPath]);
 		const pagesMatch = info.match(/^Pages:\s+(\d+)/m);
-		await markAssetStatus(assetId, "ready", {
+		await markAssetStatus(assetId, projectId, "ready", {
 			pages: pagesMatch?.[1] ? Number.parseInt(pagesMatch[1], 10) : null,
 		});
 	} finally {

@@ -9,6 +9,7 @@ import { Tippy } from "@/components/ui/tooltip";
 import { useDriveActions } from "@/hooks/use-drive-actions";
 import { useDriveSelection } from "@/hooks/use-drive-selection";
 import useURL from "@/hooks/use-url";
+import { onAssetStatus } from "@/lib/asset-status-events";
 import { useProjectContext } from "@/lib/current-project";
 import { cn } from "@/lib/utils";
 import type { DriveAsset, DriveBrowseResponse, DriveFolder } from "@/types/drive";
@@ -62,21 +63,21 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 
 	// Folders/breadcrumb are read from page 0 only (they're eagerly loaded
 	// and unpaginated per the plan — see folders.ts); only childAssets pages
-	// across requests, accumulating as `size` grows.
+	// across requests, accumulating as `size` grows. Cursor-based, not
+	// offset: each page names the previous page's own `nextCursor` rather
+	// than an incrementing page index — `useSWRInfinite` already hands this
+	// hook `previousPageData` for exactly this.
 	const getKey = (pageIndex: number, previousPageData: DriveBrowseResponse | null) => {
 		if (!effectiveOrgId) return null;
-		if (
-			previousPageData &&
-			previousPageData.childAssets.items.length < previousPageData.childAssets.pageSize
-		) {
-			return null;
-		}
+		if (pageIndex > 0 && !previousPageData?.childAssets.nextCursor) return null;
 		const params = new URLSearchParams();
 		if (folderId) params.set("folderId", folderId);
 		if (sort) params.set("sort", sort);
 		if (order) params.set("order", order);
 		if (filterType) params.set("filter_type", filterType);
-		if (pageIndex > 0) params.set("page", String(pageIndex));
+		if (pageIndex > 0 && previousPageData?.childAssets.nextCursor) {
+			params.set("cursor", previousPageData.childAssets.nextCursor);
+		}
 		const qs = params.toString();
 		return `/organizations/${effectiveOrgId}/projects/${projectId}/drive${qs ? `?${qs}` : ""}`;
 	};
@@ -88,9 +89,9 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 			// reached a terminal state yet — same pending/processing vs
 			// ready/failed distinction as hooks/use-polled-asset.ts, just applied
 			// across the list instead of one asset. An idle Drive view (nothing
-			// in flight) makes zero extra requests; one that's actively
-			// uploading/processing picks up the transition within ~5s without a
-			// manual refresh.
+			// in flight) makes zero extra requests. Coarse fallback only — the
+			// effect below already revalidates on every relevant SSE push; see
+			// use-polled-asset.ts's POLL_INTERVAL_MS comment.
 			refreshInterval: (latestData) => {
 				const hasInFlight = (latestData ?? []).some((page) =>
 					page?.childAssets.items.some(
@@ -100,7 +101,7 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 							asset.hasProcessingVariants === true,
 					),
 				);
-				return hasInFlight ? 5000 : 0;
+				return hasInFlight ? 20_000 : 0;
 			},
 		},
 	);
@@ -113,15 +114,26 @@ export function DriveView({ projectId, folderId }: { projectId: string; folderId
 		setSize(1);
 	}, [folderId, sort, order, filterType]);
 
+	// SseConnection's global mutate() can't reach a useSWRInfinite list (see
+	// lib/asset-status-events.ts) — it re-broadcasts as this same-tab event
+	// instead, so this hook's own `mutate` (which SWR does correctly wire up
+	// for its synthetic $inf$ key) is what actually revalidates. Any status
+	// change in this project revalidates page 1 (SWR's own
+	// `revalidateFirstPage` default) rather than trying to know in advance
+	// which loaded page a given asset is actually on.
+	useEffect(() => {
+		return onAssetStatus((detail) => {
+			if (detail.projectId === projectId) mutate();
+		});
+	}, [projectId, mutate]);
+
 	// A page index whose getKey resolved to null (past the real last page)
 	// still occupies a slot in `data`, as `undefined` — filter those out
 	// rather than indexing into them.
 	const loadedPages = useMemo(() => (data ?? []).filter((page) => page != null), [data]);
 	const firstPage = loadedPages[0];
 	const lastPage = loadedPages[loadedPages.length - 1];
-	const hasMore = lastPage
-		? lastPage.childAssets.items.length >= lastPage.childAssets.pageSize
-		: false;
+	const hasMore = Boolean(lastPage?.childAssets.nextCursor);
 	const liveAssetItems = useMemo(
 		() => loadedPages.flatMap((page) => page.childAssets.items),
 		[loadedPages],

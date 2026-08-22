@@ -6,22 +6,14 @@ import type { LocalFileIo, StorageDriver } from "./types";
 // signing concept for a local file, so createUploadTarget/createDownloadUrl
 // hand back API-relative routes instead of a presigned URL, and writeObject/
 // readObject (LocalFileIo) are what those routes actually call to do the
-// real I/O. Flat convention matching S3's: `<root>/<projectId>/<assetId>.<ext>`.
+// real I/O. Every other method treats `key` as an opaque relative path
+// joined onto `root` — only these two need a real projectId/assetId, passed
+// explicitly by the caller rather than parsed back out of the key, since
+// the key's shape isn't guaranteed (old flat assets vs. the newer nested
+// per-asset-folder convention coexist — see packages/core/src/storage/key.ts).
 export interface LocalDiskStorageOptions {
 	root: string;
 	orgId: string;
-}
-
-// A key is always `<projectId>/<assetId><ext>` (packages/core/src/storage/
-// key.ts's buildAssetKey) — assetId is a uuid, so splitting on the first
-// "." safely separates it from the extension.
-function parseAssetKey(key: string): { projectId: string; assetId: string } {
-	const [projectId, rest] = key.split("/", 2);
-	const assetId = rest?.split(".")[0];
-	if (!projectId || !assetId) {
-		throw new Error(`Malformed asset key for local-disk storage: ${key}`);
-	}
-	return { projectId, assetId };
 }
 
 export class LocalDiskStorage implements StorageDriver, LocalFileIo {
@@ -31,19 +23,30 @@ export class LocalDiskStorage implements StorageDriver, LocalFileIo {
 		return join(this.opts.root, key);
 	}
 
-	createUploadTarget(key: string): string {
-		const { projectId, assetId } = parseAssetKey(key);
-		return `/organizations/${this.opts.orgId}/projects/${projectId}/assets/${assetId}/local-upload`;
+	createUploadTarget(key: string, opts: { mimeType: string; projectId?: string; assetId?: string }): string {
+		if (!opts.projectId || !opts.assetId) {
+			throw new Error(`LocalDiskStorage.createUploadTarget needs projectId+assetId for key ${key}`);
+		}
+		return `/organizations/${this.opts.orgId}/projects/${opts.projectId}/assets/${opts.assetId}/local-upload`;
 	}
 
-	createDownloadUrl(key: string, opts?: { disposition?: "inline" | "attachment" }): string {
-		const { projectId, assetId } = parseAssetKey(key);
-		const disposition = opts?.disposition ?? "inline";
-		return `/organizations/${this.opts.orgId}/projects/${projectId}/assets/${assetId}/content?disposition=${disposition}`;
+	createDownloadUrl(
+		key: string,
+		opts?: { disposition?: "inline" | "attachment"; projectId?: string; assetId?: string },
+	): string {
+		if (!opts?.projectId || !opts?.assetId) {
+			throw new Error(`LocalDiskStorage.createDownloadUrl needs projectId+assetId for key ${key}`);
+		}
+		const disposition = opts.disposition ?? "inline";
+		return `/organizations/${this.opts.orgId}/projects/${opts.projectId}/assets/${opts.assetId}/content?disposition=${disposition}`;
 	}
 
 	async deleteObject(key: string): Promise<void> {
 		await rm(this.pathFor(key), { force: true });
+	}
+
+	async deletePrefix(prefix: string): Promise<void> {
+		await rm(this.pathFor(prefix), { force: true, recursive: true });
 	}
 
 	async statObject(key: string): Promise<{ size: number } | null> {
@@ -58,8 +61,34 @@ export class LocalDiskStorage implements StorageDriver, LocalFileIo {
 	async writeObject(key: string, data: ReadableStream | Uint8Array): Promise<void> {
 		const path = this.pathFor(key);
 		await mkdir(dirname(path), { recursive: true });
-		const bytes = data instanceof Uint8Array ? data : new Uint8Array(await new Response(data).arrayBuffer());
-		await writeFile(path, bytes);
+		if (data instanceof Uint8Array) {
+			await writeFile(path, data);
+			return;
+		}
+		// Streamed straight to disk, chunk by chunk — the previous `new
+		// Response(data).arrayBuffer()` fully buffered the entire upload into
+		// memory before writing a single byte, which risked OOMing the process
+		// on a large file (e.g. a multi-GB video). A failed/aborted read
+		// removes the partial file rather than leaving a corrupt, wrong-sized
+		// object behind under this key.
+		const sink = Bun.file(path).writer();
+		const reader = data.getReader();
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				sink.write(value);
+			}
+			await sink.end();
+		} catch (err) {
+			try {
+				await sink.end();
+			} catch {
+				// already broken — the rm below is what matters
+			}
+			await rm(path, { force: true });
+			throw err;
+		}
 	}
 
 	async readObject(key: string, range?: { start: number; end: number }): Promise<ReadableStream | null> {

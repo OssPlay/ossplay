@@ -55,10 +55,12 @@ function AppBreadcrumbs() {
 	);
 }
 
-// Polling, not a websocket — this app has no real-time push infra elsewhere
-// either, and a 30s interval is plenty responsive for "someone joined my
-// org" / "an update is available" style events.
-const UNREAD_POLL_INTERVAL_MS = 30_000;
+// Coarse fallback only — providers/sse-connection.tsx mutate()s this same
+// key the moment the server pushes a "notification" event (see notify.ts's
+// call sites), so this interval is insurance for a missed/disconnected push,
+// not the primary mechanism; "someone joined my org" / "an update is
+// available" style events don't need faster than that as a fallback either.
+const UNREAD_POLL_INTERVAL_MS = 60_000;
 
 function NotificationsButton() {
 	const router = useRouter();

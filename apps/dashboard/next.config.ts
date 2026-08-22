@@ -3,6 +3,17 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
 	output: "standalone",
+	// Next's built-in gzip compression wraps every response this server
+	// sends, including proxy.ts's dev-only /api/* rewrite — a compressor has
+	// to buffer enough bytes before it can flush a chunk, which silently
+	// breaks a long-lived streamed response (an SSE connection, e.g.
+	// apps/api/src/routes/events.ts) that never accumulates enough data to
+	// trigger a flush: the browser sees nothing until the connection
+	// eventually closes. Only disabled in dev, where that rewrite exists —
+	// production never runs this branch (Caddy reverse-proxies /api/*
+	// straight to the api service, see proxy.ts's own comment), so this has
+	// no effect on production's page/asset compression.
+	compress: process.env.NODE_ENV === "production",
 	// Without this, Turbopack's monorepo-root inference can pick the wrong
 	// directory in some environments (e.g. Docker builds) and fail to resolve
 	// `next` from node_modules. Pin it to the actual workspace root (two

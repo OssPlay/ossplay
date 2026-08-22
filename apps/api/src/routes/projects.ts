@@ -2,7 +2,7 @@ import { getDb, organizations, type ProjectRules, projects, s3Destinations } fro
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { getOrgManagers, notifyUsers } from "../lib/notifications/notify";
+import { getOrgManagers, notifyUsersAndPublish } from "../lib/notifications/notify";
 import { requireAuth } from "../middleware/require-auth";
 import { requireOrgMembership, requireOrgPermission } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -118,7 +118,7 @@ projectsRoute.post(
 				.returning();
 			if (!project) throw new Error("Project insert did not return the expected row");
 
-			await notifyUsers(await getOrgManagers(orgId, actor.id), {
+			await notifyUsersAndPublish(await getOrgManagers(orgId, actor.id), {
 				type: "organization.project_created",
 				title: `Project "${project.name}" was created`,
 				href: "/organization/projects",
@@ -207,7 +207,7 @@ projectsRoute.delete(
 
 		await db.delete(projects).where(eq(projects.id, c.req.param("projectId")));
 
-		await notifyUsers(await getOrgManagers(orgId, actor.id), {
+		await notifyUsersAndPublish(await getOrgManagers(orgId, actor.id), {
 			type: "organization.project_deleted",
 			title: `Project "${existing.name}" was deleted`,
 			href: "/organization/projects",

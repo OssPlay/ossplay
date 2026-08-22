@@ -152,8 +152,12 @@ export const assets = pgTable(
 		// cascades through here to every asset inside it.
 		folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
 		// The mutable display name — renaming updates this column directly, it
-		// never touches the S3/local object (whose key is
-		// `<projectId>/<assetId>.<ext>`, entirely decoupled from filename). A
+		// never touches the S3/local object. The real key's shape is
+		// convention-dependent (don't assume it): newer rows nest everything
+		// under `<projectId>/<rootAssetId>/...` with a fixed leaf name per
+		// artifact kind, older rows still use the flat `<projectId>/<assetId>.
+		// <ext>` convention they were written with (see
+		// packages/core/src/storage/key.ts — forward-only, no backfill). A
 		// rename can make the apparent extension stale relative to the real
 		// object (e.g. "photo.jpg" renamed to "vacation.png") — cosmetic only,
 		// mimeType stays authoritative for actual file handling. Every rename is
@@ -189,6 +193,22 @@ export const assets = pgTable(
 	(table) => [
 		// Trigram, not tsvector/'english' — see folders_name_trgm_idx's comment.
 		index("assets_filename_trgm_idx").using("gin", table.filename.op("gin_trgm_ops")),
+		// Covers the drive listing's WHERE filter (projectId/folderId/
+		// parentAssetId/deletedAt) plus its default sort column and an id
+		// tiebreaker — both the keyset boundary the cursor-paginated drive
+		// route needs and the first index this table has ever had for its own
+		// WHERE clause (previously unindexed entirely, offset pagination and
+		// all). Other sort options (size/updatedAt/createdAt) stay correct but
+		// unaccelerated by this index — no regression vs. today, just not yet
+		// covered; add a matching index if one of those proves to need it.
+		index("assets_drive_listing_idx").on(
+			table.projectId,
+			table.folderId,
+			table.parentAssetId,
+			table.deletedAt,
+			table.filename,
+			table.id,
+		),
 	],
 );
 

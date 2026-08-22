@@ -1,5 +1,7 @@
 import {
-	buildAssetKey,
+	buildOriginalKey,
+	buildSubtitleKey,
+	buildTempUploadKey,
 	collectLiveOriginalAssetsUnderFolders,
 	FolderCycleError,
 	insertFolderWithAncestors,
@@ -7,7 +9,9 @@ import {
 	moveFolderSubtree,
 	notUnderTrashedAncestor,
 	permanentlyDeleteSubtree,
+	publishEvent,
 	queueForMimeType,
+	resolveRootAssetId,
 	resolveStorageDriver,
 	shouldServeStatic,
 	tryDispatchToComputeDestination,
@@ -123,7 +127,7 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads", ...gate, async (c) => {
 	const storage = resolveStorageDriver(project);
 
 	const assetId = crypto.randomUUID();
-	const key = buildAssetKey(projectId, assetId, parsed.data.filename);
+	const key = buildOriginalKey(projectId, assetId, parsed.data.filename);
 	await getDb().insert(assets).values({
 		id: assetId,
 		projectId,
@@ -138,7 +142,7 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads", ...gate, async (c) => {
 		{
 			assetId,
 			key,
-			uploadTarget: storage.createUploadTarget(key, { mimeType: parsed.data.mimeType }),
+			uploadTarget: storage.createUploadTarget(key, { mimeType: parsed.data.mimeType, projectId, assetId }),
 		},
 		201,
 	);
@@ -221,7 +225,7 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads/batch", ...gate, async (c)
 	for (const item of parsed.data.items) {
 		const folderId = await resolveFolderPath(item.relativePath);
 		const assetId = crypto.randomUUID();
-		const key = buildAssetKey(projectId, assetId, item.filename);
+		const key = buildOriginalKey(projectId, assetId, item.filename);
 		await db.insert(assets).values({
 			id: assetId,
 			projectId,
@@ -236,7 +240,7 @@ assetsRoute.post("/:orgId/projects/:projectId/uploads/batch", ...gate, async (c)
 			filename: item.filename,
 			assetId,
 			key,
-			uploadTarget: storage.createUploadTarget(key, { mimeType: item.mimeType }),
+			uploadTarget: storage.createUploadTarget(key, { mimeType: item.mimeType, projectId, assetId }),
 		});
 	}
 
@@ -257,10 +261,17 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/confirm", ...gate,
 
 	const actor = c.get("user");
 	const queueName = queueForMimeType(asset.mimeType);
+	const confirmedStatus = queueName ? "processing" : "ready";
 	await getDb()
 		.update(assets)
-		.set({ size: stat.size, status: queueName ? "processing" : "ready" })
+		.set({ size: stat.size, status: confirmedStatus })
 		.where(eq(assets.id, assetId));
+	await publishEvent(getRedisConnection(), {
+		type: "asset.status",
+		projectId,
+		assetId,
+		status: confirmedStatus,
+	});
 	await logActivity(assetId, "uploaded", actor.id);
 
 	if (queueName) {
@@ -291,7 +302,26 @@ assetsRoute.put("/:orgId/projects/:projectId/assets/:assetId/local-upload", ...g
 	}
 	const body = c.req.raw.body;
 	if (!body) return c.json({ error: "No file body" }, 400);
-	await storage.writeObject(asset.s3Path, body);
+
+	try {
+		await storage.writeObject(asset.s3Path, body);
+	} catch (err) {
+		// Without this, a write failure (disk full, client aborted mid-upload,
+		// an OOM-adjacent error) left the row stuck at its insert-time
+		// "pending" status forever — confirm (the only other place that
+		// changes status) never runs, since the client only calls it after a
+		// successful PUT.
+		const message = err instanceof Error ? err.message : String(err);
+		await getDb()
+			.update(assets)
+			.set({
+				status: "failed",
+				metadata: sql`coalesce(${assets.metadata}, '{}'::jsonb) || ${JSON.stringify({ error: message.slice(0, 2000) })}::jsonb`,
+			})
+			.where(eq(assets.id, assetId));
+		await publishEvent(getRedisConnection(), { type: "asset.status", projectId, assetId, status: "failed" });
+		return c.json({ error: "Upload failed" }, 500);
+	}
 
 	return c.body(null, 204);
 });
@@ -319,6 +349,8 @@ assetsRoute.get("/:orgId/projects/:projectId/assets/:assetId/content", ...gate, 
 	const url = storage.createDownloadUrl(asset.s3Path, {
 		disposition,
 		static: shouldServeStatic(project, asset.mimeType),
+		projectId,
+		assetId,
 	});
 	return c.redirect(url, 302);
 });
@@ -414,7 +446,7 @@ assetsRoute.post(
 		const storage = resolveStorageDriver(project);
 		const subtitleId = crypto.randomUUID();
 		const filename = `${original.filename.replace(/\.[^.]+$/, "")}-${language}.vtt`;
-		const key = buildAssetKey(projectId, subtitleId, filename);
+		const key = buildSubtitleKey(projectId, resolveRootAssetId(original), language);
 		const bytes = new TextEncoder().encode(vtt);
 		await storage.uploadObject(key, bytes, { mimeType: "text/vtt" });
 
@@ -432,6 +464,12 @@ assetsRoute.post(
 				status: "ready",
 				metadata: { variant: "subtitle", language, label },
 			});
+		await publishEvent(getRedisConnection(), {
+			type: "asset.status",
+			projectId,
+			assetId: subtitleId,
+			status: "ready",
+		});
 
 		const created = await requireAsset(projectId, subtitleId);
 		return c.json({ asset: created }, 201);
@@ -676,7 +714,7 @@ assetsRoute.post(
 
 		const storage = resolveStorageDriver(project);
 		const tempAudioId = crypto.randomUUID();
-		const tempAudioKey = buildAssetKey(projectId, tempAudioId, file.name);
+		const tempAudioKey = buildTempUploadKey(projectId, tempAudioId, file.name);
 		const audioBytes = new Uint8Array(await file.arrayBuffer());
 		await storage.uploadObject(tempAudioKey, audioBytes, { mimeType: file.type });
 
@@ -695,6 +733,12 @@ assetsRoute.post(
 				status: "processing",
 				metadata: { variant: "audio-track", language, label },
 			});
+		await publishEvent(getRedisConnection(), {
+			type: "asset.status",
+			projectId,
+			assetId: trackAssetId,
+			status: "processing",
+		});
 
 		const queueName = queueForMimeType(original.mimeType);
 		if (!queueName) throw new Error(`No processing queue for mimetype ${original.mimeType}`);
@@ -822,10 +866,11 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 
 	const actor = c.get("user");
 	const newId = crypto.randomUUID();
-	const key = buildAssetKey(projectId, newId, original.filename);
+	const key = buildOriginalKey(projectId, newId, original.filename);
 	await storage.uploadObject(key, bytes, { mimeType: original.mimeType });
 
 	const queueName = queueForMimeType(original.mimeType);
+	const duplicateStatus = queueName ? "processing" : "ready";
 	await getDb()
 		.insert(assets)
 		.values({
@@ -836,8 +881,14 @@ assetsRoute.post("/:orgId/projects/:projectId/assets/:assetId/duplicate", ...gat
 			mimeType: original.mimeType,
 			s3Path: key,
 			size: bytes.byteLength,
-			status: queueName ? "processing" : "ready",
+			status: duplicateStatus,
 		});
+	await publishEvent(getRedisConnection(), {
+		type: "asset.status",
+		projectId,
+		assetId: newId,
+		status: duplicateStatus,
+	});
 	await logActivity(newId, "uploaded", actor.id);
 
 	if (queueName) {

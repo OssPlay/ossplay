@@ -35,6 +35,12 @@ export interface ParsedListQuery {
 	pageSize: number;
 	limit: number;
 	offset: number;
+	// The resolved sort column/direction behind `orderBy`, exposed alongside
+	// it (not instead of it) for a caller that needs to build its own keyset
+	// condition on the same column — e.g. a cursor-paginated route. Every
+	// other caller ignores these two fields.
+	sortColumn: AnyColumn | undefined;
+	sortDirection: "asc" | "desc";
 }
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -81,6 +87,8 @@ export function parseListQuery(c: Context, config: ListQueryConfig): ParsedListQ
 	);
 
 	let orderBy: SQL | undefined;
+	let sortColumn: AnyColumn | undefined;
+	let sortDirection: "asc" | "desc" = "asc";
 	if (config.sortable) {
 		const requestedKey = c.req.query("sort");
 		const requestedOrder = c.req.query("order") === "desc" ? "desc" : "asc";
@@ -88,7 +96,11 @@ export function parseListQuery(c: Context, config: ListQueryConfig): ParsedListQ
 		const key = sortKey ?? config.defaultSort?.key;
 		const order = sortKey ? requestedOrder : (config.defaultSort?.order ?? "asc");
 		const column = key ? config.sortable[key] : undefined;
-		if (column) orderBy = order === "desc" ? desc(column) : asc(column);
+		if (column) {
+			orderBy = order === "desc" ? desc(column) : asc(column);
+			sortColumn = column;
+			sortDirection = order;
+		}
 	}
 
 	return {
@@ -98,5 +110,7 @@ export function parseListQuery(c: Context, config: ListQueryConfig): ParsedListQ
 		pageSize,
 		limit: pageSize,
 		offset: page * pageSize,
+		sortColumn,
+		sortDirection,
 	};
 }

@@ -1,6 +1,6 @@
 import { QUEUE_NAMES } from "@ossplay/core";
 import { Worker } from "bullmq";
-import { createRedisConnection } from "./connection";
+import { getRedisConnection } from "./connection";
 import { processAudio } from "./processors/audio";
 import { processImage } from "./processors/image";
 import { processPdf } from "./processors/pdf";
@@ -13,7 +13,7 @@ import { processVideo } from "./processors/video";
 // scheduled housekeeping needs to run on every instance regardless of
 // whether an operator ever opts into Drive processing. See apps/jobs/src/
 // index.ts.
-const connection = createRedisConnection();
+const connection = getRedisConnection();
 
 const imageWorker = new Worker(
 	QUEUE_NAMES.imageProcessing,

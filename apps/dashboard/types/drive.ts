@@ -50,7 +50,11 @@ export interface DriveBrowseResponse {
 	folder: DriveFolder | null;
 	breadcrumb: DriveFolder[];
 	childFolders: DriveFolder[];
-	childAssets: { items: DriveAsset[]; total: number; page: number; pageSize: number };
+	// Keyset-paginated, not offset — `nextCursor` names the last row already
+	// fetched (opaque, pass back as `?cursor=`), null once there's no more.
+	// No `total`/`page`: a project's asset count is unbounded, so nothing
+	// here pays for a count(*) anymore (see apps/api/src/routes/folders.ts).
+	childAssets: { items: DriveAsset[]; nextCursor: string | null; pageSize: number };
 }
 
 // Mirrors packages/core/src/jobs.ts's VariantSpec — the dashboard talks to

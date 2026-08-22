@@ -1,23 +1,23 @@
-import {
-	type AttachAudioTrackJob,
-	type BaseAssetJob,
-	buildAssetKey,
-	type StorageDriver,
-} from "@ossplay/core";
+import { type AttachAudioTrackJob, type BaseAssetJob, publishEvent, type StorageDriver } from "@ossplay/core";
 import { type Asset, assets, getDb, systemLogs } from "@ossplay/db";
 import type { Job } from "bullmq";
 import { eq, sql } from "drizzle-orm";
+import { getRedisConnection } from "../connection";
 import { runCapture } from "./spawn";
 
 // One insert-then-upload helper, reused by every processor (image
 // thumbnail + format conversion, video segments + manifest, pdf
 // thumbnail) — each derived output is its own `assets` row with
 // `parentAssetId` set to the original, matching the existing convention
-// (see project.schema.ts's assets.parentAssetId comment).
+// (see project.schema.ts's assets.parentAssetId comment). `key` is built by
+// the caller (buildThumbnailKey/buildSubtitleKey/...) rather than derived
+// here, since this one helper is shared across leaf conventions that don't
+// have anything else in common.
 export async function createVariant(opts: {
 	projectId: string;
 	folderId: string | null;
 	parentAssetId: string;
+	key: string;
 	filename: string;
 	mimeType: string;
 	storage: StorageDriver;
@@ -25,8 +25,7 @@ export async function createVariant(opts: {
 	metadata?: Record<string, unknown>;
 }): Promise<Asset> {
 	const id = crypto.randomUUID();
-	const key = buildAssetKey(opts.projectId, id, opts.filename);
-	await opts.storage.uploadObject(key, opts.data, { mimeType: opts.mimeType });
+	await opts.storage.uploadObject(opts.key, opts.data, { mimeType: opts.mimeType });
 	const [asset] = await getDb()
 		.insert(assets)
 		.values({
@@ -35,7 +34,7 @@ export async function createVariant(opts: {
 			folderId: opts.folderId,
 			filename: opts.filename,
 			mimeType: opts.mimeType,
-			s3Path: key,
+			s3Path: opts.key,
 			size: opts.data.byteLength,
 			parentAssetId: opts.parentAssetId,
 			status: "ready",
@@ -63,6 +62,12 @@ export async function finalizeVariant(
 		.update(assets)
 		.set({ size: data.byteLength, status: "ready" })
 		.where(eq(assets.id, variantAssetId));
+	await publishEvent(getRedisConnection(), {
+		type: "asset.status",
+		projectId: existing.projectId,
+		assetId: variantAssetId,
+		status: "ready",
+	});
 }
 
 // The hls-package counterpart to finalizeVariant: an HLS package is many
@@ -106,10 +111,17 @@ export async function finalizeHlsVariant(
 				: {}),
 		})
 		.where(eq(assets.id, variantAssetId));
+	await publishEvent(getRedisConnection(), {
+		type: "asset.status",
+		projectId: existing.projectId,
+		assetId: variantAssetId,
+		status: "ready",
+	});
 }
 
 export async function markAssetStatus(
 	assetId: string,
+	projectId: string,
 	status: "ready" | "failed",
 	metadata?: Record<string, unknown>,
 ): Promise<void> {
@@ -128,6 +140,7 @@ export async function markAssetStatus(
 			}),
 		})
 		.where(eq(assets.id, assetId));
+	await publishEvent(getRedisConnection(), { type: "asset.status", projectId, assetId, status });
 }
 
 // Wraps a queue processor so a thrown error also marks the asset it was
@@ -159,7 +172,7 @@ export function withFailureHandling<T extends BaseAssetJob | AttachAudioTrackJob
 							failedAssetId: data.requestedVariant?.variantAssetId ?? data.assetId,
 							projectId: data.projectId,
 						};
-			await markAssetStatus(failedAssetId, "failed", { error: message.slice(0, 2000) });
+			await markAssetStatus(failedAssetId, projectId, "failed", { error: message.slice(0, 2000) });
 			await getDb()
 				.insert(systemLogs)
 				.values({

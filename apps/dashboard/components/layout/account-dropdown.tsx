@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenIcon, LogOutIcon, RssIcon, SettingsIcon, UserIcon } from "lucide-react";
+import { BellIcon, BookOpenIcon, LogOutIcon, RssIcon, SettingsIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -18,6 +18,8 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useAction } from "@/hooks/use-action";
+import { apiFetch } from "@/lib/api";
 import { openUpdateDialog } from "@/lib/update-dialog-store";
 import { useAuth } from "../providers/auth-provider";
 import { Button } from "../ui/button";
@@ -36,6 +38,16 @@ function initials(name: string): string {
 
 export function AccountDropdown() {
 	const { user, handleLogout, isLoading, instance } = useAuth();
+
+	// Server-side only, on purpose: hits POST /notifications/test, which
+	// writes a real row and publishes the same SSE "notification" event any
+	// real notify-worthy action would — the bell's unread count and list
+	// pick it up purely through that push, not a client-side increment, so
+	// this doubles as a manual end-to-end check of the whole pipeline.
+	const triggerTestNotification = useAction(
+		() => apiFetch("/notifications/test", { method: "POST" }),
+		{ error: "Could not send test notification" },
+	);
 
 	function UserItem() {
 		return (
@@ -97,6 +109,12 @@ export function AccountDropdown() {
 									<BookOpenIcon /> Documentation
 								</DropdownMenuItem>
 							)}
+							<DropdownMenuItem
+								disabled={triggerTestNotification.isLoading}
+								onClick={() => triggerTestNotification.trigger().catch(() => {})}
+							>
+								<BellIcon /> Send test notification
+							</DropdownMenuItem>
 							<DropdownMenuSeparator />
 							<DropdownMenuItem variant="destructive" disabled={isLoading} onClick={handleLogout}>
 								<LogOutIcon /> Log out

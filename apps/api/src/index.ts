@@ -16,4 +16,13 @@ export default {
 	// stall; this only fires on genuine inactivity; a healthy transfer never
 	// gets close to it regardless of size.
 	idleTimeout: 120,
+	// Bun's own default (128MB) silently rejects any local-disk upload past
+	// that size with a 413 — and does it abruptly enough that a reverse
+	// proxy sitting in front (e.g. the dashboard's dev-mode Next.js rewrite)
+	// sees the connection drop mid-write and surfaces its own opaque 500/
+	// EPIPE instead of the real 413. This app has no max upload size by
+	// design (see next.config.ts's matching proxyClientMaxBodySize comment
+	// on the dashboard side) — 10GB is a generous ceiling, not a
+	// deliberately-chosen ceiling.
+	maxRequestBodySize: 10 * 1024 * 1024 * 1024,
 };

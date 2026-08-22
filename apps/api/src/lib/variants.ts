@@ -1,17 +1,20 @@
 import {
-	buildAssetKey,
 	buildHlsPrefix,
+	buildScrubKey,
+	buildVariantKey,
 	computeSpecKey,
 	findCachedVariant,
 	type ProjectWithDestination,
+	publishEvent,
 	queueForMimeType,
+	resolveRootAssetId,
 	tryDispatchToComputeDestination,
 	type VariantSpec,
 } from "@ossplay/core";
 import { type Asset, assets, getDb } from "@ossplay/db";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { getQueue, PROCESSING_JOB_OPTS } from "./queue";
+import { getQueue, getRedisConnection, PROCESSING_JOB_OPTS } from "./queue";
 
 // Shared by the dashboard's session-authed POST .../variants route
 // (assets.ts) and the public /v1 equivalent (v1.ts) — one spec shape,
@@ -112,12 +115,19 @@ export async function requestVariant(
 
 	const variantId = crypto.randomUUID();
 	const { filename, mimeType } = outputForSpec(spec, original.filename, original.mimeType);
+	const rootAssetId = resolveRootAssetId(original);
 	// hls-package has no single output file — every rendition's playlist and
 	// segments live under this prefix instead (see buildHlsPrefix's comment).
+	// scrub-thumbnails is a single fixed sprite, same convention as a
+	// thumbnail. Every other kind can produce many distinct, simultaneously-
+	// cached outputs per asset, so those nest under variants/<specKey> —
+	// specKey already guarantees no two distinct requested combos collide.
 	const key =
 		spec.kind === "hls-package"
-			? buildHlsPrefix(project.id, variantId)
-			: buildAssetKey(project.id, variantId, filename);
+			? buildHlsPrefix(project.id, rootAssetId)
+			: spec.kind === "scrub-thumbnails"
+				? buildScrubKey(project.id, rootAssetId)
+				: buildVariantKey(project.id, rootAssetId, specKey, filename);
 	await db.insert(assets).values({
 		id: variantId,
 		projectId: project.id,
@@ -128,6 +138,12 @@ export async function requestVariant(
 		parentAssetId: original.id,
 		status: "processing",
 		metadata: { variant: "on-demand", specKey },
+	});
+	await publishEvent(getRedisConnection(), {
+		type: "asset.status",
+		projectId: project.id,
+		assetId: variantId,
+		status: "processing",
 	});
 
 	// Guaranteed non-null: specMatchesMimeType above already ruled out any

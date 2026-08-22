@@ -1,6 +1,7 @@
 export * from "./compute-dispatch";
 export * from "./config/instance-config";
 export * from "./crypto/secret-box";
+export * from "./events/channel";
 export * from "./folders/closure";
 export * from "./folders/collect";
 export * from "./folders/recycle";

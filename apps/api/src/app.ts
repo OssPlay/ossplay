@@ -4,6 +4,7 @@ import { errorHandler, notFoundHandler } from "./lib/errors";
 import { assetsRoute } from "./routes/assets";
 import { authRoute } from "./routes/auth";
 import { clientErrorsRoute } from "./routes/client-errors";
+import { eventsRoute } from "./routes/events";
 import { foldersRoute } from "./routes/folders";
 import { healthRoute } from "./routes/health";
 import { instanceRoute } from "./routes/instance";
@@ -75,6 +76,7 @@ app.route("/organizations", projectApiKeysRoute);
 app.route("/invitations", invitationsRoute);
 app.route("/instance-invitations", instanceInvitationsRoute);
 app.route("/notifications", notificationsRoute);
+app.route("/", eventsRoute);
 app.route("/onboarding", onboardingRoute);
 // The public consumer API — see routes/v1.ts's own comment. Reachable
 // externally at /api/v1/... through Caddy's strip-prefix rule

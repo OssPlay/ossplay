@@ -9,7 +9,7 @@ import { getClientIp, getUserAgent } from "../lib/auth/request-info";
 import { completeSignIn, validateSessionToken } from "../lib/auth/session";
 import { hashToken } from "../lib/auth/tokens";
 import { can } from "../lib/authz/permissions";
-import { getOrgManagers, notifyUsers } from "../lib/notifications/notify";
+import { getOrgManagers, notifyUsersAndPublish } from "../lib/notifications/notify";
 import { requireAuth } from "../middleware/require-auth";
 import { getMembership } from "../middleware/require-org-permission";
 import type { AppEnv } from "../types";
@@ -126,7 +126,7 @@ invitationsRoute.post("/token/:token/accept", async (c) => {
 		.select({ name: organizations.name })
 		.from(organizations)
 		.where(eq(organizations.id, invitation.orgId));
-	await notifyUsers(await getOrgManagers(invitation.orgId, userId), {
+	await notifyUsersAndPublish(await getOrgManagers(invitation.orgId, userId), {
 		type: "organization.member_joined",
 		title: `${invitation.email} joined ${org?.name ?? "your organization"}`,
 		href: "/organization/members",

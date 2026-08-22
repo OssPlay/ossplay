@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type AudioProcessingJob,
+	buildThumbnailKey,
 	getProjectWithDestination,
 	resolveStorageDriver,
 } from "@ossplay/core";
@@ -84,6 +85,7 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 				projectId,
 				folderId: original.folderId,
 				parentAssetId: assetId,
+				key: buildThumbnailKey(projectId, assetId),
 				filename: replaceExt(original.filename, "webp", "-thumb"),
 				mimeType: "image/webp",
 				storage,
@@ -94,7 +96,7 @@ export async function processAudio(job: Job<AudioProcessingJob>): Promise<void> 
 
 		const probe = await ffprobeJson(inputPath);
 		const audioStream = probe.streams?.find((s) => s.codec_type === "audio");
-		await markAssetStatus(assetId, "ready", {
+		await markAssetStatus(assetId, projectId, "ready", {
 			codec: audioStream?.codec_name ?? null,
 			sampleRate: audioStream?.sample_rate ? Number.parseInt(audioStream.sample_rate, 10) : null,
 			channels: audioStream?.channels ?? null,
