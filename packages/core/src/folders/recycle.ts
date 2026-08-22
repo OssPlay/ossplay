@@ -22,43 +22,83 @@ interface StorageProjectRef {
 	} | null;
 }
 
-// Walks an asset's parentAssetId chain to collect every derived variant
-// (thumbnail, HLS rendition, WebP conversion) alongside the original —
-// their DB rows already cascade-delete together, but their storage
-// objects don't, so this is what makes sure nothing gets orphaned in S3/
-// local-disk.
-async function collectAssetAndVariantKeys(db: Db, assetIds: string[]): Promise<string[]> {
-	if (assetIds.length === 0) return [];
+interface DeletionPlan {
+	// Whole-folder deletes — new-convention roots only. Trailing slash so a
+	// prefix match can never accidentally also match a sibling root asset
+	// whose id happens to start with the same characters.
+	prefixes: string[];
+	// Exact-key deletes — old-convention roots, any non-root row (a lone
+	// stale variant, an instant-deleted subtitle/audio-track), and every
+	// derivative of an old-convention root.
+	keys: string[];
+}
+
+// Walks an asset's parentAssetId chain to collect what needs deleting from
+// storage — their DB rows already cascade-delete together, but their
+// storage objects don't. A new-convention root (nested under its own
+// `${projectId}/${id}/` folder) is deleted as a single prefix and its
+// children aren't walked individually: every derivative's folderId always
+// equals its root's folderId (createVariant's callers always pass
+// `folderId: original.folderId`), so a folder-scoped delete already found
+// them independently, and they're already covered by the root's prefix.
+// An old-convention root (flat `${projectId}/${id}.${ext}` key — never
+// matches the `/${id}/` prefix check, since a real extension always
+// follows immediately) falls back to the exact-key walk this always did.
+async function planAssetDeletion(db: Db, projectId: string, assetIds: string[]): Promise<DeletionPlan> {
+	const prefixes: string[] = [];
 	const keys: string[] = [];
-	let frontier = assetIds;
+	if (assetIds.length === 0) return { prefixes, keys };
+
 	const seen = new Set<string>();
+	const coveredRoots = new Set<string>();
+	let frontier = assetIds;
 	while (frontier.length > 0) {
 		const rows = await db
-			.select({ id: assets.id, s3Path: assets.s3Path })
+			.select({ id: assets.id, s3Path: assets.s3Path, parentAssetId: assets.parentAssetId })
 			.from(assets)
 			.where(inArray(assets.id, frontier));
-		const nextFrontierIds: string[] = [];
+		if (rows.length === 0) break;
+
+		const walkChildrenFor: string[] = [];
 		for (const row of rows) {
 			if (seen.has(row.id)) continue;
 			seen.add(row.id);
+			const rootId = row.parentAssetId ?? row.id;
+			if (coveredRoots.has(rootId)) continue;
+
+			if (row.parentAssetId === null && row.s3Path.startsWith(`${projectId}/${row.id}/`)) {
+				prefixes.push(`${projectId}/${row.id}/`);
+				coveredRoots.add(row.id);
+				continue;
+			}
 			keys.push(row.s3Path);
+			walkChildrenFor.push(row.id);
 		}
-		if (rows.length === 0) break;
+
+		if (walkChildrenFor.length === 0) {
+			frontier = [];
+			continue;
+		}
 		const variantRows = await db
 			.select({ id: assets.id })
 			.from(assets)
-			.where(inArray(assets.parentAssetId, rows.map((row) => row.id)));
-		for (const row of variantRows) {
-			if (!seen.has(row.id)) nextFrontierIds.push(row.id);
-		}
-		frontier = nextFrontierIds;
+			.where(inArray(assets.parentAssetId, walkChildrenFor));
+		frontier = variantRows.filter((row) => !seen.has(row.id)).map((row) => row.id);
 	}
-	return keys;
+	return { prefixes, keys };
 }
 
-async function deleteKeys(storage: StorageDriver, keys: string[]): Promise<void> {
-	await Promise.all(
-		keys.map(async (key) => {
+async function executeDeletionPlan(storage: StorageDriver, plan: DeletionPlan): Promise<void> {
+	await Promise.all([
+		...plan.prefixes.map(async (prefix) => {
+			try {
+				await storage.deletePrefix(prefix);
+			} catch (err) {
+				// Best-effort, same reasoning as the per-key case below.
+				console.error(`[recycle] failed to delete storage prefix ${prefix}:`, err);
+			}
+		}),
+		...plan.keys.map(async (key) => {
 			try {
 				await storage.deleteObject(key);
 			} catch (err) {
@@ -69,7 +109,7 @@ async function deleteKeys(storage: StorageDriver, keys: string[]): Promise<void>
 				console.error(`[recycle] failed to delete storage object ${key}:`, err);
 			}
 		}),
-	);
+	]);
 }
 
 // Permanently removes a trashed folder or asset: deletes every affected
@@ -99,8 +139,8 @@ export async function permanentlyDeleteSubtree(
 		assetIds = assetRows.map((row) => row.id);
 	}
 
-	const keys = await collectAssetAndVariantKeys(db, assetIds);
-	if (keys.length > 0) {
+	const plan = await planAssetDeletion(db, project.id, assetIds);
+	if (plan.prefixes.length > 0 || plan.keys.length > 0) {
 		// Resolved lazily, only once there's actually something to delete —
 		// an empty folder (or a folder subtree with no assets in it) should
 		// never need a working storage destination just to be removed.
@@ -110,7 +150,7 @@ export async function permanentlyDeleteSubtree(
 		// destination credentials happen to be unreadable/misconfigured —
 		// a real bug this would otherwise reintroduce.
 		const storage = resolveStorageDriver(project);
-		await deleteKeys(storage, keys);
+		await executeDeletionPlan(storage, plan);
 	}
 
 	if (target.kind === "asset") {
@@ -124,7 +164,7 @@ export async function permanentlyDeleteSubtree(
 // "no own deletedAt means it's covered by a trashed ancestor" reasoning as
 // the trash-listing route) older than the cutoff gets permanently deleted.
 export async function sweepExpiredTrash(db: Db, project: StorageProjectRef, olderThanDays = 30): Promise<number> {
-	const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+	const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toString();
 
 	const expiredFolders = await db
 		.select({ id: folders.id })

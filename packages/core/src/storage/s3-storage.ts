@@ -49,6 +49,19 @@ export class S3Storage implements StorageDriver {
 		await this.client.delete(key);
 	}
 
+	async deletePrefix(prefix: string): Promise<void> {
+		// Bun's S3Client has no batch-delete, only per-key delete — list then
+		// delete each page, same Promise.all-per-batch shape as recycle.ts's
+		// existing per-row delete.
+		let continuationToken: string | undefined;
+		do {
+			const page = await this.client.list({ prefix, continuationToken, maxKeys: 1000 });
+			const keys = (page.contents ?? []).map((object) => object.key);
+			await Promise.all(keys.map((key) => this.client.delete(key)));
+			continuationToken = page.isTruncated ? page.nextContinuationToken : undefined;
+		} while (continuationToken);
+	}
+
 	async statObject(key: string): Promise<{ size: number } | null> {
 		try {
 			const stat = await this.client.stat(key);

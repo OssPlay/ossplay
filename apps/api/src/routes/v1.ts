@@ -1,5 +1,6 @@
 import {
-	buildAssetKey,
+	buildOriginalKey,
+	buildVariantKey,
 	findCachedVariant,
 	getProjectWithDestination,
 	type ImageFormat,
@@ -8,6 +9,7 @@ import {
 	permanentlyDeleteSubtree,
 	type ProjectWithDestination,
 	queueForMimeType,
+	resolveRootAssetId,
 	resolveStorageDriver,
 	shouldServeStatic,
 	transformImage,
@@ -105,7 +107,7 @@ async function authorizeRead(
 async function respondWithAsset(
 	c: Context<AppEnv>,
 	project: ProjectWithDestination,
-	asset: Pick<Asset, "s3Path" | "mimeType" | "filename">,
+	asset: Pick<Asset, "id" | "s3Path" | "mimeType" | "filename">,
 	disposition: "inline" | "attachment",
 ): Promise<Response> {
 	const storage = resolveStorageDriver(project);
@@ -121,6 +123,8 @@ async function respondWithAsset(
 	const url = storage.createDownloadUrl(asset.s3Path, {
 		disposition,
 		static: shouldServeStatic(project, asset.mimeType),
+		projectId: project.id,
+		assetId: asset.id,
 	});
 	return c.redirect(url, 302);
 }
@@ -192,7 +196,7 @@ v1Route.post("/:project/upload", requireApiKey, async (c) => {
 	for (const file of files) {
 		const mimeType = file.type || "application/octet-stream";
 		const assetId = crypto.randomUUID();
-		const key = buildAssetKey(projectId, assetId, file.name);
+		const key = buildOriginalKey(projectId, assetId, file.name);
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		await storage.uploadObject(key, bytes, { mimeType });
 
@@ -358,7 +362,7 @@ async function serveTransformed(
 
 	if (hits >= PROMOTION_THRESHOLD) {
 		const variantId = crypto.randomUUID();
-		const variantKey = buildAssetKey(project.id, variantId, outputFilename);
+		const variantKey = buildVariantKey(project.id, resolveRootAssetId(asset), specKey, outputFilename);
 		await storage.uploadObject(variantKey, transformed, { mimeType: outputMimeType });
 		await db.insert(assets).values({
 			id: variantId,
